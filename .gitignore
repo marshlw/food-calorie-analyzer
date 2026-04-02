@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+env/
+venv/
+.env
+.venv
+*.egg-info/
+dist/
+build/
+
+# Docker
+*.pid
+*.log
+
+# Проектные папки
+uploads/
+app/uploads/
+*.db
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Логи
+*.log
+docker-compose.override.yml
+
+# Секреты
+.env
+config.local.py
