@@ -1,1 +1,5 @@
 {"image": "app/training_data/images/f8a5390d-7b5d-4a9a-b59a-20be287efbe1.jpg", "food": "рыба", "original_food": "рыба", "is_correct": true, "timestamp": "2026-04-02T17:00:21.236609", "confidence_original": 0.9}
+{"image": "app/training_data/images/674620e5-6975-4856-b5cb-0dadc107c9f9.jpg", "food": "ржавый свиное мясо", "original_food": "ржавый свиное мясо", "is_correct": true, "timestamp": "2026-04-04T07:53:21.221759", "confidence_original": 0.9}
+{"image": "app/training_data/images/0160c46f-e451-46f1-8408-32a0d0f887c7.jpg", "food": "Лапша быстрого приготовления", "original_food": "блюдо (не удалось распознать)", "is_correct": false, "timestamp": "2026-04-04T07:54:26.873458", "confidence_original": 0.1}
+{"image": "app/training_data/images/50a55c5b-d7cf-4817-bcf3-19c2030197c7.jpg", "food": "Пельмени", "original_food": "малюнчики", "is_correct": false, "timestamp": "2026-04-04T07:55:24.943270", "confidence_original": 0.9}
+{"image": "app/training_data/images/f9359d8a-3558-41c2-8bda-5cb27c297ebb.jpg", "food": "Стейк из рыбы", "original_food": "блюдо (не удалось распознать)", "is_correct": false, "timestamp": "2026-04-04T07:57:32.183432", "confidence_original": 0.1}

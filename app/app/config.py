@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "your-secret-key-here-change-in-prod"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    UPLOAD_DIR: str = "/app/uploads"
+    UPLOAD_DIR: str = "/app/app/uploads"
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10 MB
     MAX_IMAGE_SIZE: int = 1024
     IMAGE_QUALITY: int = 85

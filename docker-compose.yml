@@ -1,88 +1,56 @@
-version: '3.8'
+version: '3.9'
 
 services:
+
   postgres:
     image: postgres:15-alpine
     environment:
       POSTGRES_USER: fooduser
       POSTGRES_PASSWORD: foodpass
       POSTGRES_DB: fooddb
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fooduser"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
-    volumes:
-      - redis_data:/data
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama
     ports:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    command: serve
-    # healthcheck удалён, так как в образе нет curl
 
   api:
     build: .
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./app:/app
-      - uploads_data:/app/uploads
+      - ./app/app/uploads:/app/app/uploads
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://fooduser:foodpass@postgres/fooddb
-      - REDIS_URL=redis://redis:6379/0
       - OLLAMA_HOST=http://ollama:11434
-      - MODEL_NAME=minicpm-v:8b
-      - SECRET_KEY=your-secret-key-here-change-in-prod
-      - ALGORITHM=HS256
-      - ACCESS_TOKEN_EXPIRE_MINUTES=30
     depends_on:
-      postgres:
-        condition: service_healthy
-      ollama:
-        condition: service_started   # ждём только запуска, не healthcheck
-      redis:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  gradio:
-    build: .
-    command: python -m app.gradio_app
-    volumes:
-      - ./app:/app
-      - uploads_data:/app/uploads
-    ports:
-      - "7860:7860"
-    environment:
-      - API_URL=http://api:8000
-    depends_on:
-      - api
+      - postgres
+      - redis
+      - ollama
 
   celery:
     build: .
     command: celery -A app.tasks worker --loglevel=info
     volumes:
       - ./app:/app
+      - ./app/app/uploads:/app/app/uploads
+    env_file:
+      - .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://fooduser:foodpass@postgres/fooddb
-      - REDIS_URL=redis://redis:6379/0
       - OLLAMA_HOST=http://ollama:11434
     depends_on:
       - redis
@@ -94,15 +62,30 @@ services:
     command: python telegram_bot.py
     volumes:
       - ./app:/app
+      - ./app/app/uploads:/app/app/uploads
+    env_file:
+      - .env
     environment:
-      - TELEGRAM_BOT_TOKEN=8624232983:AAGiGnsAUWQya8be8WScQNALVGsG4x9J-7Y
       - API_URL=http://api:8000
     depends_on:
       - api
     restart: unless-stopped
 
+  gradio:
+    build: .
+    command: python -m app.gradio_app
+    volumes:
+      - ./app:/app
+      - ./app/app/uploads:/app/app/uploads
+    ports:
+      - "7860:7860"
+    env_file:
+      - .env
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+
 volumes:
   postgres_data:
-  redis_data:
   ollama_data:
-  uploads_data:
