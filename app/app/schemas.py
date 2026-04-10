@@ -1,14 +1,17 @@
+# app/schemas.py
 from pydantic import BaseModel, EmailStr, Field, validator
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 import json
-from pydantic import BaseModel
 import logging
+
 logger = logging.getLogger(__name__)
+
 
 class Token(BaseModel):
     access_token: str
     token_type: str
+
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -32,8 +35,10 @@ class User(UserBase):
     class Config:
         from_attributes = True
 
+
 class TokenData(BaseModel):
     email: Optional[str] = None
+
 
 class NutritionResponse(BaseModel):
     food: str = Field(..., description="Название блюда")
@@ -137,3 +142,42 @@ class PhotoResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ==================== НОВЫЕ СХЕМЫ ДЛЯ ОБРАТНОЙ СВЯЗИ ====================
+
+class FeedbackRequest(BaseModel):
+    """Запрос на сохранение исправления от пользователя."""
+    task_id: str
+    correct_food: str = Field(..., min_length=1, max_length=200)
+    correct_weight: int = Field(..., gt=0, le=10000)
+    user_id: Optional[int] = None
+
+
+class FeedbackResponse(BaseModel):
+    """Ответ после успешного сохранения фидбека."""
+    status: str
+    id: int
+
+
+class FeedbackListItem(BaseModel):
+    """Элемент списка фидбеков для админки/обучения."""
+    id: int
+    task_id: str
+    image_path: str
+    predicted_result: Optional[Dict[str, Any]]
+    corrected_food: str
+    corrected_weight: int
+    user_id: Optional[int]
+    created_at: datetime
+    status: str
+
+    class Config:
+        from_attributes = True
+
+
+class GenerateDatasetResponse(BaseModel):
+    """Ответ на запрос генерации датасета."""
+    message: str
+    count: int
+    output_path: str

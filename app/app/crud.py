@@ -1,15 +1,18 @@
+# app/crud.py
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
-from sqlalchemy.orm import selectinload
-from typing import List, Optional
+from sqlalchemy.orm import selectinload, Session
+from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime
 from . import models, schemas
 import logging
 import json
+
 logger = logging.getLogger(__name__)
 
-# User CRUD
+# ==================== ASYNC CRUD (существующие) ====================
+
 async def get_user_by_email(db: AsyncSession, email: str) -> Optional[models.User]:
     result = await db.execute(select(models.User).where(models.User.email == email))
     return result.scalar_one_or_none()
@@ -27,7 +30,6 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate, hashed_passwor
     return db_user
 
 
-# Task CRUD
 async def create_task(
         db: AsyncSession,
         user_id: int,
@@ -83,7 +85,6 @@ async def update_task(
     return task
 
 
-# Meal CRUD
 async def create_meal(
         db: AsyncSession,
         meal: schemas.MealCreate,
@@ -98,7 +99,6 @@ async def create_meal(
     await db.commit()
     await db.refresh(db_meal)
 
-    # Add items
     total_calories = 0
     total_protein = 0
     total_fat = 0
@@ -115,7 +115,8 @@ async def create_meal(
         total_fat += item.fat_g
         total_carbs += item.carbs_g
 
-    # Update totals
+    # Update totals (добавим соответствующие поля в Meal, если их нет — можно пропустить)
+    # Если в модели Meal нет полей total_*, закомментируйте следующие строки
     db_meal.total_calories = total_calories
     db_meal.total_protein = total_protein
     db_meal.total_fat = total_fat
@@ -143,7 +144,6 @@ async def get_user_meals(
     return result.scalars().all()
 
 
-# Photo CRUD
 async def create_photo(
         db: AsyncSession,
         meal_item_id: int,
@@ -165,3 +165,63 @@ async def create_photo(
     await db.commit()
     await db.refresh(photo)
     return photo
+
+
+# ==================== SYNC CRUD ДЛЯ ОБРАТНОЙ СВЯЗИ ====================
+# Используются синхронной сессией из main.py
+
+def create_analysis_task_sync(db: Session, task_id: str, image_path: str) -> models.AnalysisTask:
+    """Создать запись в AnalysisTask (синхронно)."""
+    analysis_task = models.AnalysisTask(
+        task_id=task_id,
+        image_path=image_path
+    )
+    db.add(analysis_task)
+    db.commit()
+    db.refresh(analysis_task)
+    return analysis_task
+
+
+def get_analysis_task_sync(db: Session, task_id: str) -> Optional[models.AnalysisTask]:
+    """Получить AnalysisTask по task_id (синхронно)."""
+    return db.query(models.AnalysisTask).filter(models.AnalysisTask.task_id == task_id).first()
+
+
+def create_feedback_sync(
+        db: Session,
+        task_id: str,
+        image_path: str,
+        corrected_food: str,
+        corrected_weight: int,
+        predicted_result: Optional[Dict[str, Any]] = None,
+        user_id: Optional[int] = None
+) -> models.Feedback:
+    """Создать запись Feedback (синхронно)."""
+    feedback = models.Feedback(
+        task_id=task_id,
+        image_path=image_path,
+        predicted_result=predicted_result,
+        corrected_food=corrected_food,
+        corrected_weight=corrected_weight,
+        user_id=user_id,
+        status=models.FeedbackStatus.PENDING
+    )
+    db.add(feedback)
+    db.commit()
+    db.refresh(feedback)
+    return feedback
+
+
+def get_pending_feedback_sync(db: Session, limit: int = 100) -> List[models.Feedback]:
+    """Получить все необработанные фидбеки (статус PENDING)."""
+    return db.query(models.Feedback).filter(
+        models.Feedback.status == models.FeedbackStatus.PENDING
+    ).limit(limit).all()
+
+
+def mark_feedback_used_sync(db: Session, feedback_ids: List[int]) -> None:
+    """Пометить фидбеки как использованные."""
+    db.query(models.Feedback).filter(
+        models.Feedback.id.in_(feedback_ids)
+    ).update({models.Feedback.status: models.FeedbackStatus.USED}, synchronize_session=False)
+    db.commit()

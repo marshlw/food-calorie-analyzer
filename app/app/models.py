@@ -1,16 +1,23 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Enum as SQLEnum, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
 from .database import Base
 import logging
+
 logger = logging.getLogger(__name__)
+
 
 class TaskStatus(str, enum.Enum):
     PENDING = "pending"
     PROCESSING = "processing"
     SUCCESS = "success"
     FAILURE = "failure"
+
+
+class FeedbackStatus(str, enum.Enum):
+    PENDING = "pending"
+    USED = "used"
 
 
 class User(Base):
@@ -88,3 +95,30 @@ class Task(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     user = relationship("User", back_populates="tasks")
+
+
+# ==================== НОВЫЕ МОДЕЛИ ДЛЯ ОБРАТНОЙ СВЯЗИ ====================
+
+class AnalysisTask(Base):
+    """Связка Celery task_id -> путь к изображению, чтобы потом найти исходное фото."""
+    __tablename__ = "analysis_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String, unique=True, index=True, nullable=False)
+    image_path = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Feedback(Base):
+    """Записи исправлений от пользователей для последующего дообучения."""
+    __tablename__ = "feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String, index=True, nullable=False)  # ссылка на task_id анализа
+    image_path = Column(String, nullable=False)           # путь к файлу изображения
+    predicted_result = Column(JSON, nullable=True)        # то, что вернула модель (весь JSON)
+    corrected_food = Column(String, nullable=False)       # исправленное название блюда
+    corrected_weight = Column(Integer, nullable=False)    # исправленный вес в граммах
+    user_id = Column(Integer, nullable=True)              # id пользователя (если залогинен)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    status = Column(SQLEnum(FeedbackStatus), default=FeedbackStatus.PENDING)  # pending / used
