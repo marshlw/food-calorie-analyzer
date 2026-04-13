@@ -3,7 +3,8 @@ version: '3.9'
 services:
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15
+    command: postgres -c listen_addresses='*'
     environment:
       POSTGRES_USER: fooduser
       POSTGRES_PASSWORD: foodpass
@@ -12,11 +13,22 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fooduser -d fooddb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   ollama:
     image: ollama/ollama
@@ -24,6 +36,29 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  ollama-pull:
+    image: ollama/ollama
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - MODEL_NAME=${MODEL_NAME:-llava:7b}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Waiting for Ollama to be fully ready..."
+        sleep 5
+        echo "Pulling model $MODEL_NAME..."
+        ollama pull $MODEL_NAME
+        echo "Model $MODEL_NAME pulled successfully."
+    restart: "no"
 
   api:
     build: .
@@ -38,9 +73,12 @@ services:
     environment:
       - OLLAMA_HOST=http://ollama:11434
     depends_on:
-      - postgres
-      - redis
-      - ollama
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
 
   celery:
     build: .
@@ -53,9 +91,12 @@ services:
     environment:
       - OLLAMA_HOST=http://ollama:11434
     depends_on:
-      - redis
-      - ollama
-      - api
+      redis:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
 
   telegram_bot:
     build: .
@@ -68,7 +109,8 @@ services:
     environment:
       - API_URL=http://api:8000
     depends_on:
-      - api
+      api:
+        condition: service_started
     restart: unless-stopped
 
   gradio:
@@ -84,7 +126,8 @@ services:
     environment:
       - API_URL=http://api:8000
     depends_on:
-      - api
+      api:
+        condition: service_started
 
 volumes:
   postgres_data:

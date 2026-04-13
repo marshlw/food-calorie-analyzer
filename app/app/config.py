@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://fooduser:foodpass@postgres:5432/fooddb"
     REDIS_URL: str = "redis://redis:6379/0"
     OLLAMA_HOST: str = "http://ollama:11434"
-    MODEL_NAME: str = "llava"
+    MODEL_NAME: str = "llava:7b"
     SECRET_KEY: str = "your-secret-key-here-change-in-prod"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
