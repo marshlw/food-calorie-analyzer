@@ -23,3 +23,5 @@ bcrypt==4.0.1
 aiogram==3.13.1
 aiohttp
 gradio==4.44.0
+rapidfuzz
+numpy

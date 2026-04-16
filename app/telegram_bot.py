@@ -3,7 +3,6 @@ import asyncio
 import logging
 import os
 import sys
-from pathlib import Path
 from uuid import uuid4
 
 import aiohttp
@@ -28,53 +27,69 @@ if not TOKEN:
 
 API_URL = os.getenv("API_URL", "http://api:8000").rstrip("/")
 
-# Папка для сохранения загруженных фото (должна совпадать с UPLOAD_DIR в API)
-UPLOAD_DIR = Path("/app/app/uploads")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
 bot = Bot(token=TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
+
+# ===================== FSM =====================
 
 class FeedbackStates(StatesGroup):
     waiting_for_correct_food = State()
     waiting_for_correct_weight = State()
 
 
+# ===================== UI =====================
+
 def format_result(result: dict) -> str:
-    """Форматирует результат анализа для отправки пользователю."""
     confidence = result.get('confidence', 0) * 100
+
+    # 🔥 источник
+    source = result.get("source", "")
+    source_text = "⚡ Из кеша\n" if source == "cache" else ""
+
+    # 🔥 ингредиенты
+    ingredients = result.get("ingredients", [])
+    if ingredients:
+        ingredients_text = "\n".join(
+            f"• {i.get('name', '?')} ({i.get('weight_g', 0)} г)"
+            for i in ingredients[:5]
+        )
+        ingredients_block = f"\n🥗 Состав:\n{ingredients_text}\n"
+    else:
+        ingredients_block = ""
+
     return (
-        f"🍽️ {result['food']}\n\n"
-        f"⚖️ Вес: {result['weight_g']} г\n"
-        f"🔥 Калории: {result['calories']} ккал\n\n"
-        f"🥩 Белки: {result['protein_g']} г\n"
-        f"🧈 Жиры: {result['fat_g']} г\n"
-        f"🍚 Углеводы: {result['carbs_g']} г\n\n"
+        f"{source_text}"
+        f"🍽️ {result.get('food', '—')}\n\n"
+        f"⚖️ Вес: {result.get('weight_g', 0)} г\n"
+        f"🔥 Калории: {result.get('calories', 0)} ккал\n\n"
+        f"🥩 Белки: {result.get('protein_g', 0)} г\n"
+        f"🧈 Жиры: {result.get('fat_g', 0)} г\n"
+        f"🍚 Углеводы: {result.get('carbs_g', 0)} г\n"
+        f"{ingredients_block}\n"
         f"📊 Уверенность: {confidence:.0f}%"
     )
 
 
 def get_feedback_keyboard(task_id: str) -> InlineKeyboardMarkup:
-    """Клавиатура с кнопками «Верно» / «Неверно»."""
-    buttons = [
-        [
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[
             InlineKeyboardButton(text="✅ Верно", callback_data=f"fb_ok_{task_id}"),
             InlineKeyboardButton(text="❌ Неверно", callback_data=f"fb_wrong_{task_id}")
-        ]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+        ]]
+    )
 
 
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
-    """Клавиатура с кнопкой отмены для состояний FSM."""
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="❌ Отмена")]],
         resize_keyboard=True,
         one_time_keyboard=True
     )
 
+
+# ===================== HANDLERS =====================
 
 @dp.message(Command("start"))
 async def start(msg: Message):
@@ -86,39 +101,46 @@ async def handle_photo(message: Message, state: FSMContext):
     msg = await message.answer("🔍 Анализирую...")
 
     try:
-        # Скачиваем фото
         photo = message.photo[-1]
-        file = await bot.get_file(photo.file_id)
-        file_path = UPLOAD_DIR / f"{uuid4()}.jpg"
-        await bot.download_file(file.file_path, destination=file_path)
 
-        # Отправляем на анализ
+        # 🔥 получаем файл как bytes (без сохранения на диск)
+        file = await bot.get_file(photo.file_id)
+        file_bytes = await bot.download_file(file.file_path)
+
         async with aiohttp.ClientSession() as session:
-            with open(file_path, "rb") as img:
-                form = aiohttp.FormData()
-                form.add_field("file", img, filename="img.jpg")
-                async with session.post(f"{API_URL}/api/v1/analyze", data=form) as resp:
-                    if resp.status != 200:
-                        await msg.edit_text("❌ Ошибка при отправке на анализ")
-                        return
-                    task = await resp.json()
+            form = aiohttp.FormData()
+            form.add_field("file", file_bytes, filename="image.jpg")
+
+            # 🔹 отправка в API
+            async with session.post(f"{API_URL}/api/v1/analyze", data=form) as resp:
+                if resp.status != 200:
+                    logger.error(f"Analyze API error: {resp.status}")
+                    await msg.edit_text("❌ Ошибка при отправке на анализ")
+                    return
+
+                task = await resp.json()
 
             task_id = task["id"]
 
-            # Опрос статуса задачи
+            # 🔹 polling
             result = None
             delay = 1
-            for _ in range(20):
+
+            for _ in range(30):  # 🔥 увеличили попытки
                 await asyncio.sleep(delay)
                 delay = min(delay * 1.5, 5)
+
                 async with session.get(f"{API_URL}/api/v1/task/{task_id}") as resp:
                     if resp.status != 200:
                         continue
+
                     data = await resp.json()
+
                     if data["status"] == "success":
                         result = data["result"]
                         break
-                    elif data["status"] == "failure":
+
+                    elif data["status"] in ["failure", "error"]:
                         break
 
             if not result:
@@ -135,22 +157,26 @@ async def handle_photo(message: Message, state: FSMContext):
         await msg.edit_text("❌ Ошибка при обработке")
 
 
-# ---------- Обработчики обратной связи ----------
+# ===================== FEEDBACK =====================
+
 @dp.callback_query(F.data.startswith("fb_ok_"))
 async def feedback_ok(callback: CallbackQuery):
-    await callback.answer("Спасибо за подтверждение!")
+    await callback.answer("Спасибо за подтверждение! 🙏")
     await callback.message.edit_reply_markup(reply_markup=None)
 
 
 @dp.callback_query(F.data.startswith("fb_wrong_"))
 async def feedback_wrong(callback: CallbackQuery, state: FSMContext):
     task_id = callback.data.split("_")[2]
+
     await state.update_data(task_id=task_id)
     await state.set_state(FeedbackStates.waiting_for_correct_food)
+
     await callback.message.answer(
         "🍽 Напиши правильное название блюда:",
         reply_markup=get_cancel_keyboard()
     )
+
     await callback.answer()
 
 
@@ -163,11 +189,12 @@ async def process_correct_food(message: Message, state: FSMContext):
 
     food = message.text.strip()
     if not food:
-        await message.answer("Название не может быть пустым. Попробуйте ещё раз:")
+        await message.answer("Название не может быть пустым. Попробуй ещё раз:")
         return
 
     await state.update_data(correct_food=food)
     await state.set_state(FeedbackStates.waiting_for_correct_weight)
+
     await message.answer(
         "⚖️ Укажи примерный вес в граммах:",
         reply_markup=get_cancel_keyboard()
@@ -186,15 +213,13 @@ async def process_correct_weight(message: Message, state: FSMContext):
         if weight <= 0 or weight > 10000:
             raise ValueError
     except ValueError:
-        await message.answer("Пожалуйста, введи целое положительное число (до 10000 г).")
+        await message.answer("Введи число от 1 до 10000")
         return
 
     data = await state.get_data()
     task_id = data["task_id"]
     correct_food = data["correct_food"]
 
-    # Отправляем исправление на API
-    success = False
     try:
         async with aiohttp.ClientSession() as session:
             payload = {
@@ -203,29 +228,31 @@ async def process_correct_weight(message: Message, state: FSMContext):
                 "correct_weight": weight,
                 "user_id": message.from_user.id
             }
+
             async with session.post(f"{API_URL}/api/v1/feedback", json=payload) as resp:
                 if resp.status == 200:
-                    success = True
                     await message.answer(
                         "🙏 Спасибо! Я учту это в будущем.",
                         reply_markup=ReplyKeyboardRemove()
                     )
                 else:
-                    error_text = await resp.text()
-                    logger.warning(f"Feedback API returned {resp.status}: {error_text}")
+                    logger.warning(f"Feedback API error: {resp.status}")
                     await message.answer(
-                        "⚠️ Не удалось сохранить исправление, но спасибо за участие!",
+                        "⚠️ Не удалось сохранить, но спасибо!",
                         reply_markup=ReplyKeyboardRemove()
                     )
-    except Exception as e:
-        logger.exception("Failed to send feedback")
+
+    except Exception:
+        logger.exception("Feedback error")
         await message.answer(
-            "⚠️ Ошибка соединения с сервером. Исправление не сохранено.",
+            "⚠️ Ошибка соединения с сервером",
             reply_markup=ReplyKeyboardRemove()
         )
 
     await state.clear()
 
+
+# ===================== START =====================
 
 async def main():
     logger.info("Starting Telegram bot")

@@ -9,11 +9,13 @@ services:
       POSTGRES_USER: fooduser
       POSTGRES_PASSWORD: foodpass
       POSTGRES_DB: fooddb
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fooduser -d fooddb"]
       interval: 10s
