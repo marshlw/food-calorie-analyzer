@@ -51,9 +51,12 @@ PROMPT_DETECT = """
 """
 
 PROMPT_INGREDIENTS = """
-Ты эксперт по питанию.
+Ты эксперт по анализу еды.
 
-Разбери блюдо на ингредиенты с примерным весом.
+ВАЖНО:
+- Указывай ТОЛЬКО те ингредиенты, которые ЯВНО видны
+- НЕ додумывай
+- НЕ добавляй "по рецепту"
 
 Верни строго JSON:
 {
@@ -68,18 +71,13 @@ PROMPT_INGREDIENTS = """
 NORMALIZATION_MAP = {
     "куриная грудка": "курица",
     "куриное филе": "курица",
-    "жареная курица": "курица",
-    "белый рис": "рис",
-    "бурый рис": "рис",
-    "рис отварной": "рис",
     "картошка": "картофель",
-    "картофель фри": "картофель",
+    "белый рис": "рис",
 }
 
 STOPWORDS = [
-    "жареный", "жареная", "вареный", "вареная",
-    "отварной", "отварная", "на пару", "гриль",
-    "свежий", "свежая"
+    "жареный", "жареная", "вареный", "отварной",
+    "гриль", "свежий"
 ]
 
 
@@ -95,15 +93,14 @@ def normalize_text(text: str) -> str:
 EMBEDDING_CACHE = {}
 
 
-def get_embedding(text: str) -> list:
+def get_embedding(text: str):
     try:
-        response = client.embeddings(
+        res = client.embeddings(
             model=settings.MODEL_NAME,
             prompt=text
         )
-        return response["embedding"]
-    except Exception as e:
-        logger.warning(f"Embedding error: {e}")
+        return res["embedding"]
+    except:
         return []
 
 
@@ -122,55 +119,36 @@ def get_cached_embedding(text: str):
     return emb
 
 
-# ===================== AUTO LEARNING =====================
-
-def save_unmatched(name: str):
-    try:
-        redis_client.sadd("unmatched_ingredients", name)
-    except Exception:
-        pass
-
-
 # ===================== MATCHING =====================
 
-def match_ingredient(name: str, threshold: int = 80) -> str | None:
+def match_ingredient(name: str):
     name = normalize_text(name)
 
-    # 1. словарь
     for key, value in NORMALIZATION_MAP.items():
         if key in name:
             return value
 
-    # 2. fuzzy
-    choices = list(KBJU_DB.keys())
-
     match = process.extractOne(
         name,
-        choices,
+        KBJU_DB.keys(),
         scorer=fuzz.token_sort_ratio
     )
 
-    if match and match[1] >= threshold:
+    if match and match[1] > 80:
         return match[0]
 
-    # 3. embeddings fallback
     name_emb = get_cached_embedding(name)
 
-    best_match = None
-    best_score = 0
+    best, score = None, 0
+    for k in KBJU_DB.keys():
+        sim = cosine_similarity(name_emb, get_cached_embedding(k))
+        if sim > score:
+            best, score = k, sim
 
-    for key in choices:
-        key_emb = get_cached_embedding(key)
-        sim = cosine_similarity(name_emb, key_emb)
+    if score > 0.75:
+        return best
 
-        if sim > best_score:
-            best_score = sim
-            best_match = key
-
-    if best_score > 0.75:
-        return best_match
-
-    save_unmatched(name)
+    redis_client.sadd("unmatched_ingredients", name)
     return None
 
 
@@ -178,205 +156,258 @@ def match_ingredient(name: str, threshold: int = 80) -> str | None:
 
 def preprocess(path: str) -> str:
     img = Image.open(path).convert("RGB")
-    img.thumbnail((settings.MAX_IMAGE_SIZE, settings.MAX_IMAGE_SIZE))
+    img.thumbnail((1024, 1024))
 
     img = ImageEnhance.Contrast(img).enhance(1.2)
     img = ImageEnhance.Sharpness(img).enhance(1.3)
-    img = ImageEnhance.Brightness(img).enhance(1.05)
 
-    temp_path = UPLOAD_DIR / f"processed_{Path(path).name}"
-    img.save(temp_path, quality=settings.IMAGE_QUALITY)
-
-    return str(temp_path)
+    out = UPLOAD_DIR / f"processed_{Path(path).name}"
+    img.save(out, quality=85)
+    return str(out)
 
 
-def get_image_hash(path: str) -> str:
-    hasher = hashlib.md5()
+def estimate_portion_size(path: str):
+    try:
+        img = Image.open(path)
+        w, h = img.size
+        area = w * h
+
+        if area < 300_000:
+            return "small"
+        elif area < 1_000_000:
+            return "medium"
+        else:
+            return "large"
+    except:
+        return "medium"
+
+
+def get_image_hash(path: str):
+    h = hashlib.md5()
     with open(path, "rb") as f:
         while chunk := f.read(8192):
-            hasher.update(chunk)
-    return hasher.hexdigest()
+            h.update(chunk)
+    return h.hexdigest()
 
+
+# ===================== JSON =====================
 
 def extract_json(text: str):
+    if not text:
+        return None
+
+    for attempt in [text, text.strip()]:
+        try:
+            return json.loads(attempt)
+        except:
+            pass
+
     try:
-        return json.loads(text)
-    except:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             return json.loads(match.group())
+    except:
+        pass
+
+    logger.warning(f"JSON parse failed: {text[:200]}")
     return None
 
 
 # ===================== REDIS =====================
 
-def get_cache(key: str):
+def get_cache(key):
     try:
         data = redis_client.get(key)
         if data:
             return json.loads(data)
-    except Exception as e:
-        logger.warning(f"Redis GET error: {e}")
-    return None
+    except:
+        pass
 
 
-def set_cache(key: str, value: dict):
+def set_cache(key, val):
     try:
-        redis_client.setex(key, settings.CACHE_TTL, json.dumps(value))
-    except Exception as e:
-        logger.warning(f"Redis SET error: {e}")
+        redis_client.setex(key, settings.CACHE_TTL, json.dumps(val))
+    except:
+        pass
 
 
-def cache_step(key: str, func):
+def cache_step(key, func):
     cached = get_cache(key)
     if cached:
         return cached
+    res = func()
+    if res:
+        set_cache(key, res)
+    return res
 
-    result = func()
-    if result:
-        set_cache(key, result)
 
-    return result
+# ===================== 🧠 LEARNING =====================
+
+def learn_from_feedback(food: str, ingredients: list):
+    try:
+        key = f"learn:{food.lower()}"
+        redis_client.set(key, json.dumps(ingredients))
+    except:
+        pass
+
+
+def get_learned_ingredients(food: str):
+    try:
+        key = f"learn:{food.lower()}"
+        data = redis_client.get(key)
+        if data:
+            return json.loads(data)
+    except:
+        pass
+    return None
 
 
 # ===================== MODEL =====================
 
-def call_model(prompt: str, image: str):
-    response = client.chat(
+def call_model(prompt: str, image: str | None):
+    msg = {"role": "user", "content": prompt}
+    if image:
+        msg["images"] = [image]
+
+    res = client.chat(
         model=settings.MODEL_NAME,
-        messages=[{
-            "role": "user",
-            "content": prompt,
-            "images": [image]
-        }],
+        messages=[msg],
         options={"temperature": 0.1}
     )
 
-    return extract_json(response["message"]["content"])
+    return extract_json(res["message"]["content"])
 
 
 # ===================== STEPS =====================
 
-def step_detect_dish(image: str, image_hash: str):
-    key = f"{settings.CACHE_PREFIX}:dish:{image_hash}"
+def step_detect(image, h):
+    return cache_step(
+        f"{settings.CACHE_PREFIX}:dish:{h}",
+        lambda: call_model(PROMPT_DETECT, image)
+    ) or {"food": "неизвестно", "confidence": 0}
+
+
+def step_ingredients(image, dish, h):
+    learned = get_learned_ingredients(dish)
+    if learned:
+        return learned
 
     def run():
-        return call_model(PROMPT_DETECT, image)
+        r = call_model(PROMPT_INGREDIENTS, image)
+        return r.get("ingredients", []) if r else []
 
-    return cache_step(key, run) or {"food": "Не распознано", "confidence": 0.0}
+    return cache_step(f"{settings.CACHE_PREFIX}:ing:{h}", run)
 
 
-def step_ingredients(image: str, image_hash: str):
-    key = f"{settings.CACHE_PREFIX}:ingredients:{image_hash}"
+# ===================== WEIGHTS =====================
 
-    def run():
-        result = call_model(PROMPT_INGREDIENTS, image)
-        return result.get("ingredients", []) if result else []
+def normalize_total_weight(dish: str, portion: str):
+    base = 250
+    dish = dish.lower()
 
-    return cache_step(key, run) or []
+    if "салат" in dish:
+        base = 300
+    elif "wrap" in dish or "шаурма" in dish:
+        base = 250
+    elif "паста" in dish:
+        base = 300
+
+    if portion == "small":
+        return int(base * 0.7)
+    if portion == "large":
+        return int(base * 1.3)
+
+    return base
+
+
+def smart_distribute(total_weight: int, ingredients: list):
+    n = len(ingredients)
+    if n == 0:
+        return ingredients
+
+    base = total_weight / n
+
+    for i in ingredients:
+        i["weight_g"] = round(base)
+
+    return ingredients
 
 
 # ===================== KBJU =====================
 
-def calc_kbju(ingredients: List[Dict[str, Any]]) -> Dict[str, float]:
-    total = {
-        "calories": 0,
-        "protein_g": 0,
-        "fat_g": 0,
-        "carbs_g": 0,
-        "weight_g": 0
-    }
+def calc_kbju(ings):
+    total = dict(calories=0, protein_g=0, fat_g=0, carbs_g=0, weight_g=0)
 
-    for item in ingredients:
-        raw_name = item.get("name", "")
-        weight = item.get("weight_g", 0)
-
-        total["weight_g"] += weight
-
-        matched = match_ingredient(raw_name)
-
-        if not matched:
-            logger.warning(f"UNMATCHED: {raw_name}")
+    for i in ings:
+        name = match_ingredient(i["name"])
+        if not name:
             continue
 
-        db = KBJU_DB[matched]
-        scale = weight / 100
+        w = i["weight_g"]
+        db = KBJU_DB[name]
+        s = w / 100
 
-        total["calories"] += db["calories"] * scale
-        total["protein_g"] += db["protein"] * scale
-        total["fat_g"] += db["fat"] * scale
-        total["carbs_g"] += db["carbs"] * scale
+        total["weight_g"] += w
+        total["calories"] += db["calories"] * s
+        total["protein_g"] += db["protein"] * s
+        total["fat_g"] += db["fat"] * s
+        total["carbs_g"] += db["carbs"] * s
 
-    total["calories"] = round(total["calories"])
-    total["protein_g"] = round(total["protein_g"], 1)
-    total["fat_g"] = round(total["fat_g"], 1)
-    total["carbs_g"] = round(total["carbs_g"], 1)
-    total["weight_g"] = round(total["weight_g"])
+    for k in total:
+        total[k] = round(total[k], 1)
 
     return total
 
 
-# ===================== VALIDATION =====================
-
-def validate_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    weight = result.get("weight_g", 200)
-
-    result["calories"] = max(min(result["calories"], weight * 9), weight * 0.5)
-    result["protein_g"] = min(result["protein_g"], weight)
-    result["fat_g"] = min(result["fat_g"], weight)
-    result["carbs_g"] = min(result["carbs_g"], weight)
-
-    return result
-
-
 # ===================== MAIN =====================
 
-def analyze_image_sync(image_path: str) -> Dict[str, Any]:
+def analyze_image_sync(path: str):
     fallback = {
-        "food": "Не распознано",
+        "food": "не распознано",
         "weight_g": 200,
         "calories": 250,
-        "protein_g": 15,
+        "protein_g": 10,
         "fat_g": 10,
-        "carbs_g": 25,
-        "confidence": 0.0,
+        "carbs_g": 30,
+        "confidence": 0,
         "ingredients": [],
         "source": "fallback"
     }
 
     try:
-        image_hash = get_image_hash(image_path)
-        cache_key = f"{settings.CACHE_PREFIX}:final:{image_hash}"
+        h = get_image_hash(path)
+        key = f"{settings.CACHE_PREFIX}:final:{h}"
 
-        cached = get_cache(cache_key)
+        cached = get_cache(key)
         if cached:
             cached["source"] = "cache"
             return cached
 
-        processed = preprocess(image_path)
+        img = preprocess(path)
 
-        dish = step_detect_dish(processed, image_hash)
+        dish = step_detect(img, h)
         if dish["confidence"] < 0.4:
             return fallback
 
-        ingredients = step_ingredients(processed, image_hash)
-        if not ingredients:
-            return fallback
+        portion = estimate_portion_size(path)
 
-        kbju = calc_kbju(ingredients)
+        ings = step_ingredients(img, dish["food"], h)
+        ings = ings[:4]
+
+        total_weight = normalize_total_weight(dish["food"], portion)
+        ings = smart_distribute(total_weight, ings)
+
+        kbju = calc_kbju(ings)
 
         result = {
             "food": dish["food"],
             "confidence": dish["confidence"],
-            "ingredients": ingredients,
+            "ingredients": ings,
             **kbju,
-            "source": "pipeline_v3"
+            "source": "pipeline_v6"
         }
 
-        result = validate_result(result)
-
-        set_cache(cache_key, result)
-
+        set_cache(key, result)
         return result
 
     except Exception as e:
@@ -384,6 +415,6 @@ def analyze_image_sync(image_path: str) -> Dict[str, Any]:
         return fallback
 
 
-async def analyze_image_async(image_path: str) -> Dict[str, Any]:
+async def analyze_image_async(path: str):
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, analyze_image_sync, image_path)
+    return await loop.run_in_executor(None, analyze_image_sync, path)
