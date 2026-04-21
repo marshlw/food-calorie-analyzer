@@ -1,23 +1,21 @@
-version: '3.9'
-
 services:
 
   postgres:
     image: postgres:15
     command: postgres -c listen_addresses='*'
     environment:
-      POSTGRES_USER: fooduser
-      POSTGRES_PASSWORD: foodpass
-      POSTGRES_DB: fooddb
+      POSTGRES_USER: postgres          # суперпользователь для администрирования
+      POSTGRES_PASSWORD: adminpass     # пароль суперпользователя
+      POSTGRES_DB: fooddb              # база данных по умолчанию
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf
+#      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fooduser -d fooddb"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -84,7 +82,7 @@ services:
 
   celery:
     build: .
-    command: celery -A app.tasks worker --loglevel=info
+    command: celery -A app.celery_app.celery_app worker --loglevel=info
     volumes:
       - ./app:/app
       - ./app/app/uploads:/app/app/uploads

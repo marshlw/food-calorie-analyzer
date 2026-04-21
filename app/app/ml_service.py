@@ -4,17 +4,24 @@ import logging
 import re
 import hashlib
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 import ollama
 import redis
-import numpy as np
-from rapidfuzz import process, fuzz
-from PIL import Image, ImageEnhance
+import cv2
+from PIL import Image
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from .config import settings
+from . import models
 
-# ===================== INIT =====================
+# ================= LOGGING =================
+
+logger = logging.getLogger(__name__)
+
+# ================= INIT =================
 
 client = ollama.Client(host=settings.OLLAMA_HOST)
 
@@ -22,398 +29,307 @@ redis_client = redis.Redis(
     host=settings.REDIS_HOST,
     port=settings.REDIS_PORT,
     db=settings.REDIS_DB,
-    decode_responses=True
+    decode_responses=True,
+    socket_timeout=2,
+    socket_connect_timeout=2,
+    retry_on_timeout=True
 )
 
-logger = logging.getLogger(__name__)
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    pool_size=5,
+    max_overflow=10
+)
+
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
 
-# ===================== KBJU DB =====================
 
-KBJU_DB = {
-    "курица": {"calories": 165, "protein": 31, "fat": 3.6, "carbs": 0},
-    "рис": {"calories": 130, "protein": 2.7, "fat": 0.3, "carbs": 28},
-    "гречка": {"calories": 110, "protein": 4, "fat": 1.3, "carbs": 23},
-    "картофель": {"calories": 100, "protein": 2, "fat": 0.1, "carbs": 17},
-}
+# ================= DB =================
 
-# ===================== PROMPTS =====================
-
-PROMPT_DETECT = """
-Определи блюдо на изображении.
-
-Верни строго JSON:
-{
- "food": "название блюда",
- "confidence": 0.0-1.0
-}
-"""
-
-PROMPT_INGREDIENTS = """
-Ты эксперт по анализу еды.
-
-ВАЖНО:
-- Указывай ТОЛЬКО те ингредиенты, которые ЯВНО видны
-- НЕ додумывай
-- НЕ добавляй "по рецепту"
-
-Верни строго JSON:
-{
- "ingredients": [
-   {"name": "ингредиент", "weight_g": число}
- ]
-}
-"""
-
-# ===================== NORMALIZATION =====================
-
-NORMALIZATION_MAP = {
-    "куриная грудка": "курица",
-    "куриное филе": "курица",
-    "картошка": "картофель",
-    "белый рис": "рис",
-}
-
-STOPWORDS = [
-    "жареный", "жареная", "вареный", "отварной",
-    "гриль", "свежий"
-]
-
-
-def normalize_text(text: str) -> str:
-    text = text.lower()
-    for w in STOPWORDS:
-        text = text.replace(w, "")
-    return text.strip()
-
-
-# ===================== EMBEDDINGS =====================
-
-EMBEDDING_CACHE = {}
-
-
-def get_embedding(text: str):
+def get_product(session, name: str):
     try:
-        res = client.embeddings(
-            model=settings.MODEL_NAME,
-            prompt=text
-        )
-        return res["embedding"]
-    except:
-        return []
+        return session.query(models.Product).filter(
+            models.Product.name == name.lower()
+        ).first()
+    except Exception as e:
+        logger.warning(f"DB error: {e}")
+        return None
 
 
-def cosine_similarity(a, b):
-    if not a or not b:
-        return 0
-    a, b = np.array(a), np.array(b)
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+# ================= JSON SAFETY =================
 
-
-def get_cached_embedding(text: str):
-    if text in EMBEDDING_CACHE:
-        return EMBEDDING_CACHE[text]
-    emb = get_embedding(text)
-    EMBEDDING_CACHE[text] = emb
-    return emb
-
-
-# ===================== MATCHING =====================
-
-def match_ingredient(name: str):
-    name = normalize_text(name)
-
-    for key, value in NORMALIZATION_MAP.items():
-        if key in name:
-            return value
-
-    match = process.extractOne(
-        name,
-        KBJU_DB.keys(),
-        scorer=fuzz.token_sort_ratio
-    )
-
-    if match and match[1] > 80:
-        return match[0]
-
-    name_emb = get_cached_embedding(name)
-
-    best, score = None, 0
-    for k in KBJU_DB.keys():
-        sim = cosine_similarity(name_emb, get_cached_embedding(k))
-        if sim > score:
-            best, score = k, sim
-
-    if score > 0.75:
-        return best
-
-    redis_client.sadd("unmatched_ingredients", name)
-    return None
-
-
-# ===================== IMAGE =====================
-
-def preprocess(path: str) -> str:
-    img = Image.open(path).convert("RGB")
-    img.thumbnail((1024, 1024))
-
-    img = ImageEnhance.Contrast(img).enhance(1.2)
-    img = ImageEnhance.Sharpness(img).enhance(1.3)
-
-    out = UPLOAD_DIR / f"processed_{Path(path).name}"
-    img.save(out, quality=85)
-    return str(out)
-
-
-def estimate_portion_size(path: str):
-    try:
-        img = Image.open(path)
-        w, h = img.size
-        area = w * h
-
-        if area < 300_000:
-            return "small"
-        elif area < 1_000_000:
-            return "medium"
-        else:
-            return "large"
-    except:
-        return "medium"
-
-
-def get_image_hash(path: str):
-    h = hashlib.md5()
-    with open(path, "rb") as f:
-        while chunk := f.read(8192):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-# ===================== JSON =====================
-
-def extract_json(text: str):
+def extract_json(text: str) -> Optional[dict]:
     if not text:
         return None
 
-    for attempt in [text, text.strip()]:
+    # убрать markdown ```json
+    text = text.strip()
+    text = re.sub(r"^```json|```$", "", text, flags=re.MULTILINE).strip()
+
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    # fallback: вытаскиваем первый JSON блок
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
         try:
-            return json.loads(attempt)
-        except:
+            return json.loads(match.group())
+        except Exception:
             pass
 
-    try:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            return json.loads(match.group())
-    except:
-        pass
-
-    logger.warning(f"JSON parse failed: {text[:200]}")
+    logger.warning(f"Invalid LLM JSON: {text[:300]}")
     return None
 
 
-# ===================== REDIS =====================
+# ================= MODEL =================
 
-def get_cache(key):
+def call_model(prompt: str, image: str | None = None) -> Optional[dict]:
     try:
-        data = redis_client.get(key)
-        if data:
-            return json.loads(data)
-    except:
-        pass
+        msg = {"role": "user", "content": prompt}
+        if image:
+            msg["images"] = [image]
+
+        res = client.chat(
+            model=settings.MODEL_NAME,
+            messages=[msg],
+            options={
+                "temperature": 0.1,
+                "top_p": 0.9
+            }
+        )
+
+        return extract_json(res.get("message", {}).get("content"))
+
+    except Exception as e:
+        logger.error(f"Ollama error: {e}")
+        return None
 
 
-def set_cache(key, val):
+# ================= PROMPTS =================
+
+PROMPT = """
+Ты анализируешь еду по изображению.
+
+Верни СТРОГО JSON:
+
+{
+ "food": "название блюда",
+ "ingredients": [{"name": "ингредиент"}],
+ "confidence": 0.0
+}
+
+Правила:
+- только реальные ингредиенты
+- не добавляй лишнего
+- если не уверен — ставь низкую confidence
+"""
+
+PROMPT_WEIGHT = """
+Оцени вес еды на фото.
+
+Верни JSON:
+{"weight_g": число}
+"""
+
+
+# ================= IMAGE =================
+
+def preprocess(path: str) -> str:
     try:
-        redis_client.setex(key, settings.CACHE_TTL, json.dumps(val))
-    except:
-        pass
+        img = Image.open(path).convert("RGB")
+        img.thumbnail((1024, 1024))
+
+        out = UPLOAD_DIR / f"p_{Path(path).name}"
+        img.save(out, format="JPEG", quality=85)
+
+        return str(out)
+
+    except Exception as e:
+        logger.warning(f"Image preprocess error: {e}")
+        return path
 
 
-def cache_step(key, func):
-    cached = get_cache(key)
-    if cached:
-        return cached
-    res = func()
-    if res:
-        set_cache(key, res)
-    return res
-
-
-# ===================== 🧠 LEARNING =====================
-
-def learn_from_feedback(food: str, ingredients: list):
+def get_hash(path: str) -> str:
+    h = hashlib.md5()
     try:
-        key = f"learn:{food.lower()}"
-        redis_client.set(key, json.dumps(ingredients))
-    except:
-        pass
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                h.update(chunk)
+    except Exception:
+        return "nohash"
+    return h.hexdigest()
 
 
-def get_learned_ingredients(food: str):
+# ================= CV =================
+
+def estimate_weight_cv(image_path: str) -> int:
     try:
-        key = f"learn:{food.lower()}"
-        data = redis_client.get(key)
-        if data:
-            return json.loads(data)
-    except:
-        pass
-    return None
+        img = cv2.imread(image_path)
+        if img is None:
+            return 250
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY_INV)
+
+        contours, _ = cv2.findContours(
+            thresh,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if not contours:
+            return 250
+
+        area = max(cv2.contourArea(c) for c in contours)
+        ratio = area / (img.shape[0] * img.shape[1])
+
+        return int(max(120, min(100 + ratio * 700, 800)))
+
+    except Exception as e:
+        logger.warning(f"CV error: {e}")
+        return 250
 
 
-# ===================== MODEL =====================
+def estimate_weight_llm(image: str) -> int:
+    r = call_model(PROMPT_WEIGHT, image)
+    if not r:
+        return 250
 
-def call_model(prompt: str, image: str | None):
-    msg = {"role": "user", "content": prompt}
-    if image:
-        msg["images"] = [image]
+    try:
+        w = int(r.get("weight_g", 250))
+    except Exception:
+        w = 250
 
-    res = client.chat(
-        model=settings.MODEL_NAME,
-        messages=[msg],
-        options={"temperature": 0.1}
-    )
-
-    return extract_json(res["message"]["content"])
+    return max(120, min(w, 800))
 
 
-# ===================== STEPS =====================
-
-def step_detect(image, h):
-    return cache_step(
-        f"{settings.CACHE_PREFIX}:dish:{h}",
-        lambda: call_model(PROMPT_DETECT, image)
-    ) or {"food": "неизвестно", "confidence": 0}
+def combine_weights(cv_w: int, llm_w: int) -> int:
+    return int(0.4 * cv_w + 0.6 * llm_w)
 
 
-def step_ingredients(image, dish, h):
-    learned = get_learned_ingredients(dish)
-    if learned:
-        return learned
+# ================= KBJU =================
 
-    def run():
-        r = call_model(PROMPT_INGREDIENTS, image)
-        return r.get("ingredients", []) if r else []
+def calc_kbju(session, ingredients: List[dict]) -> Dict[str, float]:
+    total = {
+        "calories": 0.0,
+        "protein_g": 0.0,
+        "fat_g": 0.0,
+        "carbs_g": 0.0,
+        "weight_g": 0.0
+    }
 
-    return cache_step(f"{settings.CACHE_PREFIX}:ing:{h}", run)
+    for ing in ingredients:
+        name = ing.get("name", "").lower()
+        product = get_product(session, name)
 
-
-# ===================== WEIGHTS =====================
-
-def normalize_total_weight(dish: str, portion: str):
-    base = 250
-    dish = dish.lower()
-
-    if "салат" in dish:
-        base = 300
-    elif "wrap" in dish or "шаурма" in dish:
-        base = 250
-    elif "паста" in dish:
-        base = 300
-
-    if portion == "small":
-        return int(base * 0.7)
-    if portion == "large":
-        return int(base * 1.3)
-
-    return base
-
-
-def smart_distribute(total_weight: int, ingredients: list):
-    n = len(ingredients)
-    if n == 0:
-        return ingredients
-
-    base = total_weight / n
-
-    for i in ingredients:
-        i["weight_g"] = round(base)
-
-    return ingredients
-
-
-# ===================== KBJU =====================
-
-def calc_kbju(ings):
-    total = dict(calories=0, protein_g=0, fat_g=0, carbs_g=0, weight_g=0)
-
-    for i in ings:
-        name = match_ingredient(i["name"])
-        if not name:
+        if not product:
             continue
 
-        w = i["weight_g"]
-        db = KBJU_DB[name]
-        s = w / 100
+        w = ing.get("weight_g", 0)
+        k = w / 100
 
         total["weight_g"] += w
-        total["calories"] += db["calories"] * s
-        total["protein_g"] += db["protein"] * s
-        total["fat_g"] += db["fat"] * s
-        total["carbs_g"] += db["carbs"] * s
+        total["calories"] += product.calories * k
+        total["protein_g"] += product.protein * k
+        total["fat_g"] += product.fat * k
+        total["carbs_g"] += product.carbs * k
 
-    for k in total:
-        total[k] = round(total[k], 1)
+    if total["weight_g"] == 0:
+        total["weight_g"] = 200
 
-    return total
+    return {k: round(v, 1) for k, v in total.items()}
 
 
-# ===================== MAIN =====================
+# ================= MAIN =================
 
-def analyze_image_sync(path: str):
+def analyze_image_sync(path: str) -> dict:
     fallback = {
         "food": "не распознано",
         "weight_g": 200,
-        "calories": 250,
+        "calories": 200,
         "protein_g": 10,
         "fat_g": 10,
-        "carbs_g": 30,
-        "confidence": 0,
+        "carbs_g": 20,
+        "confidence": 0.0,
         "ingredients": [],
         "source": "fallback"
     }
 
-    try:
-        h = get_image_hash(path)
-        key = f"{settings.CACHE_PREFIX}:final:{h}"
+    session = SessionLocal()
 
-        cached = get_cache(key)
-        if cached:
-            cached["source"] = "cache"
-            return cached
+    try:
+        cache_key = f"final:{get_hash(path)}"
+
+        try:
+            cached = redis_client.get(cache_key)
+            if cached:
+                return json.loads(cached)
+        except Exception:
+            pass
 
         img = preprocess(path)
 
-        dish = step_detect(img, h)
-        if dish["confidence"] < 0.4:
+        data = call_model(PROMPT, img)
+        if not data:
             return fallback
 
-        portion = estimate_portion_size(path)
+        ingredients = (data.get("ingredients") or [])[:4]
+        if not ingredients:
+            return fallback
 
-        ings = step_ingredients(img, dish["food"], h)
-        ings = ings[:4]
+        cv_w = estimate_weight_cv(img)
+        llm_w = estimate_weight_llm(img)
 
-        total_weight = normalize_total_weight(dish["food"], portion)
-        ings = smart_distribute(total_weight, ings)
+        total_weight = max(150, combine_weights(cv_w, llm_w))
 
-        kbju = calc_kbju(ings)
+        # safe distribution
+        if len(ingredients) > 0:
+            per = int(total_weight / len(ingredients))
+            for ing in ingredients:
+                ing["weight_g"] = per
+
+        kbju = calc_kbju(session, ingredients)
 
         result = {
-            "food": dish["food"],
-            "confidence": dish["confidence"],
-            "ingredients": ings,
+            "food": data.get("food", "unknown"),
+            "confidence": float(data.get("confidence", 0.5)),
+            "ingredients": ingredients,
             **kbju,
-            "source": "pipeline_v6"
+            "source": "cv_v2"
         }
 
-        set_cache(key, result)
+        try:
+            redis_client.setex(cache_key, 3600, json.dumps(result))
+        except Exception:
+            pass
+
         return result
 
     except Exception as e:
         logger.exception(e)
         return fallback
 
+    finally:
+        session.close()
+
+
+# ================= FEEDBACK =================
+
+def learn_from_feedback(food_name: str, ingredients: list):
+    try:
+        logger.info(f"feedback received: {food_name} -> {len(ingredients)} ingredients")
+    except Exception:
+        pass
+    return {"status": "ok"}
+
+
+# ================= ASYNC WRAPPER =================
 
 async def analyze_image_async(path: str):
     loop = asyncio.get_event_loop()

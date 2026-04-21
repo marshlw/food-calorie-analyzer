@@ -22,6 +22,7 @@ typing-extensions>=4.8.0
 bcrypt==4.0.1
 aiogram==3.13.1
 aiohttp
-gradio==4.44.0
+gradio==4.31.0
+huggingface_hub==0.23.0
 rapidfuzz
-numpy
+numpy==1.26.4
