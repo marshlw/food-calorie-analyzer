@@ -10,32 +10,46 @@ logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
-# ----------------- Асинхронный движок -----------------
-# Поддерживает PostgreSQL (asyncpg) и SQLite (aiosqlite)
-if "postgresql" in settings.DATABASE_URL:
-    async_db_url = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
-elif "sqlite" in settings.DATABASE_URL:
-    async_db_url = settings.DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://")
-else:
-    async_db_url = settings.DATABASE_URL
+# Глобальные переменные для асинхронного движка (ленивая инициализация)
+_async_engine = None
+_AsyncSessionLocal = None
 
-async_engine = create_async_engine(
-    async_db_url,
-    echo=False,
-    pool_size=20,
-    max_overflow=10,
-    pool_pre_ping=True,
-)
+async def get_async_engine():
+    """Получить или создать асинхронный движок (ленивая инициализация)."""
+    global _async_engine
+    if _async_engine is None:
+        if "postgresql" in settings.DATABASE_URL:
+            async_db_url = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+        elif "sqlite" in settings.DATABASE_URL:
+            async_db_url = settings.DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://")
+        else:
+            async_db_url = settings.DATABASE_URL
+        
+        _async_engine = create_async_engine(
+            async_db_url,
+            echo=False,
+            pool_size=20,
+            max_overflow=10,
+            pool_pre_ping=True,
+        )
+    return _async_engine
 
-AsyncSessionLocal = sessionmaker(
-    async_engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autoflush=False
-)
+async def get_async_session_local():
+    """Получить или создать фабрику асинхронных сессий."""
+    global _AsyncSessionLocal
+    if _AsyncSessionLocal is None:
+        async_engine = await get_async_engine()
+        _AsyncSessionLocal = sessionmaker(
+            async_engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autoflush=False
+        )
+    return _AsyncSessionLocal
 
 async def get_db() -> AsyncSession:
     """Асинхронная зависимость для FastAPI."""
+    AsyncSessionLocal = await get_async_session_local()
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -88,11 +102,14 @@ def get_sync_db():
 
 # ----------------- Инициализация -----------------
 async def init_db():
+    async_engine = await get_async_engine()
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database initialized")
 
 async def close_db():
-    await async_engine.dispose()
+    global _async_engine
+    if _async_engine is not None:
+        await _async_engine.dispose()
     sync_engine.dispose()
     logger.info("Database connections closed")

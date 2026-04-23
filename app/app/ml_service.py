@@ -114,27 +114,50 @@ def call_model(prompt: str, image: str | None = None) -> Optional[dict]:
 # ================= PROMPTS =================
 
 PROMPT = """
-Ты анализируешь еду по изображению.
+Ты AI-ассистент для анализа еды на фото. Твоя задача:
+1. Точно определить название блюда
+2. Перечислить основные ингредиенты (максимум 5-6)
+3. Дать уверенность в предсказании
 
-Верни СТРОГО JSON:
+Верни СТРОГО JSON, БЕЗ MARKDOWN:
 
 {
- "food": "название блюда",
- "ingredients": [{"name": "ингредиент"}],
- "confidence": 0.0
+  "food": "точное название блюда на русском",
+  "ingredients": [
+    {"name": "основной ингредиент", "type": "protein|carb|fat|vegetable"},
+    {"name": "второстепенный ингредиент", "type": "..."}
+  ],
+  "confidence": 0.0
 }
 
-Правила:
-- только реальные ингредиенты
-- не добавляй лишнего
-- если не уверен — ставь низкую confidence
+ПРАВИЛА:
+- Перечисли ТОЛЬКО видимые ингредиенты (максимум 6)
+- Не добавляй лишнего или неправдоподобного
+- Типизируй ингредиенты для лучшей калорийности
+- confidence: 0.95 если уверен, 0.5 если сомневаешься, 0.2 если неясно
+- Если это блюдо ты видишь впервые, ставь confidence 0.3-0.5
+- Возвращай ТОЛЬКО JSON, БЕЗ текста и markdown кода
 """
 
 PROMPT_WEIGHT = """
-Оцени вес еды на фото.
+Оцени примерный вес еды на фото в граммах.
+Учитывай:
+- Размер порции на тарелке
+- Типичные размеры посуды
+- Плотность пищи (каша тяжелее, чем салат)
 
-Верни JSON:
-{"weight_g": число}
+Верни ТОЛЬКО JSON без markdown:
+{"weight_g": число_от_50_до_1000}
+
+Если уверен не можешь — верни 200-300.
+"""
+
+PROMPT_WEIGHT_CONFIDENCE = """
+Оцени насколько точно можно определить вес этого блюда.
+Возвращай число от 0 до 1.
+
+Верни ТОЛЬКО JSON:
+{"weight_confidence": 0.0}
 """
 
 
@@ -208,12 +231,82 @@ def estimate_weight_llm(image: str) -> int:
 
     return max(120, min(w, 800))
 
-
 def combine_weights(cv_w: int, llm_w: int) -> int:
     return int(0.4 * cv_w + 0.6 * llm_w)
 
 
 # ================= KBJU =================
+
+# Типичные соотношения калорийности (вспомогательные)
+INGREDIENT_TYPES = {
+    "protein": {"calories_per_100g": 165, "protein": 25, "fat": 8, "carbs": 0},
+    "carb": {"calories_per_100g": 150, "protein": 3, "fat": 0.5, "carbs": 35},
+    "fat": {"calories_per_100g": 720, "protein": 0, "fat": 80, "carbs": 0},
+    "vegetable": {"calories_per_100g": 30, "protein": 2, "fat": 0.3, "carbs": 5},
+}
+
+def validate_and_fix_kbju(kbju: dict, weight_g: int) -> dict:
+    """
+    Валидирует KBJU и проверяет разумность значений.
+    Если что-то странное, пытается исправить.
+    """
+    # Минимальные значения
+    if kbju["calories"] < 10:
+        kbju["calories"] = max(50, weight_g * 0.5)  # примерно 0.5 ккал/г
+    if kbju["protein_g"] < 0.5:
+        kbju["protein_g"] = weight_g * 0.05  # 5% белков
+    if kbju["fat_g"] < 0.3:
+        kbju["fat_g"] = weight_g * 0.02  # 2% жиров
+    if kbju["carbs_g"] < 0.5:
+        kbju["carbs_g"] = weight_g * 0.10  # 10% углеводов
+
+    # Проверка соответствия калорий (примерно)
+    # 1г белка/углеводов = 4 ккал, 1г жира = 9 ккал
+    calculated_calories = (kbju["protein_g"] + kbju["carbs_g"]) * 4 + kbju["fat_g"] * 9
+    actual_calories = kbju["calories"]
+
+    # Если разница > 50%, попытаемся скорректировать
+    if actual_calories > 0 and calculated_calories > 0:
+        ratio = calculated_calories / actual_calories
+        if ratio > 1.5 or ratio < 0.5:
+            # Скорректируем углеводы как самый гибкий компонент
+            remaining = actual_calories - (kbju["protein_g"] * 4 + kbju["fat_g"] * 9)
+            if remaining > 0:
+                kbju["carbs_g"] = remaining / 4
+            else:
+                kbju["carbs_g"] = max(0.5, actual_calories * 0.5 / 4)
+
+    # Округляем и возвращаем
+    return {k: max(0, round(v, 1)) for k, v in kbju.items()}
+
+
+def distribute_weight_by_type(total_weight: int, ingredients: List[dict]) -> None:
+    """
+    Распределяет вес ингредиентов на основе их типа.
+    Жидкие компоненты занимают больше места, белки - меньше.
+    """
+    if not ingredients:
+        return
+
+    # Оцениваем типы и даём веса (в процентах от всей массы)
+    type_weights = {
+        "protein": 0.25,  # мясо занимает ~25%
+        "carb": 0.40,     # углеводы (рис, паста) ~40%
+        "fat": 0.10,      # масла/сливки ~10%
+        "vegetable": 0.25 # овощи ~25%
+    }
+
+    total_percent = 0
+    for ing in ingredients:
+        ing_type = ing.get("type", "carb")
+        total_percent += type_weights.get(ing_type, 0.2)
+
+    # Нормализуем и раздаём вес
+    for ing in ingredients:
+        ing_type = ing.get("type", "carb")
+        weight_ratio = type_weights.get(ing_type, 0.2) / max(total_percent, 1)
+        ing["weight_g"] = max(20, int(total_weight * weight_ratio))
+
 
 def calc_kbju(session, ingredients: List[dict]) -> Dict[str, float]:
     total = {
@@ -226,24 +319,33 @@ def calc_kbju(session, ingredients: List[dict]) -> Dict[str, float]:
 
     for ing in ingredients:
         name = ing.get("name", "").lower()
+        ing_type = ing.get("type", "carb")
+        w = ing.get("weight_g", 0)
+
+        # Пытаемся найти в БД
         product = get_product(session, name)
 
-        if not product:
-            continue
-
-        w = ing.get("weight_g", 0)
-        k = w / 100
+        if product:
+            k = w / 100
+            total["calories"] += product.calories * k
+            total["protein_g"] += product.protein * k
+            total["fat_g"] += product.fat * k
+            total["carbs_g"] += product.carbs * k
+        else:
+            # Fallback: используем типичные значения для типа
+            defaults = INGREDIENT_TYPES.get(ing_type, INGREDIENT_TYPES["carb"])
+            k = w / 100
+            total["calories"] += defaults["calories_per_100g"] * k
+            total["protein_g"] += defaults["protein"] * k
+            total["fat_g"] += defaults["fat"] * k
+            total["carbs_g"] += defaults["carbs"] * k
 
         total["weight_g"] += w
-        total["calories"] += product.calories * k
-        total["protein_g"] += product.protein * k
-        total["fat_g"] += product.fat * k
-        total["carbs_g"] += product.carbs * k
 
     if total["weight_g"] == 0:
         total["weight_g"] = 200
 
-    return {k: round(v, 1) for k, v in total.items()}
+    return validate_and_fix_kbju(total, int(total["weight_g"]))
 
 
 # ================= MAIN =================
@@ -269,7 +371,9 @@ def analyze_image_sync(path: str) -> dict:
         try:
             cached = redis_client.get(cache_key)
             if cached:
-                return json.loads(cached)
+                cached_data = json.loads(cached)
+                cached_data["source"] = "cache"
+                return cached_data
         except Exception:
             pass
 
@@ -279,29 +383,39 @@ def analyze_image_sync(path: str) -> dict:
         if not data:
             return fallback
 
-        ingredients = (data.get("ingredients") or [])[:4]
+        food_name = data.get("food", "unknown")
+        ingredients = (data.get("ingredients") or [])[:6]  # максимум 6 ингредиентов
         if not ingredients:
             return fallback
 
+        # Оцениваем вес
         cv_w = estimate_weight_cv(img)
         llm_w = estimate_weight_llm(img)
+        weight_confidence = 0.6  # средняя уверенность в весе
 
+        # Взвешиваем весы
         total_weight = max(150, combine_weights(cv_w, llm_w))
 
-        # safe distribution
-        if len(ingredients) > 0:
-            per = int(total_weight / len(ingredients))
-            for ing in ingredients:
-                ing["weight_g"] = per
+        # Распределяем вес по ингредиентам
+        distribute_weight_by_type(total_weight, ingredients)
 
+        # Считаем KBJU
         kbju = calc_kbju(session, ingredients)
 
+        # Оцениваем общую уверенность
+        confidence = float(data.get("confidence", 0.5))
+        
+        # Понижаем уверенность если ингредиентов < 3 или нет в БД
+        found_in_db = sum(1 for ing in ingredients if get_product(session, ing.get("name", "").lower()))
+        if found_in_db < len(ingredients) * 0.5:
+            confidence *= 0.8  # понижаем на 20%
+
         result = {
-            "food": data.get("food", "unknown"),
-            "confidence": float(data.get("confidence", 0.5)),
+            "food": food_name,
+            "confidence": round(confidence, 2),
             "ingredients": ingredients,
             **kbju,
-            "source": "cv_v2"
+            "source": "ml_v2"
         }
 
         try:
@@ -312,21 +426,68 @@ def analyze_image_sync(path: str) -> dict:
         return result
 
     except Exception as e:
-        logger.exception(e)
+        logger.exception(f"Error in analyze_image_sync: {e}")
         return fallback
 
     finally:
-        session.close()
+        try:
+            session.close()
+        except Exception:
+            pass
 
 
 # ================= FEEDBACK =================
 
 def learn_from_feedback(food_name: str, ingredients: list):
+    """
+    Учимся на основе исправлений пользователей.
+    Сохраняем правильное распределение ингредиентов для похожих блюд.
+    """
     try:
-        logger.info(f"feedback received: {food_name} -> {len(ingredients)} ingredients")
-    except Exception:
-        pass
-    return {"status": "ok"}
+        session = SessionLocal()
+        
+        if not food_name or not ingredients:
+            return {"status": "empty"}
+
+        # Нормализуем название
+        food_name = food_name.lower().strip()
+        
+        # Обновляем или создаём продукты из feedback
+        for ing in ingredients:
+            ing_name = ing.get("name", "").lower().strip()
+            if not ing_name or len(ing_name) < 2:
+                continue
+
+            # Проверяем, есть ли продукт
+            product = get_product(session, ing_name)
+            
+            if not product:
+                # Оцениваем нутриенты по типу
+                ing_type = ing.get("type", "carb")
+                defaults = INGREDIENT_TYPES.get(ing_type, INGREDIENT_TYPES["carb"])
+                
+                new_product = models.Product(
+                    name=ing_name,
+                    calories=defaults["calories_per_100g"],
+                    protein=defaults["protein"],
+                    fat=defaults["fat"],
+                    carbs=defaults["carbs"]
+                )
+                session.add(new_product)
+                logger.info(f"Added new product from feedback: {ing_name}")
+
+        session.commit()
+        logger.info(f"Learning from feedback: {food_name} with {len(ingredients)} ingredients")
+        return {"status": "ok", "learned": len(ingredients)}
+
+    except Exception as e:
+        logger.warning(f"Learning error: {e}")
+        return {"status": "error", "error": str(e)}
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
 
 
 # ================= ASYNC WRAPPER =================

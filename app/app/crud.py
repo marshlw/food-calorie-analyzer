@@ -269,9 +269,24 @@ def create_feedback_sync(
     db.commit()
     db.refresh(feedback)
 
-    # 🔥 ВАЖНО: обучаемся сразу
+    # 🔥 ВАЖНО: обучаемся на основе исправления
     try:
-        learn_products_from_feedback(db, predicted_result, corrected_food)
+        # Берём ингредиенты из предсказания если они есть, иначе создаём простой
+        ingredients_to_learn = []
+        
+        if predicted_result and "ingredients" in predicted_result:
+            ingredients_to_learn = predicted_result["ingredients"]
+        else:
+            # Fallback: один ингредиент - само блюдо
+            ingredients_to_learn = [{
+                "name": corrected_food,
+                "weight_g": corrected_weight,
+                "type": "carb"
+            }]
+
+        from .ml_service import learn_from_feedback
+        learn_from_feedback(corrected_food, ingredients_to_learn)
+        
     except Exception as e:
         logger.warning(f"Learning failed: {e}")
 

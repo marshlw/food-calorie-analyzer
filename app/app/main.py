@@ -15,9 +15,6 @@ from app.database import SessionLocal, engine
 from app import models, schemas, crud
 from app.tasks import analyze_image_task
 
-# 🔥 добавили обучение
-from app.ml_service import learn_from_feedback
-
 # Создаём таблицы
 models.Base.metadata.create_all(bind=engine)
 
@@ -104,6 +101,7 @@ async def save_feedback(
         predicted = task_result.result
 
     # ===================== SAVE TO DB =====================
+    # ✅ Обучение происходит внутри create_feedback_sync
 
     fb_record = crud.create_feedback_sync(
         db=db,
@@ -114,32 +112,6 @@ async def save_feedback(
         predicted_result=predicted,
         user_id=feedback.user_id
     )
-
-    # ===================== 🧠 LEARNING =====================
-
-    try:
-        if feedback.correct_food:
-
-            # ✅ если есть предсказание → используем его ингредиенты
-            if predicted and "ingredients" in predicted:
-                learn_from_feedback(
-                    feedback.correct_food,
-                    predicted["ingredients"]
-                )
-
-            # ✅ fallback → учим хотя бы 1 ингредиент
-            else:
-                learn_from_feedback(
-                    feedback.correct_food,
-                    [{
-                        "name": feedback.correct_food,
-                        "weight_g": feedback.correct_weight or 200
-                    }]
-                )
-
-    except Exception as e:
-        # не ломаем API из-за обучения
-        print(f"Learning error: {e}")
 
     return {"status": "ok", "id": fb_record.id}
 

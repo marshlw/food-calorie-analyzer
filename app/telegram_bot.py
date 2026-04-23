@@ -107,46 +107,101 @@ async def handle_photo(message: Message, state: FSMContext):
         file = await bot.get_file(photo.file_id)
         file_bytes = await bot.download_file(file.file_path)
 
-        async with aiohttp.ClientSession() as session:
-            form = aiohttp.FormData()
-            form.add_field("file", file_bytes, filename="image.jpg")
+        # 🔥 RETRY LOGIC
+        max_retries = 3
+        retry_delay = 1
+        result = None
 
-            # 🔹 отправка в API
-            async with session.post(f"{API_URL}/api/v1/analyze", data=form) as resp:
-                if resp.status != 200:
-                    logger.error(f"Analyze API error: {resp.status}")
-                    await msg.edit_text("❌ Ошибка при отправке на анализ")
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    form = aiohttp.FormData()
+                    form.add_field("file", file_bytes, filename="image.jpg")
+
+                    # 🔹 отправка в API с timeout
+                    try:
+                        async with session.post(
+                            f"{API_URL}/api/v1/analyze",
+                            data=form,
+                            timeout=aiohttp.ClientTimeout(total=30)
+                        ) as resp:
+                            if resp.status != 200:
+                                logger.error(f"Analyze API error: {resp.status}")
+                                if attempt < max_retries - 1:
+                                    await asyncio.sleep(retry_delay)
+                                    retry_delay *= 2
+                                    continue
+                                else:
+                                    await msg.edit_text("❌ Ошибка при отправке на анализ")
+                                    return
+
+                            task = await resp.json()
+
+                        task_id = task["id"]
+
+                        # 🔹 polling с адаптивной задержкой
+                        result = None
+                        delay = 1
+
+                        for poll_attempt in range(40):  # увеличили до 40 попыток
+                            await asyncio.sleep(delay)
+                            delay = min(delay * 1.2, 5)
+
+                            async with session.get(
+                                f"{API_URL}/api/v1/task/{task_id}",
+                                timeout=aiohttp.ClientTimeout(total=10)
+                            ) as resp:
+                                if resp.status != 200:
+                                    logger.warning(f"Task status check failed: {resp.status}")
+                                    continue
+
+                                data = await resp.json()
+
+                                if data["status"] == "success":
+                                    result = data["result"]
+                                    break
+
+                                elif data["status"] in ["failure", "error"]:
+                                    logger.error(f"Task failed: {data.get('error', 'unknown')}")
+                                    break
+
+                        if result:
+                            break  # успешно получили результат
+                        else:
+                            if attempt < max_retries - 1:
+                                logger.info(f"Retrying analysis (attempt {attempt + 2}/{max_retries})")
+                                await asyncio.sleep(retry_delay)
+                                retry_delay *= 2
+                            else:
+                                await msg.edit_text("❌ Не удалось обработать изображение")
+                                return
+
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Request timeout (attempt {attempt + 1}/{max_retries})")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(retry_delay)
+                            retry_delay *= 2
+                        else:
+                            await msg.edit_text("❌ Время ожидания истекло")
+                            return
+                    except Exception as e:
+                        logger.warning(f"Request error: {e} (attempt {attempt + 1}/{max_retries})")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(retry_delay)
+                            retry_delay *= 2
+                        else:
+                            await msg.edit_text("❌ Ошибка соединения с сервером")
+                            return
+
+            except Exception as e:
+                logger.exception(f"Session error: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    await msg.edit_text("❌ Ошибка при обработке")
                     return
 
-                task = await resp.json()
-
-            task_id = task["id"]
-
-            # 🔹 polling
-            result = None
-            delay = 1
-
-            for _ in range(30):  # 🔥 увеличили попытки
-                await asyncio.sleep(delay)
-                delay = min(delay * 1.5, 5)
-
-                async with session.get(f"{API_URL}/api/v1/task/{task_id}") as resp:
-                    if resp.status != 200:
-                        continue
-
-                    data = await resp.json()
-
-                    if data["status"] == "success":
-                        result = data["result"]
-                        break
-
-                    elif data["status"] in ["failure", "error"]:
-                        break
-
-            if not result:
-                await msg.edit_text("❌ Не удалось обработать изображение")
-                return
-
+        if result:
             await msg.edit_text(
                 format_result(result),
                 reply_markup=get_feedback_keyboard(task_id)
