@@ -82,7 +82,7 @@ services:
 
   celery:
     build: .
-    command: celery -A app.celery_app.celery_app worker --loglevel=info
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=4
     volumes:
       - ./app:/app
       - ./app/app/uploads:/app/app/uploads
@@ -90,6 +90,7 @@ services:
       - .env
     environment:
       - OLLAMA_HOST=http://ollama:11434
+      - C_FORCE_ROOT=true
     depends_on:
       redis:
         condition: service_healthy

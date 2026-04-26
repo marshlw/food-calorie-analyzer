@@ -47,6 +47,9 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
 
+# Глобальная переменная для текущей модели
+current_model = settings.MODEL_NAME
+
 
 # ================= DB =================
 
@@ -89,6 +92,11 @@ def extract_json(text: str) -> Optional[dict]:
 
 # ================= MODEL =================
 
+def update_model(new_model: str):
+    global current_model
+    current_model = new_model
+    logger.info(f"Model updated to: {current_model}")
+
 def call_model(prompt: str, image: str | None = None) -> Optional[dict]:
     try:
         msg = {"role": "user", "content": prompt}
@@ -96,7 +104,7 @@ def call_model(prompt: str, image: str | None = None) -> Optional[dict]:
             msg["images"] = [image]
 
         res = client.chat(
-            model=settings.MODEL_NAME,
+            model=current_model,
             messages=[msg],
             options={
                 "temperature": 0.1,

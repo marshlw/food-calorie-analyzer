@@ -3,22 +3,33 @@
 import uuid
 import shutil
 import os
+import json
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header, Form
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from celery.result import AsyncResult
 
 from app.celery_app import celery_app
 from app.database import SessionLocal, engine
-from app import models, schemas, crud
+from app import models, schemas, crud, auth
 from app.tasks import analyze_image_task
 
 # Создаём таблицы
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # В продакшене укажи конкретные origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 UPLOAD_DIR = Path("/app/app/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -62,6 +73,50 @@ async def analyze(file: UploadFile = File(...), db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ===================== REGISTER =====================
+
+@app.post("/api/v1/register")
+async def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    try:
+        # Проверяем, существует ли пользователь
+        db_user = crud.get_user_by_email_sync(db, user.email)
+        if db_user:
+            raise HTTPException(status_code=400, detail="Пользователь уже существует")
+
+        # Создаём пользователя
+        hashed_password = auth.get_password_hash(user.password)
+        db_user = crud.create_user_sync(db, user, hashed_password)
+
+        return {"message": "Пользователь создан успешно"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===================== LOGIN TOKEN =====================
+
+@app.post("/api/v1/token", response_model=schemas.Token)
+async def login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
+    """
+    OAuth2 compatible token endpoint.
+    username в form-data это email пользователя
+    """
+    try:
+        user = auth.authenticate_user_sync(db, username, password)
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="Неверный email или пароль",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        access_token = auth.create_access_token(data={"sub": user.email})
+        return {"access_token": access_token, "token_type": "bearer"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ===================== TASK STATUS =====================
 
 @app.get("/api/v1/task/{task_id}")
@@ -81,6 +136,29 @@ async def get_task(task_id: str):
         }
 
     return {"status": task.state}
+
+
+# ===================== USER TASKS HISTORY =====================
+
+@app.get("/api/v1/tasks")
+async def get_user_tasks(
+    limit: int = 50,
+    offset: int = 0,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    tasks = crud.get_tasks_by_user_sync(db, current_user.id, limit, offset)
+    return [
+        {
+            "id": task.id,
+            "status": task.status.value,
+            "result": json.loads(task.result_json) if task.result_json else None,
+            "error": task.error,
+            "created_at": task.created_at.isoformat(),
+            "updated_at": task.updated_at.isoformat() if task.updated_at else None
+        }
+        for task in tasks
+    ]
 
 
 # ===================== FEEDBACK =====================

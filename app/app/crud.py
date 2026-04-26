@@ -8,6 +8,8 @@ import uuid
 from datetime import datetime
 from . import models, schemas
 import logging
+
+from .tasks import retrain_model_task
 import json
 
 logger = logging.getLogger(__name__)
@@ -39,6 +41,22 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate, hashed_passwor
     db.add(db_user)
     await db.commit()
     await db.refresh(db_user)
+    return db_user
+
+
+def get_user_by_email_sync(db: Session, email: str) -> Optional[models.User]:
+    return db.query(models.User).filter(models.User.email == email).first()
+
+
+def create_user_sync(db: Session, user: schemas.UserCreate, hashed_password: str) -> models.User:
+    db_user = models.User(
+        email=user.email,
+        full_name=user.full_name,
+        hashed_password=hashed_password
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
     return db_user
 
 
@@ -95,6 +113,17 @@ async def update_task(
     await db.refresh(task)
 
     return task
+
+
+def get_tasks_by_user_sync(db: Session, user_id: int, limit: int = 50, offset: int = 0) -> List[models.Task]:
+    return (
+        db.query(models.Task)
+        .filter(models.Task.user_id == user_id)
+        .order_by(models.Task.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
 
 # ==================== MEALS ====================
@@ -289,6 +318,18 @@ def create_feedback_sync(
         
     except Exception as e:
         logger.warning(f"Learning failed: {e}")
+
+    # Проверяем, нужно ли retrain модель
+    try:
+        pending_count = db.query(models.Feedback).filter(
+            models.Feedback.status == models.FeedbackStatus.PENDING
+        ).count()
+
+        if pending_count >= 10:  # retrain каждые 10 feedback
+            logger.info(f"Triggering model retraining: {pending_count} pending feedbacks")
+            retrain_model_task.delay()
+    except Exception as e:
+        logger.warning(f"Retraining trigger failed: {e}")
 
     return feedback
 
