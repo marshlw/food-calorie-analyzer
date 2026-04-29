@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Enum as SQLEnum, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Enum as SQLEnum, JSON, Date
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -36,6 +36,39 @@ class User(Base):
 
     meals = relationship("Meal", back_populates="user", cascade="all, delete-orphan")
     tasks = relationship("Task", back_populates="user")
+    daily_logs = relationship("DailyLog", back_populates="user", cascade="all, delete-orphan")
+
+
+# ==================== DAILY LOG ====================
+
+class DailyLog(Base):
+    __tablename__ = "daily_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    date = Column(Date, nullable=False, index=True, server_default=func.current_date())
+
+    user = relationship("User", back_populates="daily_logs")
+    entries = relationship("MealEntry", back_populates="daily_log", cascade="all, delete-orphan")
+
+
+class MealEntry(Base):
+    __tablename__ = "meal_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    daily_log_id = Column(Integer, ForeignKey("daily_logs.id"), nullable=False)
+    food_name = Column(String, nullable=False)
+    calories = Column(Float, nullable=False)
+    protein_g = Column(Float, nullable=False)
+    fat_g = Column(Float, nullable=False)
+    carbs_g = Column(Float, nullable=False)
+    weight_g = Column(Float, nullable=False)
+    meal_type = Column(String, default="snacks")  # breakfast, lunch, dinner, snacks
+    task_id = Column(String, ForeignKey("tasks.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    daily_log = relationship("DailyLog", back_populates="entries")
+    task = relationship("Task")
 
 
 # ==================== MEALS ====================
@@ -110,12 +143,12 @@ class Task(Base):
 
     id = Column(String, primary_key=True)  # UUID
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    image_path = Column(String, nullable=False)
 
     status = Column(SQLEnum(TaskStatus), default=TaskStatus.PENDING)
 
     result_json = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
-
     image_hash = Column(String, index=True, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -126,22 +159,12 @@ class Task(Base):
 
 # ==================== FEEDBACK ====================
 
-class AnalysisTask(Base):
-    __tablename__ = "analysis_tasks"
-
-    id = Column(Integer, primary_key=True, index=True)
-    task_id = Column(String, unique=True, index=True, nullable=False)
-    image_path = Column(String, nullable=False)
-
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-
 class Feedback(Base):
     __tablename__ = "feedback"
 
     id = Column(Integer, primary_key=True, index=True)
 
-    task_id = Column(String, index=True, nullable=False)
+    task_id = Column(String, ForeignKey("tasks.id"), index=True, nullable=False)
     image_path = Column(String, nullable=False)
 
     predicted_result = Column(JSON, nullable=True)
@@ -149,7 +172,7 @@ class Feedback(Base):
     corrected_food = Column(String, nullable=False)
     corrected_weight = Column(Integer, nullable=False)
 
-    user_id = Column(Integer, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

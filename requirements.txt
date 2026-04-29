@@ -14,6 +14,7 @@ python-magic==0.4.27
 pillow==10.2.0
 opencv-python-headless==4.9.0.80
 ollama==0.1.6
+google-genai>=0.3.0
 celery==5.3.4
 flower==2.0.1
 httpx>=0.25.2
@@ -22,7 +23,6 @@ typing-extensions>=4.8.0
 bcrypt==4.0.1
 aiogram==3.13.1
 aiohttp
-gradio==4.31.0
 huggingface_hub==0.23.0
 rapidfuzz
 numpy==1.26.4

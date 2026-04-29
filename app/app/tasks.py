@@ -3,32 +3,54 @@ import logging
 import subprocess
 import sys
 import uuid
+import json
+from datetime import datetime
 
 from .celery_app import celery_app
-from . import ml_service
+from . import ml_service, models
+from .database import SessionLocal
 
 logger = logging.getLogger(__name__)
 
 
 @celery_app.task(bind=True, max_retries=3)
-def analyze_image_task(self, file_path: str):
+def analyze_image_task(self, task_id: str, file_path: str):
     """
     Анализирует загруженное изображение пищи и возвращает состав КБЖУ
     """
+    session = SessionLocal()
+    task = None
+
     try:
-        logger.info(f"Starting image analysis for: {file_path}")
-        
-        # Анализируем изображение
+        logger.info(f"Starting image analysis for task {task_id} and file {file_path}")
+        task = session.query(models.Task).filter(models.Task.id == task_id).first()
+        if task:
+            task.status = models.TaskStatus.PROCESSING
+            task.updated_at = datetime.utcnow()
+            session.commit()
+
         result = ml_service.analyze_image_sync(file_path)
-        
-        logger.info(f"Analysis completed for {file_path}: {result.get('food')}")
-        
+        logger.info(f"Analysis completed for {file_path}: {result.get('food') if isinstance(result, dict) else 'unknown'}")
+
+        if task:
+            task.status = models.TaskStatus.SUCCESS
+            task.result_json = json.dumps(result, ensure_ascii=False)
+            task.error = None
+            task.updated_at = datetime.utcnow()
+            session.commit()
+
         return result
-        
+
     except Exception as e:
-        logger.exception(f"Image analysis failed: {e}")
-        # Retry с экспоненциальной задержкой
+        logger.exception(f"Image analysis failed for task {task_id}: {e}")
+        if task:
+            task.status = models.TaskStatus.FAILURE
+            task.error = str(e)
+            task.updated_at = datetime.utcnow()
+            session.commit()
         raise self.retry(exc=e, countdown=min(2 ** self.request.retries, 600))
+    finally:
+        session.close()
 
 
 @celery_app.task(bind=True, max_retries=1)

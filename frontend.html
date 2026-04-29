@@ -1,371 +1,379 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Healthy - Анализатор калорий по фото</title>
-    <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Healthy</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,sans-serif; }
+  body { background:#f2f4f7; }
+  .container { max-width:420px; margin:auto; padding:15px; }
+  .card { background:white; border-radius:16px; padding:16px; margin-bottom:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); }
+  input, select { width:100%; padding:10px; border-radius:10px; border:1px solid #ddd; margin-top:8px; }
+  .btn { width:100%; padding:12px; border:none; border-radius:12px; background:#4CAF50; color:white; margin-top:10px; cursor:pointer; }
+  .btn-secondary { background:#eee; color:black; }
+  .btn-danger { background:#f44336; }
+  .btn-small { padding:6px 12px; border:none; border-radius:8px; background:#e0e0e0; cursor:pointer; margin-left:8px; }
+  .meal-header { display:flex; justify-content:space-between; align-items:center; }
+  .meal-item { display:flex; justify-content:space-between; align-items:center; padding:10px; background:#fafafa; border-radius:10px; margin-top:8px; }
+  .macros { font-size:12px; color:gray; }
+  .progress-bar { height:8px; background:#eee; border-radius:10px; overflow:hidden; margin:5px 0; }
+  .progress { height:100%; background:#4CAF50; transition: width 0.3s; }
+
+  /* FAB */
+  .fab {
+    position:fixed; bottom:30px; right:30px;
+    width:60px; height:60px; border-radius:50%;
+    background:#4CAF50; color:white; font-size:28px;
+    border:none; box-shadow:0 4px 12px rgba(0,0,0,0.2);
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; z-index:1000; transition:0.2s;
+  }
+  .fab:hover { transform:scale(1.05); }
+
+  /* Modal */
+  .modal-overlay {
+    display:none;
+    position:fixed; inset:0; background:rgba(0,0,0,0.4);
+    z-index:2000; align-items:flex-end; justify-content:center;
+  }
+  .modal-content {
+    background:white; width:100%; max-width:420px;
+    padding:20px; border-radius:20px 20px 0 0;
+    box-shadow:0 -4px 20px rgba(0,0,0,0.1);
+    animation:slideUp 0.2s ease-out;
+  }
+  @keyframes slideUp { from{transform:translateY(100%);} to{transform:translateY(0);} }
+</style>
 </head>
 <body>
-    <div class="container">
-        <!-- Авторизация -->
-        <div id="authSection" class="auth-section">
-            <h1>🍽️ AI Healthy</h1>
-            <p style="text-align: center; color: #718096; margin-bottom: 30px;">Анализатор калорий по фото еды</p>
 
-            <div class="form-group">
-                <label for="email">Email:</label>
-                <input type="email" id="email" placeholder="example@mail.ru" required>
-            </div>
+<div class="container">
+  <h2>🍽 AI Healthy</h2>
 
-            <div class="form-group">
-                <label for="password">Пароль:</label>
-                <input type="password" id="password" placeholder="Введите пароль" required>
-            </div>
+  <!-- AUTH -->
+  <div id="auth">
+    <div class="card">
+      <input id="email" placeholder="Email">
+      <input id="password" type="password" placeholder="Пароль">
+      <button class="btn" id="registerBtn">Регистрация</button>
+      <button class="btn" id="loginBtn">Логин</button>
+      <div id="authMsg" style="margin-top:10px;color:red;"></div>
+    </div>
+  </div>
 
-            <button id="loginBtn" class="btn">Войти</button>
-            <button id="regBtn" class="btn btn-secondary">Зарегистрироваться</button>
-
-            <div id="authMessage"></div>
-        </div>
-
-        <!-- Личный кабинет -->
-        <div id="dashboardSection" class="dashboard-section" style="display: none;">
-            <h2>Личный кабинет</h2>
-
-            <div class="tabs">
-                <button class="tab-btn active" onclick="showTab('analyze')">Анализ</button>
-                <button class="tab-btn" onclick="showTab('history')">История</button>
-            </div>
-
-            <!-- Вкладка анализа -->
-            <div id="analyzeTab" class="tab-content active">
-                <div class="upload-area" onclick="document.getElementById('photo').click()">
-                    <div id="uploadContent">
-                        <div class="upload-text">📸 Загрузите фото тарелки</div>
-                        <div class="upload-subtext">Нажмите или перетащите файл сюда</div>
-                    </div>
-                </div>
-                <input type="file" id="photo" accept="image/*" style="display: none;">
-
-                <button id="analyzeBtn" class="btn" disabled>🔍 Проанализировать</button>
-
-                <div id="analyzeResult"></div>
-            </div>
-
-            <!-- Вкладка истории -->
-            <div id="historyTab" class="tab-content">
-                <button id="loadHistoryBtn" class="btn btn-secondary" onclick="loadHistory()">Обновить историю</button>
-                <div id="historyList" class="history-list"></div>
-            </div>
-
-            <button id="logoutBtn" class="btn btn-secondary" style="margin-top: 30px;">Выйти</button>
-        </div>
+  <!-- APP -->
+  <div id="app" style="display:none">
+    <div class="card">
+      <div><b id="cal">0</b> / 2000 ккал</div>
+      <div class="progress-bar"><div id="progress" class="progress" style="width:0%"></div></div>
     </div>
 
-    <script>
-        let token = null;
-        let currentUser = null;
+    <input type="date" id="date">
+    <div id="meals"></div>
+    <button class="btn btn-secondary" id="logoutBtn" style="margin-top:20px">Выйти</button>
+  </div>
+</div>
 
-        // Показать вкладку
-        function showTab(tabName) {
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+<!-- FAB -->
+<button class="fab" id="fabAdd">+</button>
 
-            document.querySelector(`[onclick="showTab('${tabName}')"]`).classList.add('active');
-            document.getElementById(tabName + 'Tab').classList.add('active');
-        }
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-content">
+    <input id="m_name" placeholder="Блюдо">
+    <input id="m_cal" type="number" placeholder="Ккал">
+    <input id="m_p" type="number" placeholder="Белки">
+    <input id="m_f" type="number" placeholder="Жиры">
+    <input id="m_c" type="number" placeholder="Углеводы">
+    <input id="m_w" type="number" placeholder="Вес">
+    <select id="m_type">
+      <option value="breakfast">Завтрак</option>
+      <option value="lunch">Обед</option>
+      <option value="dinner">Ужин</option>
+      <option value="snacks">Перекус</option>
+    </select>
+    <button class="btn" id="saveMealBtn">Сохранить</button>
+    <button class="btn btn-secondary" id="cancelMealBtn">Отмена</button>
+  </div>
+</div>
 
-        // Показать сообщение
-        function showMessage(elementId, message, type = 'error') {
-            const element = document.getElementById(elementId);
-            element.innerHTML = `<div class="${type}-message">${message}</div>`;
-            setTimeout(() => element.innerHTML = '', 5000);
-        }
+<input type="file" id="photoInput" accept="image/*" style="display:none">
 
-        // Авторизация
-        document.getElementById('loginBtn').onclick = async () => {
-            const email = document.getElementById('email').value.trim();
-            const password = document.getElementById('password').value;
+<script>
+const API = "http://localhost:8000/api/v1";
+let token = null;
+let selectedMealType = "snacks";
+let currentTaskId = null;
 
-            if (!email || !password) {
-                showMessage('authMessage', 'Заполните все поля');
-                return;
-            }
+// DOM elements
+const emailInput = document.getElementById('email');
+const passwordInput = document.getElementById('password');
+const authMsg = document.getElementById('authMsg');
+const authBlock = document.getElementById('auth');
+const appBlock = document.getElementById('app');
+const calSpan = document.getElementById('cal');
+const progressDiv = document.getElementById('progress');
+const dateInput = document.getElementById('date');
+const mealsDiv = document.getElementById('meals');
+const modalOverlay = document.getElementById('modalOverlay');
+const mName = document.getElementById('m_name');
+const mCal = document.getElementById('m_cal');
+const mP = document.getElementById('m_p');
+const mF = document.getElementById('m_f');
+const mC = document.getElementById('m_c');
+const mW = document.getElementById('m_w');
+const mType = document.getElementById('m_type');
+const photoInput = document.getElementById('photoInput');
+const fabAdd = document.getElementById('fabAdd');
 
-            try {
-                // Сначала пытаемся зарегистрироваться (если уже есть – получим ошибку, но продолжим)
-                await fetch('http://localhost:8000/api/v1/register', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({email, password, full_name: email})
-                }).catch(e => console.log('Регистрация не нужна'));
+// === Auth ===
+async function register() {
+  const email = emailInput.value.trim();
+  const password = passwordInput.value.trim();
+  if (!email || !password) { authMsg.innerText = 'Заполните все поля'; return; }
+  try {
+    const res = await fetch(API + "/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, full_name: email })
+    });
+    const data = await res.json();
+    if (!res.ok) { authMsg.innerText = data.detail || 'Ошибка'; return; }
+    authMsg.innerText = data.message;
+    await login(); // авто‑логин
+  } catch (e) { authMsg.innerText = 'Ошибка сети'; }
+}
 
-                // Логинимся
-                const formData = new URLSearchParams();
-                formData.append('username', email);
-                formData.append('password', password);
+async function login() {
+  const email = emailInput.value.trim();
+  const password = passwordInput.value.trim();
+  if (!email || !password) { authMsg.innerText = 'Заполните все поля'; return; }
+  try {
+    const form = new URLSearchParams();
+    form.append("email", email);
+    form.append("password", password);
+    const res = await fetch(API + "/login", { method: "POST", body: form });
+    const data = await res.json();
+    if (!res.ok) { authMsg.innerText = data.detail || 'Ошибка входа'; return; }
+    token = data.access_token;
+    authBlock.style.display = "none";
+    appBlock.style.display = "block";
+    dateInput.value = new Date().toISOString().split("T")[0];
+    loadLog();
+  } catch (e) { authMsg.innerText = 'Ошибка сети'; }
+}
 
-                const resp = await fetch('http://localhost:8000/api/v1/token', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                    body: formData
-                });
+function logout() {
+  token = null;
+  authBlock.style.display = "block";
+  appBlock.style.display = "none";
+  mealsDiv.innerHTML = '';
+  calSpan.innerText = '0';
+  progressDiv.style.width = '0%';
+}
 
-                if (resp.ok) {
-                    const data = await resp.json();
-                    token = data.access_token;
-                    currentUser = {email};
+// === Daily Log ===
+async function loadLog() {
+  if (!token) return;
+  try {
+    const res = await fetch(API + "/daily-log?date_str=" + dateInput.value, {
+      headers: { Authorization: "Bearer " + token }
+    });
+    if (!res.ok) throw new Error('Failed to load');
+    const log = await res.json();
+    calSpan.innerText = Math.round(log.total_calories);
+    progressDiv.style.width = Math.min(100, log.total_calories / 2000 * 100) + "%";
+    renderMeals(log.meals);
+  } catch (e) { console.error(e); }
+}
 
-                    document.getElementById('authSection').style.display = 'none';
-                    document.getElementById('dashboardSection').style.display = 'block';
-                    document.getElementById('analyzeBtn').disabled = false;
+function renderMeals(meals) {
+  const groups = { breakfast: [], lunch: [], dinner: [], snacks: [] };
+  meals.forEach(m => {
+    const type = m.meal_type || "snacks";
+    if (groups[type]) groups[type].push(m);
+  });
 
-                    showMessage('analyzeResult', '✅ Авторизация успешна! Теперь можно загружать фото.', 'success');
-                    loadHistory(); // Загружаем историю при входе
-                } else {
-                    const error = await resp.json();
-                    showMessage('authMessage', error.detail || 'Ошибка входа');
-                }
-            } catch (error) {
-                showMessage('authMessage', 'Ошибка сети');
-            }
-        };
+  const labels = {
+    breakfast: "Завтрак",
+    lunch: "Обед",
+    dinner: "Ужин",
+    snacks: "Перекусы"
+  };
 
-        // Регистрация (отдельная кнопка, но логика та же)
-        document.getElementById('regBtn').onclick = () => {
-            document.getElementById('loginBtn').click();
-        };
+  mealsDiv.innerHTML = "";
+  for (let key in groups) {
+    let html = `
+      <div class="card">
+        <div class="meal-header">
+          <b>${labels[key]}</b>
+        <button class="btn-small" data-mealtype="${key}">Фото</button>
+        </div>`;
 
-        // Анализ фото
-        document.getElementById('analyzeBtn').onclick = async () => {
-            const fileInput = document.getElementById('photo');
-            const file = fileInput.files[0];
+    groups[key].forEach(m => {
+      html += `
+        <div class="meal-item">
+          <div>
+            ${m.food_name}
+            <div class="macros">${Math.round(m.calories)} ккал</div>
+          </div>
+          <button class="btn-small btn-danger" data-mealid="${m.id}">❌</button>
+        </div>`;
+    });
 
-            if (!file) {
-                showMessage('analyzeResult', 'Выберите фото для анализа');
-                return;
-            }
+    html += `</div>`;
+    mealsDiv.innerHTML += html;
+  }
 
-            const formData = new FormData();
-            formData.append('file', file);
+  // Attach events
+  document.querySelectorAll('[data-mealtype]').forEach(btn => {
+    btn.addEventListener('click', () => uploadPhoto(btn.dataset.mealtype));
+  });
+  document.querySelectorAll('[data-mealid]').forEach(btn => {
+    btn.addEventListener('click', () => deleteMeal(parseInt(btn.dataset.mealid)));
+  });
+}
 
-            document.getElementById('analyzeBtn').disabled = true;
-            document.getElementById('analyzeBtn').innerHTML = '⏳ Анализируем...';
+// === Manual Meal ===
+function openModal() { modalOverlay.style.display = "flex"; }
+function closeModal() {
+  modalOverlay.style.display = "none";
+  mName.value = ''; mCal.value = ''; mP.value = ''; mF.value = ''; mC.value = ''; mW.value = '';
+}
 
-            try {
-                const resp = await fetch('http://localhost:8000/api/v1/analyze', {
-                    method: 'POST',
-                    headers: {'Authorization': `Bearer ${token}`},
-                    body: formData
-                });
+async function saveMeal() {
+  if (!token) return;
+  const payload = {
+    food_name: mName.value,
+    calories: +mCal.value,
+    protein_g: +mP.value,
+    fat_g: +mF.value,
+    carbs_g: +mC.value,
+    weight_g: +mW.value || 0,
+    meal_type: mType.value
+    // Поле date не отправляем — бэк сам подставит текущую дату
+  };
 
-                if (resp.ok) {
-                    const task = await resp.json();
-                    document.getElementById('analyzeResult').innerHTML = `
-                        <div class="loading">🔄 Анализ запущен (ID: ${task.id}). Ожидайте результат...</div>
-                    `;
+  try {
+    const res = await fetch(API + "/meals", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.detail || 'Ошибка сохранения');
+      return;
+    }
+    closeModal();
+    loadLog();
+  } catch (e) { alert('Ошибка сети'); }
+}
 
-                    // Опрашиваем статус каждые 2 секунды
-                    const interval = setInterval(async () => {
-                        try {
-                            const statusResp = await fetch(`http://localhost:8000/api/v1/task/${task.id}`, {
-                                headers: {'Authorization': `Bearer ${token}`}
-                            });
-                            const status = await statusResp.json();
+async function deleteMeal(id) {
+  if (!token) return;
+  try {
+    const res = await fetch(API + "/meals/" + id, {
+      method: "DELETE",
+      headers: { Authorization: "Bearer " + token }
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.detail || 'Ошибка удаления');
+      return;
+    }
+    loadLog();
+  } catch (e) { alert('Ошибка сети'); }
+}
 
-                            if (status.status === 'success') {
-                                clearInterval(interval);
-                                const r = status.result;
-                                document.getElementById('analyzeResult').innerHTML = `
-                                    <div class="result-card">
-                                        <div class="result-title">🍽️ Результат анализа</div>
-                                        <div class="result-item">
-                                            <span class="result-label">Блюдо:</span>
-                                            <span class="result-value">${r.food}</span>
-                                        </div>
-                                        <div class="result-item">
-                                            <span class="result-label">Вес:</span>
-                                            <span class="result-value">${r.weight_g} г</span>
-                                        </div>
-                                        <div class="result-item">
-                                            <span class="result-label">Калории:</span>
-                                            <span class="result-value">${r.calories} ккал</span>
-                                        </div>
-                                        <div class="result-item">
-                                            <span class="result-label">Белки:</span>
-                                            <span class="result-value">${r.protein_g} г</span>
-                                        </div>
-                                        <div class="result-item">
-                                            <span class="result-label">Жиры:</span>
-                                            <span class="result-value">${r.fat_g} г</span>
-                                        </div>
-                                        <div class="result-item">
-                                            <span class="result-label">Углеводы:</span>
-                                            <span class="result-value">${r.carbs_g} г</span>
-                                        </div>
-                                    </div>
-                                `;
-                                loadHistory(); // Обновляем историю после анализа
-                            } else if (status.status === 'error') {
-                                clearInterval(interval);
-                                document.getElementById('analyzeResult').innerHTML = `
-                                    <div class="error-message">❌ Ошибка анализа: ${status.error || 'Неизвестная ошибка'}</div>
-                                `;
-                            }
-                        } catch (error) {
-                            clearInterval(interval);
-                            document.getElementById('analyzeResult').innerHTML = `
-                                <div class="error-message">❌ Ошибка при получении результата</div>
-                            `;
-                        }
-                    }, 2000);
-                } else {
-                    const error = await resp.json();
-                    showMessage('analyzeResult', `Ошибка: ${error.detail || 'Не удалось запустить анализ'}`);
-                }
-            } catch (error) {
-                showMessage('analyzeResult', 'Ошибка сети');
-            } finally {
-                document.getElementById('analyzeBtn').disabled = false;
-                document.getElementById('analyzeBtn').innerHTML = '🔍 Проанализировать';
-            }
-        };
+// === Photo Upload & Analysis ===
+function uploadPhoto(type) {
+  selectedMealType = type;
+  photoInput.click();
+}
 
-        // Загрузка истории
-        async function loadHistory() {
-            if (!token) return;
+photoInput.addEventListener("change", async () => {
+  const file = photoInput.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append("file", file);
 
-            document.getElementById('historyList').innerHTML = '<div class="loading">Загружаем историю...</div>';
+  try {
+    const res = await fetch(API + "/analyze", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token },
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.detail || 'Ошибка анализа');
+      return;
+    }
+    const task = await res.json();
+    currentTaskId = task.id;
+    pollTask(task.id);
+  } catch (e) { alert('Ошибка сети'); }
+  finally { photoInput.value = ''; }
+});
 
-            try {
-                const resp = await fetch('http://localhost:8000/api/v1/tasks?limit=20', {
-                    headers: {'Authorization': `Bearer ${token}`}
-                });
+function pollTask(id) {
+  const interval = setInterval(async () => {
+    try {
+      const res = await fetch(API + "/task/" + id, {
+        headers: { Authorization: "Bearer " + token }
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        clearInterval(interval);
+        saveMealFromAnalysis(currentTaskId);
+      } else if (data.status === "error") {
+        clearInterval(interval);
+        alert('Ошибка анализа: ' + (data.error || 'неизвестно'));
+      }
+    } catch (e) {
+      clearInterval(interval);
+      alert('Ошибка опроса');
+    }
+  }, 2000);
+}
 
-                if (resp.ok) {
-                    const tasks = await resp.json();
+async function saveMealFromAnalysis(taskId) {
+  if (!token) return;
+  try {
+    const res = await fetch(API + "/meals/from-analysis", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token
+      },
+      body: JSON.stringify({
+        task_id: taskId,
+        meal_type: selectedMealType
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.detail || 'Ошибка сохранения');
+      return;
+    }
+    loadLog();
+    currentTaskId = null;
+  } catch (e) { alert('Ошибка сети'); }
+}
 
-                    if (tasks.length === 0) {
-                        document.getElementById('historyList').innerHTML = '<p style="text-align: center; color: #718096; padding: 40px;">История анализов пуста</p>';
-                        return;
-                    }
-
-                    const historyHtml = tasks.map(task => {
-                        let statusClass = 'status-pending';
-                        let statusText = 'Ожидание';
-
-                        if (task.status === 'success') {
-                            statusClass = 'status-success';
-                            statusText = 'Готово';
-                        } else if (task.status === 'failure') {
-                            statusClass = 'status-error';
-                            statusText = 'Ошибка';
-                        }
-
-                        const date = new Date(task.created_at).toLocaleString('ru-RU');
-
-                        let resultHtml = '';
-                        if (task.result) {
-                            resultHtml = `
-                                <div style="margin-top: 10px; padding: 10px; background: #f0f4f8; border-radius: 5px;">
-                                    <strong>${task.result.food}</strong> - ${task.result.calories} ккал, ${task.result.weight_g} г
-                                </div>
-                            `;
-                        } else if (task.error) {
-                            resultHtml = `<div style="margin-top: 10px; color: #e53e3e;">Ошибка: ${task.error}</div>`;
-                        }
-
-                        return `
-                            <div class="history-item">
-                                <div class="history-date">${date}</div>
-                                <div class="history-status ${statusClass}">${statusText}</div>
-                                ${resultHtml}
-                            </div>
-                        `;
-                    }).join('');
-
-                    document.getElementById('historyList').innerHTML = historyHtml;
-                } else {
-                    document.getElementById('historyList').innerHTML = '<div class="error-message">Не удалось загрузить историю</div>';
-                }
-            } catch (error) {
-                document.getElementById('historyList').innerHTML = '<div class="error-message">Ошибка сети</div>';
-            }
-        }
-
-        // Выход
-        document.getElementById('logoutBtn').onclick = () => {
-            token = null;
-            currentUser = null;
-            document.getElementById('authSection').style.display = 'block';
-            document.getElementById('dashboardSection').style.display = 'none';
-            document.getElementById('email').value = '';
-            document.getElementById('password').value = '';
-            document.getElementById('photo').value = '';
-            document.getElementById('analyzeResult').innerHTML = '';
-            document.getElementById('historyList').innerHTML = '';
-            document.getElementById('uploadContent').innerHTML = `
-                <div class="upload-text">📸 Загрузите фото тарелки</div>
-                <div class="upload-subtext">Нажмите или перетащите файл сюда</div>
-            `;
-        };
-
-        // Drag and drop для загрузки фото
-        const uploadArea = document.querySelector('.upload-area');
-        const fileInput = document.getElementById('photo');
-
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
-        });
-
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                // Используем DataTransfer для установки файлов в input
-                const dt = new DataTransfer();
-                dt.items.add(files[0]);
-                fileInput.files = dt.files;
-                // Вызываем change event
-                fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        });
-
-        // Обновление состояния кнопки анализа при выборе файла и отображение превью
-        fileInput.addEventListener('change', () => {
-            const file = fileInput.files[0];
-            const uploadContent = document.getElementById('uploadContent');
-            
-            if (file) {
-                // Отображаем превью
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    uploadContent.innerHTML = `
-                        <img src="${e.target.result}" style="max-width: 100%; max-height: 300px; border-radius: 8px;">
-                        <div class="upload-text" style="margin-top: 10px;">✅ Фото загружено: ${file.name}</div>
-                    `;
-                };
-                reader.readAsDataURL(file);
-                
-                // Включаем кнопку анализа
-                document.getElementById('analyzeBtn').disabled = false;
-                console.log('Файл загружен:', file.name);
-            } else {
-                // Восстанавливаем исходное содержимое
-                uploadContent.innerHTML = `
-                    <div class="upload-text">📸 Загрузите фото тарелки</div>
-                    <div class="upload-subtext">Нажмите или перетащите файл сюда</div>
-                `;
-                document.getElementById('analyzeBtn').disabled = true;
-            }
-        });
-    </script>
+// === Events ===
+document.getElementById('registerBtn').addEventListener('click', register);
+document.getElementById('loginBtn').addEventListener('click', login);
+document.getElementById('logoutBtn').addEventListener('click', logout);
+fabAdd.addEventListener('click', openModal);
+document.getElementById('saveMealBtn').addEventListener('click', saveMeal);
+document.getElementById('cancelMealBtn').addEventListener('click', closeModal);
+dateInput.addEventListener('change', loadLog);
+modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(); });
+</script>
 </body>
 </html>

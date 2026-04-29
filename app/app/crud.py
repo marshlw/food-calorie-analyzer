@@ -1,11 +1,9 @@
 # app/crud.py
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload, Session
 from typing import List, Optional, Dict, Any
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from . import models, schemas
 import logging
 
@@ -25,24 +23,6 @@ def safe_float(v, default=0):
     except:
         return default
 
-# ==================== ASYNC CRUD ====================
-
-async def get_user_by_email(db: AsyncSession, email: str) -> Optional[models.User]:
-    result = await db.execute(select(models.User).where(models.User.email == email))
-    return result.scalar_one_or_none()
-
-
-async def create_user(db: AsyncSession, user: schemas.UserCreate, hashed_password: str) -> models.User:
-    db_user = models.User(
-        email=user.email,
-        full_name=user.full_name,
-        hashed_password=hashed_password
-    )
-    db.add(db_user)
-    await db.commit()
-    await db.refresh(db_user)
-    return db_user
-
 
 def get_user_by_email_sync(db: Session, email: str) -> Optional[models.User]:
     return db.query(models.User).filter(models.User.email == email).first()
@@ -60,58 +40,47 @@ def create_user_sync(db: Session, user: schemas.UserCreate, hashed_password: str
     return db_user
 
 
-async def create_task(db: AsyncSession, user_id: int, image_hash: Optional[str] = None) -> models.Task:
+def create_task(db: Session, user_id: int, image_path: str, image_hash: Optional[str] = None) -> models.Task:
     task_id = str(uuid.uuid4())
     task = models.Task(
         id=task_id,
         user_id=user_id,
+        image_path=image_path,
         status=models.TaskStatus.PENDING,
         image_hash=image_hash
     )
     db.add(task)
-    await db.commit()
-    await db.refresh(task)
+    db.commit()
+    db.refresh(task)
     return task
 
 
-async def get_task(db: AsyncSession, task_id: str) -> Optional[models.Task]:
-    result = await db.execute(
-        select(models.Task).where(models.Task.id == task_id)
-    )
-    return result.scalar_one_or_none()
+def get_task(db: Session, task_id: str) -> Optional[models.Task]:
+    return db.query(models.Task).filter(models.Task.id == task_id).first()
 
 
-async def update_task(
-    db: AsyncSession,
+def update_task(
+    db: Session,
     task_id: str,
     status: models.TaskStatus,
     result: Optional[dict] = None,
     error: Optional[str] = None
 ) -> Optional[models.Task]:
 
-    task = await get_task(db, task_id)
+    task = get_task(db, task_id)
     if not task:
         return None
 
-    update_data = {
-        "status": status,
-        "updated_at": datetime.utcnow()
-    }
-
     if result is not None:
-        update_data["result_json"] = json.dumps(result, ensure_ascii=False)
+        task.result_json = json.dumps(result, ensure_ascii=False)
 
     if error:
-        update_data["error"] = error
+        task.error = error
 
-    await db.execute(
-        update(models.Task)
-        .where(models.Task.id == task_id)
-        .values(**update_data)
-    )
-    await db.commit()
-    await db.refresh(task)
-
+    task.status = status
+    task.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(task)
     return task
 
 
@@ -126,107 +95,85 @@ def get_tasks_by_user_sync(db: Session, user_id: int, limit: int = 50, offset: i
     )
 
 
-# ==================== MEALS ====================
+def get_task_by_id_sync(db: Session, task_id: str) -> Optional[models.Task]:
+    return db.query(models.Task).filter(models.Task.id == task_id).first()
 
-async def create_meal(db: AsyncSession, meal: schemas.MealCreate, user_id: int) -> models.Meal:
-    db_meal = models.Meal(
+
+def get_or_create_daily_log(db: Session, user_id: int, date_value: date) -> models.DailyLog:
+    daily_log = db.query(models.DailyLog).filter(
+        models.DailyLog.user_id == user_id,
+        models.DailyLog.date == date_value
+    ).first()
+
+    if daily_log:
+        return daily_log
+
+    daily_log = models.DailyLog(
         user_id=user_id,
-        meal_type=meal.meal_type,
-        notes=meal.notes
+        date=date_value
     )
-    db.add(db_meal)
-    await db.commit()
-    await db.refresh(db_meal)
-
-    total_calories = 0
-    total_protein = 0
-    total_fat = 0
-    total_carbs = 0
-
-    for item in meal.items:
-        db_item = models.MealItem(
-            meal_id=db_meal.id,
-            **item.dict()
-        )
-        db.add(db_item)
-
-        total_calories += item.calories
-        total_protein += item.protein_g
-        total_fat += item.fat_g
-        total_carbs += item.carbs_g
-
-    db_meal.total_calories = total_calories
-    db_meal.total_protein = total_protein
-    db_meal.total_fat = total_fat
-    db_meal.total_carbs = total_carbs
-
-    await db.commit()
-    await db.refresh(db_meal)
-
-    return db_meal
+    db.add(daily_log)
+    db.commit()
+    db.refresh(daily_log)
+    return daily_log
 
 
-async def get_user_meals(
-    db: AsyncSession,
-    user_id: int,
-    limit: int = 50,
-    offset: int = 0
-) -> List[models.Meal]:
+def add_meal_entry(db: Session, user_id: int, meal_data: schemas.MealEntryCreate, target_date: Optional[date] = None, task_id: Optional[str] = None) -> models.MealEntry:
+    target_date = target_date or date.today()
+    daily_log = get_or_create_daily_log(db, user_id, target_date)
 
-    result = await db.execute(
-        select(models.Meal)
-        .where(models.Meal.user_id == user_id)
-        .options(selectinload(models.Meal.items))
-        .order_by(models.Meal.date.desc())
-        .limit(limit)
-        .offset(offset)
+    meal_entry = models.MealEntry(
+        daily_log_id=daily_log.id,
+        food_name=meal_data.food_name,
+        calories=meal_data.calories,
+        protein_g=meal_data.protein_g,
+        fat_g=meal_data.fat_g,
+        carbs_g=meal_data.carbs_g,
+        weight_g=meal_data.weight_g,
+        meal_type=getattr(meal_data, 'meal_type', 'snacks'),
+        task_id=task_id
     )
-    return result.scalars().all()
+    db.add(meal_entry)
+    db.commit()
+    db.refresh(meal_entry)
+    return meal_entry
 
 
-# ==================== PHOTO ====================
+def get_daily_log(db: Session, user_id: int, date_value: date) -> Optional[models.DailyLog]:
+    return db.query(models.DailyLog).options(selectinload(models.DailyLog.entries)).filter(
+        models.DailyLog.user_id == user_id,
+        models.DailyLog.date == date_value
+    ).first()
 
-async def create_photo(
-    db: AsyncSession,
-    meal_item_id: int,
-    storage_path: str,
-    thumbnail_path: Optional[str],
-    file_hash: str,
-    original_filename: Optional[str] = None,
-    file_size: Optional[int] = None
-) -> models.Photo:
 
-    photo = models.Photo(
-        meal_item_id=meal_item_id,
-        storage_path=storage_path,
-        thumbnail_path=thumbnail_path,
-        file_hash=file_hash,
-        original_filename=original_filename,
-        file_size=file_size
-    )
-    db.add(photo)
-    await db.commit()
-    await db.refresh(photo)
-    return photo
+def get_meal_entry_sync(db: Session, meal_entry_id: int) -> Optional[models.MealEntry]:
+    return db.query(models.MealEntry).filter(models.MealEntry.id == meal_entry_id).first()
 
+
+def calculate_daily_totals(log: models.DailyLog) -> Dict[str, float]:
+    total_calories = 0.0
+    total_protein = 0.0
+    total_fat = 0.0
+    total_carbs = 0.0
+
+    for entry in log.entries:
+        total_calories += entry.calories
+        total_protein += entry.protein_g
+        total_fat += entry.fat_g
+        total_carbs += entry.carbs_g
+
+    return {
+        "total_calories": round(total_calories, 1),
+        "total_protein": round(total_protein, 1),
+        "total_fat": round(total_fat, 1),
+        "total_carbs": round(total_carbs, 1)
+    }
+
+
+# ==================== MEALS ====================
 
 # ==================== 🔥 SYNC FEEDBACK ====================
 
-def create_analysis_task_sync(db: Session, task_id: str, image_path: str) -> models.AnalysisTask:
-    analysis_task = models.AnalysisTask(
-        task_id=task_id,
-        image_path=image_path
-    )
-    db.add(analysis_task)
-    db.commit()
-    db.refresh(analysis_task)
-    return analysis_task
-
-
-def get_analysis_task_sync(db: Session, task_id: str) -> Optional[models.AnalysisTask]:
-    return db.query(models.AnalysisTask).filter(
-        models.AnalysisTask.task_id == task_id
-    ).first()
 
 
 # ==================== 🔥 ОБУЧЕНИЕ ====================

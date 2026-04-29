@@ -1,7 +1,7 @@
 # app/schemas.py
 from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, date
 import json
 import logging
 
@@ -98,6 +98,44 @@ class MealItemCreate(MealItemBase):
     pass
 
 
+class MealEntryCreate(BaseModel):
+    food_name: str
+    calories: float = Field(..., ge=0)
+    protein_g: float = Field(..., ge=0)
+    fat_g: float = Field(..., ge=0)
+    carbs_g: float = Field(..., ge=0)
+    weight_g: float = Field(..., gt=0)
+    meal_type: str = "snacks"
+
+
+class MealEntryResponse(BaseModel):
+    id: int
+    food_name: str
+    calories: float
+    protein_g: float
+    fat_g: float
+    carbs_g: float
+    weight_g: float
+    meal_type: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DailyLogResponse(BaseModel):
+    date: date
+    total_calories: float
+    total_protein: float
+    total_fat: float
+    total_carbs: float
+    meals: List[MealEntryResponse]
+
+
+class AnalysisMealRequest(BaseModel):
+    task_id: str
+
+
 class MealItem(MealItemBase):
     id: int
 
@@ -151,7 +189,6 @@ class FeedbackRequest(BaseModel):
     task_id: str
     correct_food: str = Field(..., min_length=1, max_length=200)
     correct_weight: int = Field(..., gt=0, le=10000)
-    user_id: Optional[int] = None
 
 
 class FeedbackResponse(BaseModel):

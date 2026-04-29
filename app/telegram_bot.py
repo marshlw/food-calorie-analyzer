@@ -1,9 +1,9 @@
 # app/telegram_bot.py
+
 import asyncio
 import logging
 import os
 import sys
-from uuid import uuid4
 
 import aiohttp
 from aiogram import Bot, Dispatcher, F
@@ -31,8 +31,132 @@ bot = Bot(token=TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
+# 🔥 хранение токенов
+user_tokens: dict[int, str] = {}
+
+# ===================== AUTH =====================
+
+async def register_user(user_id: int) -> bool:
+    email = f"{user_id}@tg.local"
+    password = str(user_id)
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(
+                f"{API_URL}/api/v1/register",
+                json={"email": email, "password": password},
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    logger.info(f"User {user_id} registered successfully")
+                    return True
+                elif resp.status == 400:
+                    logger.info(f"User {user_id} already exists")
+                    return True
+                else:
+                    logger.error(f"Register failed for {user_id}: {resp.status}")
+                    return False
+        except Exception as e:
+            logger.error(f"Register error for {user_id}: {e}")
+            return False
+
+
+async def login_user(user_id: int) -> str | None:
+    email = f"{user_id}@tg.local"
+    password = str(user_id)
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            form = aiohttp.FormData()
+            form.add_field("email", email)
+            form.add_field("password", password)
+
+            async with session.post(
+                f"{API_URL}/api/v1/login",
+                data=form,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    token = data.get("access_token")
+                    if token:
+                        logger.info(f"User {user_id} logged in successfully")
+                        return token
+                    else:
+                        logger.error(f"Login response missing token for {user_id}")
+                        return None
+                else:
+                    logger.error(f"Login failed for {user_id}: {resp.status}")
+                    return None
+        except Exception as e:
+            logger.error(f"Login error for {user_id}: {e}")
+            return None
+
+
+async def register_and_login(user_id: int) -> str | None:
+    # Сначала пытаемся зарегистрировать (если не существует)
+    await register_user(user_id)
+    # Затем логинимся
+    return await login_user(user_id)
+
+
+async def get_token(user_id: int) -> str | None:
+    if user_id in user_tokens:
+        return user_tokens[user_id]
+
+    token = await register_and_login(user_id)
+    if token:
+        user_tokens[user_id] = token
+
+    return token
+
+
+async def refresh_token(user_id: int) -> str | None:
+    """Обновляет токен для пользователя"""
+    user_tokens.pop(user_id, None)
+    return await get_token(user_id)
+
+
+async def make_authenticated_request(method: str, url: str, user_id: int, **kwargs) -> aiohttp.ClientResponse | None:
+    """Делает запрос с авторизацией, автоматически обновляя токен при 401"""
+    token = await get_token(user_id)
+    if not token:
+        return None
+
+    headers = kwargs.get('headers', {})
+    headers['Authorization'] = f"Bearer {token}"
+    kwargs['headers'] = headers
+    kwargs.setdefault('timeout', aiohttp.ClientTimeout(total=30))
+
+    async with aiohttp.ClientSession() as session:
+        for attempt in range(2):  # Одна попытка с текущим токеном, вторая с новым
+            try:
+                async with session.request(method, url, **kwargs) as resp:
+                    if resp.status == 401 and attempt == 0:
+                        # Токен истек, обновляем и повторяем
+                        logger.warning(f"Token expired for user {user_id}, refreshing")
+                        token = await refresh_token(user_id)
+                        if token:
+                            headers['Authorization'] = f"Bearer {token}"
+                            continue
+                        else:
+                            return None
+                    return resp
+            except Exception as e:
+                logger.error(f"Request error: {e}")
+                return None
+    return None
+
 
 # ===================== FSM =====================
+
+class AuthStates(StatesGroup):
+    waiting_for_email = State()
+    waiting_for_password = State()
+    waiting_for_confirm_password = State()
+    waiting_for_login_email = State()
+    waiting_for_login_password = State()
+
 
 class FeedbackStates(StatesGroup):
     waiting_for_correct_food = State()
@@ -44,11 +168,9 @@ class FeedbackStates(StatesGroup):
 def format_result(result: dict) -> str:
     confidence = result.get('confidence', 0) * 100
 
-    # 🔥 источник
     source = result.get("source", "")
     source_text = "⚡ Из кеша\n" if source == "cache" else ""
 
-    # 🔥 ингредиенты
     ingredients = result.get("ingredients", [])
     if ingredients:
         ingredients_text = "\n".join(
@@ -89,125 +211,279 @@ def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📸 Отправить фото еды")],
+            [KeyboardButton(text="🔐 Авторизоваться"), KeyboardButton(text="📝 Зарегистрироваться")],
+            [KeyboardButton(text="📊 Статус"), KeyboardButton(text="🚪 Выйти")]
+        ],
+        resize_keyboard=True
+    )
+
+
 # ===================== HANDLERS =====================
 
 @dp.message(Command("start"))
 async def start(msg: Message):
-    await msg.answer("📸 Отправь фото еды — я посчитаю КБЖУ")
+    await msg.answer(
+        "👋 Добро пожаловать в AI Healthy Bot!\n\n"
+        "Я помогу проанализировать вашу еду по фото.\n\n"
+        "Выберите действие:",
+        reply_markup=get_main_menu_keyboard()
+    )
+
+
+@dp.message(F.text == "📊 Статус")
+async def status(msg: Message):
+    token = await get_token(msg.from_user.id)
+    if token:
+        await msg.answer("✅ Вы авторизованы", reply_markup=get_main_menu_keyboard())
+    else:
+        await msg.answer("❌ Вы не авторизованы", reply_markup=get_main_menu_keyboard())
+
+
+@dp.message(F.text == "� Отправить фото еды")
+async def send_photo_prompt(msg: Message):
+    token = await get_token(msg.from_user.id)
+    if not token:
+        await msg.answer(
+            "❌ Вы не авторизованы. Пожалуйста, авторизуйтесь сначала.",
+            reply_markup=get_main_menu_keyboard()
+        )
+    else:
+        await msg.answer(
+            "📸 Отправьте фото еды для анализа",
+            reply_markup=get_main_menu_keyboard()
+        )
+
+
+@dp.message(F.text == "📝 Зарегистрироваться")
+async def register_command(msg: Message, state: FSMContext):
+    await state.set_state(AuthStates.waiting_for_email)
+    await msg.answer(
+        "📧 Введите ваш email:",
+        reply_markup=get_cancel_keyboard()
+    )
+
+
+@dp.message(F.text == "🔐 Авторизоваться")
+async def login_command(msg: Message, state: FSMContext):
+    await state.set_state(AuthStates.waiting_for_login_email)
+    await msg.answer(
+        "📧 Введите ваш email:",
+        reply_markup=get_cancel_keyboard()
+    )
+
+
+# ===================== AUTH HANDLERS =====================
+
+@dp.message(AuthStates.waiting_for_email)
+async def process_register_email(message: Message, state: FSMContext):
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await message.answer("Регистрация отменена", reply_markup=get_main_menu_keyboard())
+        return
+
+    email = message.text.strip()
+    if "@" not in email or "." not in email:
+        await message.answer("❌ Неверный формат email. Попробуйте снова:")
+        return
+
+    await state.update_data(email=email)
+    await state.set_state(AuthStates.waiting_for_password)
+    await message.answer(
+        "🔒 Введите пароль (минимум 8 символов):",
+        reply_markup=get_cancel_keyboard()
+    )
+
+
+@dp.message(AuthStates.waiting_for_password)
+async def process_register_password(message: Message, state: FSMContext):
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await message.answer("Регистрация отменена", reply_markup=get_main_menu_keyboard())
+        return
+
+    password = message.text.strip()
+    if len(password) < 8:
+        await message.answer("❌ Пароль должен быть минимум 8 символов. Попробуйте снова:")
+        return
+
+    await state.update_data(password=password)
+    await state.set_state(AuthStates.waiting_for_confirm_password)
+    await message.answer(
+        "🔒 Подтвердите пароль:",
+        reply_markup=get_cancel_keyboard()
+    )
+
+
+@dp.message(AuthStates.waiting_for_confirm_password)
+async def process_register_confirm(message: Message, state: FSMContext):
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await message.answer("Регистрация отменена", reply_markup=get_main_menu_keyboard())
+        return
+
+    data = await state.get_data()
+    password = data.get("password")
+    confirm = message.text.strip()
+
+    if password != confirm:
+        await message.answer("❌ Пароли не совпадают. Попробуйте снова:")
+        return
+
+    # Регистрация
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(
+                f"{API_URL}/api/v1/register",
+                json={"email": data["email"], "password": password},
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    await message.answer("✅ Регистрация успешна! Теперь авторизуйтесь.", reply_markup=get_main_menu_keyboard())
+                elif resp.status == 400:
+                    await message.answer("❌ Пользователь уже существует", reply_markup=get_main_menu_keyboard())
+                else:
+                    await message.answer("❌ Ошибка регистрации", reply_markup=get_main_menu_keyboard())
+        except Exception as e:
+            logger.error(f"Register error: {e}")
+            await message.answer("❌ Ошибка соединения", reply_markup=get_main_menu_keyboard())
+
+    await state.clear()
+
+
+@dp.message(AuthStates.waiting_for_login_email)
+async def process_login_email(message: Message, state: FSMContext):
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await message.answer("Авторизация отменена", reply_markup=get_main_menu_keyboard())
+        return
+
+    email = message.text.strip()
+    if "@" not in email or "." not in email:
+        await message.answer("❌ Неверный формат email. Попробуйте снова:")
+        return
+
+    await state.update_data(email=email)
+    await state.set_state(AuthStates.waiting_for_login_password)
+    await message.answer(
+        "🔒 Введите пароль:",
+        reply_markup=get_cancel_keyboard()
+    )
+
+
+@dp.message(AuthStates.waiting_for_login_password)
+async def process_login_password(message: Message, state: FSMContext):
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await message.answer("Авторизация отменена", reply_markup=get_main_menu_keyboard())
+        return
+
+    data = await state.get_data()
+    email = data.get("email")
+    password = message.text.strip()
+
+    # Логин
+    async with aiohttp.ClientSession() as session:
+        try:
+            form = aiohttp.FormData()
+            form.add_field("email", email)
+            form.add_field("password", password)
+
+            async with session.post(
+                f"{API_URL}/api/v1/login",
+                data=form,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    login_data = await resp.json()
+                    token = login_data.get("access_token")
+                    if token:
+                        user_tokens[message.from_user.id] = token
+                        await message.answer("✅ Авторизация успешна!", reply_markup=get_main_menu_keyboard())
+                    else:
+                        await message.answer("❌ Ошибка получения токена", reply_markup=get_main_menu_keyboard())
+                else:
+                    await message.answer("❌ Неверный email или пароль", reply_markup=get_main_menu_keyboard())
+        except Exception as e:
+            logger.error(f"Login error: {e}")
+            await message.answer("❌ Ошибка соединения", reply_markup=get_main_menu_keyboard())
+
+    await state.clear()
 
 
 @dp.message(F.photo)
 async def handle_photo(message: Message, state: FSMContext):
+    token = await get_token(message.from_user.id)
+    if not token:
+        await message.answer(
+            "❌ Вы не авторизованы. Пожалуйста, авторизуйтесь сначала.",
+            reply_markup=get_main_menu_keyboard()
+        )
+        return
+
     msg = await message.answer("🔍 Анализирую...")
 
     try:
         photo = message.photo[-1]
-
-        # 🔥 получаем файл как bytes (без сохранения на диск)
         file = await bot.get_file(photo.file_id)
         file_bytes = await bot.download_file(file.file_path)
 
-        # 🔥 RETRY LOGIC
-        max_retries = 3
-        retry_delay = 1
+        # Отправляем файл на анализ
+        form = aiohttp.FormData()
+        form.add_field("file", file_bytes, filename="image.jpg")
+
+        resp = await make_authenticated_request(
+            "POST",
+            f"{API_URL}/api/v1/analyze",
+            message.from_user.id,
+            data=form
+        )
+
+        if not resp or resp.status != 200:
+            await msg.edit_text("❌ Ошибка при отправке изображения")
+            return
+
+        task = await resp.json()
+        task_id = task["id"]
+
+        # Ждем результат
         result = None
+        delay = 1
 
-        for attempt in range(max_retries):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    form = aiohttp.FormData()
-                    form.add_field("file", file_bytes, filename="image.jpg")
+        for _ in range(40):  # Максимум 40 попыток
+            await asyncio.sleep(delay)
+            delay = min(delay * 1.2, 5)
 
-                    # 🔹 отправка в API с timeout
-                    try:
-                        async with session.post(
-                            f"{API_URL}/api/v1/analyze",
-                            data=form,
-                            timeout=aiohttp.ClientTimeout(total=30)
-                        ) as resp:
-                            if resp.status != 200:
-                                logger.error(f"Analyze API error: {resp.status}")
-                                if attempt < max_retries - 1:
-                                    await asyncio.sleep(retry_delay)
-                                    retry_delay *= 2
-                                    continue
-                                else:
-                                    await msg.edit_text("❌ Ошибка при отправке на анализ")
-                                    return
+            resp = await make_authenticated_request(
+                "GET",
+                f"{API_URL}/api/v1/task/{task_id}",
+                message.from_user.id
+            )
 
-                            task = await resp.json()
+            if not resp or resp.status != 200:
+                continue
 
-                        task_id = task["id"]
+            data = await resp.json()
 
-                        # 🔹 polling с адаптивной задержкой
-                        result = None
-                        delay = 1
-
-                        for poll_attempt in range(40):  # увеличили до 40 попыток
-                            await asyncio.sleep(delay)
-                            delay = min(delay * 1.2, 5)
-
-                            async with session.get(
-                                f"{API_URL}/api/v1/task/{task_id}",
-                                timeout=aiohttp.ClientTimeout(total=10)
-                            ) as resp:
-                                if resp.status != 200:
-                                    logger.warning(f"Task status check failed: {resp.status}")
-                                    continue
-
-                                data = await resp.json()
-
-                                if data["status"] == "success":
-                                    result = data["result"]
-                                    break
-
-                                elif data["status"] in ["failure", "error"]:
-                                    logger.error(f"Task failed: {data.get('error', 'unknown')}")
-                                    break
-
-                        if result:
-                            break  # успешно получили результат
-                        else:
-                            if attempt < max_retries - 1:
-                                logger.info(f"Retrying analysis (attempt {attempt + 2}/{max_retries})")
-                                await asyncio.sleep(retry_delay)
-                                retry_delay *= 2
-                            else:
-                                await msg.edit_text("❌ Не удалось обработать изображение")
-                                return
-
-                    except asyncio.TimeoutError:
-                        logger.warning(f"Request timeout (attempt {attempt + 1}/{max_retries})")
-                        if attempt < max_retries - 1:
-                            await asyncio.sleep(retry_delay)
-                            retry_delay *= 2
-                        else:
-                            await msg.edit_text("❌ Время ожидания истекло")
-                            return
-                    except Exception as e:
-                        logger.warning(f"Request error: {e} (attempt {attempt + 1}/{max_retries})")
-                        if attempt < max_retries - 1:
-                            await asyncio.sleep(retry_delay)
-                            retry_delay *= 2
-                        else:
-                            await msg.edit_text("❌ Ошибка соединения с сервером")
-                            return
-
-            except Exception as e:
-                logger.exception(f"Session error: {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)
-                else:
-                    await msg.edit_text("❌ Ошибка при обработке")
-                    return
+            if data["status"] == "success":
+                result = data["result"]
+                break
+            elif data["status"] == "failure":
+                await msg.edit_text(f"❌ Ошибка анализа: {data.get('error', 'Неизвестная ошибка')}")
+                return
 
         if result:
             await msg.edit_text(
                 format_result(result),
                 reply_markup=get_feedback_keyboard(task_id)
             )
+        else:
+            await msg.edit_text("❌ Не удалось обработать изображение (таймаут)")
 
-    except Exception as e:
+    except Exception:
         logger.exception("Error handling photo")
         await msg.edit_text("❌ Ошибка при обработке")
 
@@ -216,8 +492,9 @@ async def handle_photo(message: Message, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("fb_ok_"))
 async def feedback_ok(callback: CallbackQuery):
-    await callback.answer("Спасибо за подтверждение! 🙏")
+    await callback.answer("Спасибо! 🙏")
     await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer("Спасибо за обратную связь!", reply_markup=get_main_menu_keyboard())
 
 
 @dp.callback_query(F.data.startswith("fb_wrong_"))
@@ -239,19 +516,14 @@ async def feedback_wrong(callback: CallbackQuery, state: FSMContext):
 async def process_correct_food(message: Message, state: FSMContext):
     if message.text == "❌ Отмена":
         await state.clear()
-        await message.answer("Исправление отменено", reply_markup=ReplyKeyboardRemove())
+        await message.answer("Отменено", reply_markup=get_main_menu_keyboard())
         return
 
-    food = message.text.strip()
-    if not food:
-        await message.answer("Название не может быть пустым. Попробуй ещё раз:")
-        return
-
-    await state.update_data(correct_food=food)
+    await state.update_data(correct_food=message.text.strip())
     await state.set_state(FeedbackStates.waiting_for_correct_weight)
 
     await message.answer(
-        "⚖️ Укажи примерный вес в граммах:",
+        "⚖️ Укажи вес:",
         reply_markup=get_cancel_keyboard()
     )
 
@@ -260,49 +532,34 @@ async def process_correct_food(message: Message, state: FSMContext):
 async def process_correct_weight(message: Message, state: FSMContext):
     if message.text == "❌ Отмена":
         await state.clear()
-        await message.answer("Исправление отменено", reply_markup=ReplyKeyboardRemove())
+        await message.answer("Отменено", reply_markup=get_main_menu_keyboard())
         return
 
     try:
-        weight = int(message.text.strip())
-        if weight <= 0 or weight > 10000:
-            raise ValueError
-    except ValueError:
-        await message.answer("Введи число от 1 до 10000")
+        weight = int(message.text)
+    except:
+        await message.answer("Введите число")
         return
 
     data = await state.get_data()
-    task_id = data["task_id"]
-    correct_food = data["correct_food"]
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            payload = {
-                "task_id": task_id,
-                "correct_food": correct_food,
-                "correct_weight": weight,
-                "user_id": message.from_user.id
-            }
+    payload = {
+        "task_id": data["task_id"],
+        "correct_food": data["correct_food"],
+        "correct_weight": weight
+    }
 
-            async with session.post(f"{API_URL}/api/v1/feedback", json=payload) as resp:
-                if resp.status == 200:
-                    await message.answer(
-                        "🙏 Спасибо! Я учту это в будущем.",
-                        reply_markup=ReplyKeyboardRemove()
-                    )
-                else:
-                    logger.warning(f"Feedback API error: {resp.status}")
-                    await message.answer(
-                        "⚠️ Не удалось сохранить, но спасибо!",
-                        reply_markup=ReplyKeyboardRemove()
-                    )
+    resp = await make_authenticated_request(
+        "POST",
+        f"{API_URL}/api/v1/feedback",
+        message.from_user.id,
+        json=payload
+    )
 
-    except Exception:
-        logger.exception("Feedback error")
-        await message.answer(
-            "⚠️ Ошибка соединения с сервером",
-            reply_markup=ReplyKeyboardRemove()
-        )
+    if resp and resp.status == 200:
+        await message.answer("✅ Сохранено", reply_markup=get_main_menu_keyboard())
+    else:
+        await message.answer("⚠️ Ошибка сохранения", reply_markup=get_main_menu_keyboard())
 
     await state.clear()
 

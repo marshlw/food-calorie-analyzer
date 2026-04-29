@@ -1,131 +1,106 @@
-/* style.css - Стили для AI Healthy Frontend */
+/* ================= BASE ================= */
 
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    min-height: 100vh;
-    color: #333;
+    background: linear-gradient(135deg, #f6f9fc, #eef2f7);
+    color: #1a202c;
 }
 
+/* ================= LAYOUT ================= */
+
 .container {
-    max-width: 1200px;
-    margin: 0 auto;
+    max-width: 900px;
+    margin: 40px auto;
     padding: 20px;
 }
 
-.auth-section, .dashboard-section {
+/* ================= AUTH ================= */
+
+.auth-section {
     background: white;
-    border-radius: 15px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
     padding: 30px;
-    margin: 20px auto;
-    max-width: 500px;
+    border-radius: 16px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.05);
 }
 
-.dashboard-section {
-    max-width: 1000px;
-}
-
-h1, h2 {
-    color: #4a5568;
+.auth-section h1 {
     text-align: center;
-    margin-bottom: 30px;
-}
-
-h1 {
-    font-size: 2.5em;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    margin-bottom: 10px;
 }
 
 .form-group {
-    margin-bottom: 20px;
+    margin-bottom: 15px;
 }
 
-label {
-    display: block;
-    margin-bottom: 5px;
-    font-weight: 600;
-    color: #2d3748;
-}
-
-input[type="email"], input[type="password"], input[type="file"] {
+input {
     width: 100%;
     padding: 12px;
-    border: 2px solid #e2e8f0;
-    border-radius: 8px;
-    font-size: 16px;
-    transition: border-color 0.3s;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    transition: 0.2s;
 }
 
-input[type="email"]:focus, input[type="password"]:focus {
-    outline: none;
+input:focus {
     border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    outline: none;
 }
+
+/* ================= BUTTONS ================= */
 
 .btn {
     width: 100%;
     padding: 12px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    color: white;
     border: none;
-    border-radius: 8px;
-    font-size: 16px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #667eea, #5a67d8);
+    color: white;
     font-weight: 600;
     cursor: pointer;
-    transition: transform 0.2s, box-shadow 0.2s;
+    margin-top: 10px;
+    transition: 0.2s;
 }
 
 .btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
-}
-
-.btn:disabled {
-    background: #a0aec0;
-    cursor: not-allowed;
-    transform: none;
+    transform: translateY(-1px);
+    box-shadow: 0 5px 15px rgba(102,126,234,0.3);
 }
 
 .btn-secondary {
-    background: #e2e8f0;
-    color: #4a5568;
+    background: #edf2f7;
+    color: #2d3748;
 }
 
-.btn-secondary:hover {
-    background: #cbd5e0;
+.btn-small {
+    padding: 6px 10px;
+    font-size: 12px;
 }
+
+/* ================= TABS ================= */
 
 .tabs {
     display: flex;
-    margin-bottom: 30px;
-    border-bottom: 2px solid #e2e8f0;
+    gap: 10px;
+    margin-bottom: 20px;
 }
 
 .tab-btn {
     flex: 1;
-    padding: 15px;
-    background: none;
+    padding: 10px;
+    border-radius: 10px;
     border: none;
-    border-bottom: 3px solid transparent;
-    font-size: 16px;
-    font-weight: 600;
+    background: #edf2f7;
     cursor: pointer;
-    transition: all 0.3s;
 }
 
 .tab-btn.active {
-    border-bottom-color: #667eea;
-    color: #667eea;
+    background: #667eea;
+    color: white;
 }
 
 .tab-content {
@@ -136,194 +111,194 @@ input[type="email"]:focus, input[type="password"]:focus {
     display: block;
 }
 
+/* ================= UPLOAD ================= */
+
 .upload-area {
     border: 2px dashed #cbd5e0;
-    border-radius: 10px;
-    padding: 40px;
+    padding: 30px;
     text-align: center;
-    margin: 20px 0;
-    transition: border-color 0.3s;
+    border-radius: 16px;
     cursor: pointer;
+    transition: 0.2s;
+    background: white;
 }
 
-.upload-area:hover, .upload-area.dragover {
+.upload-area.dragover {
     border-color: #667eea;
-    background: rgba(102, 126, 234, 0.05);
-}
-
-.upload-area input[type="file"] {
-    display: none;
+    background: #f0f4ff;
 }
 
 .upload-text {
-    color: #718096;
     font-size: 18px;
-    margin-bottom: 10px;
+    font-weight: 600;
 }
 
 .upload-subtext {
-    color: #a0aec0;
-    font-size: 14px;
+    color: #718096;
 }
 
+/* ================= RESULT ================= */
+
 .result-card {
-    background: #f7fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    margin-top: 20px;
     padding: 20px;
-    margin: 20px 0;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.05);
 }
 
 .result-title {
-    font-size: 20px;
-    font-weight: 600;
-    color: #2d3748;
-    margin-bottom: 15px;
+    font-weight: 700;
+    margin-bottom: 10px;
 }
 
 .result-item {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 10px;
-    padding: 8px 0;
-    border-bottom: 1px solid #edf2f7;
+    margin-bottom: 5px;
 }
 
-.result-label {
-    font-weight: 500;
+/* ================= DAILY LOG ================= */
+
+.daily-log-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    gap: 10px;
 }
 
-.result-value {
+.daily-log-summary {
+    margin-bottom: 20px;
+}
+
+.daily-log-card {
+    background: white;
+    padding: 20px;
+    border-radius: 16px;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.05);
+}
+
+/* ================= MEAL FORM ================= */
+
+.meal-form-card {
+    background: white;
+    padding: 20px;
+    border-radius: 16px;
+    margin-bottom: 20px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.05);
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+}
+
+/* ================= MEALS ================= */
+
+.daily-log-meals {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.daily-log-item {
+    background: white;
+    padding: 15px;
+    border-radius: 12px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.04);
+}
+
+.daily-log-item-title {
     font-weight: 600;
-    color: #667eea;
+    margin-bottom: 5px;
 }
 
-.history-list {
-    max-height: 500px;
-    overflow-y: auto;
+.daily-log-nutrients {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: #4a5568;
 }
+
+.daily-log-actions {
+    margin-top: 10px;
+    display: flex;
+    gap: 10px;
+}
+
+/* ================= HISTORY ================= */
 
 .history-item {
-    background: #f7fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    background: white;
     padding: 15px;
-    margin-bottom: 15px;
-    transition: box-shadow 0.3s;
-}
-
-.history-item:hover {
-    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    border-radius: 12px;
+    margin-bottom: 10px;
 }
 
 .history-date {
-    color: #718096;
-    font-size: 14px;
-    margin-bottom: 10px;
-}
-
-.history-status {
-    display: inline-block;
-    padding: 4px 8px;
-    border-radius: 4px;
     font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
+    color: #718096;
 }
 
 .status-success {
-    background: #c6f6d5;
-    color: #22543d;
-}
-
-.status-pending {
-    background: #fef5e7;
-    color: #744210;
+    color: #38a169;
 }
 
 .status-error {
-    background: #fed7d7;
-    color: #742a2a;
+    color: #e53e3e;
 }
 
-.loading {
-    text-align: center;
-    padding: 40px;
-    color: #718096;
-}
-
-.loading::after {
-    content: '';
-    display: inline-block;
-    width: 20px;
-    height: 20px;
-    border: 3px solid #e2e8f0;
-    border-radius: 50%;
-    border-top-color: #667eea;
-    animation: spin 1s ease-in-out infinite;
-}
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
+/* ================= MESSAGES ================= */
 
 .error-message {
     background: #fed7d7;
-    color: #742a2a;
-    padding: 15px;
+    padding: 10px;
     border-radius: 8px;
-    margin: 20px 0;
-    border-left: 4px solid #e53e3e;
+    color: #c53030;
 }
 
 .success-message {
     background: #c6f6d5;
-    color: #22543d;
-    padding: 15px;
+    padding: 10px;
     border-radius: 8px;
-    margin: 20px 0;
-    border-left: 4px solid #38a169;
+    color: #2f855a;
 }
 
-/* Мобильная адаптация */
-@media (max-width: 768px) {
-    .container {
-        padding: 10px;
-    }
+.loading {
+    text-align: center;
+    padding: 20px;
+    color: #718096;
+}
 
-    .auth-section, .dashboard-section {
-        padding: 20px;
+/* ================= PROGRESS (NEXT LEVEL) ================= */
+
+.progress-bar {
+    height: 10px;
+    background: #edf2f7;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-top: 5px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #48bb78, #38a169);
+    width: 50%;
+}
+
+/* ================= MOBILE ================= */
+
+@media (max-width: 600px) {
+    .container {
         margin: 10px;
     }
 
-    h1 {
-        font-size: 2em;
-    }
-
-    .tabs {
+    .daily-log-card {
         flex-direction: column;
-    }
-
-    .tab-btn {
-        border-bottom: none;
-        border-right: 3px solid transparent;
-    }
-
-    .tab-btn.active {
-        border-bottom: none;
-        border-right-color: #667eea;
-    }
-
-    .upload-area {
-        padding: 20px;
-    }
-
-    .result-item {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .result-value {
-        margin-top: 5px;
     }
 }

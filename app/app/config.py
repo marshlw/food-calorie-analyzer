@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import Set
+from typing import Optional, Set
 from urllib.parse import urlparse
 import logging
 
@@ -13,35 +13,49 @@ class Settings(BaseSettings):
 
     REDIS_URL: str = "redis://redis:6379/0"
 
-    OLLAMA_HOST: str = "http://ollama:11434"
-    MODEL_NAME: str = "llava:7b"
+    # 🔥 MODEL CONFIG
+    MODEL_PROVIDER: str = "gemini"
+    GEMINI_MODEL: str = "gemini-2.5-flash-image"
 
-    SECRET_KEY: str = "your-secret-key-here-change-in-prod"
+    # 👉 подтягивается из .env
+    GEMINI_API_KEY: str
+
+    # 🔥 оптимально под API
+    MODEL_TIMEOUT_SECONDS: int = 10
+    MODEL_RETRY_ATTEMPTS: int = 2
+    MODEL_BACKOFF_FACTOR: float = 1.0
+
+    # ===================== SECURITY =====================
+
+    SECRET_KEY: str = "change-this-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     # ===================== FILES =====================
 
     UPLOAD_DIR: str = "/app/app/uploads"
+
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10 MB
-    MAX_IMAGE_SIZE: int = 1024
+
+    # 🔥 уменьшили для экономии токенов
+    MAX_IMAGE_SIZE: int = 512
     IMAGE_QUALITY: int = 85
 
     ALLOWED_EXTENSIONS: Set[str] = {
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"
+        ".jpg", ".jpeg", ".png", ".webp"
     }
 
     # ===================== CACHE =====================
 
-    CACHE_TTL: int = 60 * 60 * 24  # 🔥 24 часа (лучше для изображений)
-    CACHE_PREFIX: str = "food_analysis:v1"
+    CACHE_TTL: int = 60 * 60 * 24
+    CACHE_PREFIX: str = "food_analysis:v2"  # 🔥 версия кэша
 
     # ===================== CELERY =====================
 
     CELERY_BROKER_URL: str = "redis://redis:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://redis:6379/0"
 
-    # ===================== DERIVED (AUTO) =====================
+    # ===================== DERIVED =====================
 
     @property
     def REDIS_HOST(self) -> str:
@@ -65,9 +79,19 @@ class Settings(BaseSettings):
         except Exception:
             return 0
 
+    # ===================== VALIDATION =====================
+
+    def model_post_init(self, __context):
+        if not self.GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY is not set in environment variables")
+
+        if self.MODEL_PROVIDER != "gemini":
+            logger.warning("MODEL_PROVIDER is not 'gemini' — current setup expects Gemini")
+
     class Config:
         env_file = ".env"
         extra = "ignore"
+        case_sensitive = True
 
 
 settings = Settings()
