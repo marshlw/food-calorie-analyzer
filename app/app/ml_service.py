@@ -4,17 +4,19 @@ import logging
 import re
 import time
 import hashlib
+import base64
 from pathlib import Path
 from typing import Optional
 
 import redis
+import requests
 from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from google import genai
 
-from .config import settings
+from .config import *
 from . import models
 
 logger = logging.getLogger(__name__)
@@ -25,41 +27,11 @@ client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 logger.info("Gemini client initialized")
 
-# ================= MODELS =================
-
 MODEL_CANDIDATES = [
     "gemini-2.5-flash-image",
     "gemini-3.1-flash-image-preview",
     "gemini-3-pro-image-preview",
 ]
-
-WORKING_MODEL = None
-
-
-def get_working_model():
-    global WORKING_MODEL
-
-    if WORKING_MODEL:
-        return WORKING_MODEL
-
-    try:
-        available = [m.name for m in client.models.list()]
-        logger.info(f"Available models: {available}")
-    except Exception as e:
-        logger.error(f"Failed to list models: {e}")
-        available = []
-
-    for model in MODEL_CANDIDATES:
-        if any(model in m for m in available):
-            WORKING_MODEL = model
-            logger.info(f"Selected model: {model}")
-            return model
-
-    # fallback если list_models не дал результат
-    WORKING_MODEL = MODEL_CANDIDATES[0]
-    logger.warning(f"Fallback model: {WORKING_MODEL}")
-    return WORKING_MODEL
-
 
 # ================= REDIS =================
 
@@ -82,21 +54,21 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # ================= RATE LIMIT =================
 
-_last_call = 0
+_last_gemini_call = 0
+_last_deepseek_call = 0
 
 
-def rate_limit():
-    global _last_call
+def rate_limit(last_call_holder: dict, key: str):
     now = time.time()
-    diff = now - _last_call
+    diff = now - last_call_holder.get(key, 0)
     if diff < 1.2:
         time.sleep(1.2 - diff)
-    _last_call = time.time()
+    last_call_holder[key] = time.time()
 
 
 # ================= PROMPT =================
 
-PROMPT_VERSION = "v6"
+PROMPT_VERSION = "v7"
 
 PROMPT = """
 Ты анализируешь фото еды.
@@ -137,40 +109,90 @@ def extract_json(text: str) -> Optional[dict]:
         return None
 
 
-# ================= GEMINI CALL =================
+# ================= GEMINI =================
+
+def is_quota_error(e: Exception) -> bool:
+    return "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e)
+
 
 def call_gemini(prompt: str, image_path: Optional[str]):
-    models_to_try = [settings.GEMINI_MODEL] + MODEL_CANDIDATES
+    for model_name in [settings.GEMINI_MODEL] + MODEL_CANDIDATES:
+        try:
+            rate_limit(globals(), "_last_gemini_call")
 
-    for model_name in models_to_try:
-        for attempt in range(settings.MODEL_RETRY_ATTEMPTS + 1):
-            try:
-                rate_limit()
+            contents = [prompt]
 
-                contents = [prompt]
+            if image_path:
+                img = Image.open(image_path)
+                contents.append(img)
 
-                if image_path:
-                    img = Image.open(image_path)
-                    contents.append(img)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+            )
 
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                )
+            logger.info(f"✅ Gemini success: {model_name}")
+            return response.text
 
-                logger.info(f"✅ Gemini success with model: {model_name}")
-                return response.text
+        except Exception as e:
+            if is_quota_error(e):
+                logger.warning(f"🚫 Gemini quota exceeded: {model_name}")
+                return None  # 💥 СРАЗУ fallback
 
-            except Exception as e:
-                logger.error(f"❌ {model_name} attempt {attempt}: {e}")
+            logger.error(f"❌ Gemini error ({model_name}): {e}")
+            time.sleep(1)
 
-                if attempt >= settings.MODEL_RETRY_ATTEMPTS:
-                    break
-
-                time.sleep(settings.MODEL_BACKOFF_FACTOR * (attempt + 1))
-
-    logger.error("🚨 All Gemini models failed")
     return None
+
+
+# ================= DEEPSEEK =================
+
+def call_deepseek_vision(prompt: str, image_path: str) -> Optional[str]:
+    if not settings.DEEPSEEK_API_KEY:
+        logger.warning("No DeepSeek API key")
+        return None
+
+    # 1. Кодируем картинку в base64
+    with open(image_path, "rb") as f:
+        image_data = base64.b64encode(f.read()).decode("utf-8")
+
+    # 2. Формируем тело запроса для vision-модели
+    payload = {
+        "model": settings.DEEPSEEK_VISION_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{image_data}",
+                            # "detail": "high" # Можно добавить для детализации
+                        }
+                    }
+                ]
+            }
+        ],
+        "temperature": 0.0,
+        # "max_tokens": 500 # Можно ограничить
+    }
+
+    headers = {
+        "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    # 3. Отправляем запрос на правильный URL
+    response = requests.post(
+        settings.DEEPSEEK_VISION_API_URL,
+        json=payload,
+        headers=headers,
+        timeout=20
+    )
+
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
 
 
 # ================= IMAGE =================
@@ -203,8 +225,6 @@ def get_product(session, name: str):
         models.Product.name == name.lower()
     ).first()
 
-
-# ================= KBJU =================
 
 def calc_kbju(session, ingredients):
     total = {"calories": 0, "protein_g": 0, "fat_g": 0, "carbs_g": 0}
@@ -248,8 +268,14 @@ def analyze_image_sync(path: str) -> dict:
 
         img = preprocess(path)
 
+        # 🔥 Gemini → сразу fallback если quota
         raw = call_gemini(PROMPT, img)
         data = extract_json(raw)
+
+        if not data:
+            logger.info("Fallback to DeepSeek...")
+            raw = call_deepseek_vision(PROMPT, img)
+            data = extract_json(raw)
 
         if not data:
             return fallback
@@ -281,14 +307,12 @@ def analyze_image_sync(path: str) -> dict:
         return result
 
     except Exception as e:
-        logger.error(e)
+        logger.error(f"Unexpected error: {e}")
         return fallback
 
     finally:
         session.close()
 
-
-# ================= ASYNC =================
 
 async def analyze_image_async(path: str):
     loop = asyncio.get_event_loop()

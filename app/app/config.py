@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://fooduser:foodpass@postgres:5432/fooddb"
 
     REDIS_URL: str = "redis://redis:6379/0"
-
+    DEEPSEEK_API_KEY: str
+    DEEPSEEK_VISION_API_URL: str
+    DEEPSEEK_VISION_MODEL: str
     # 🔥 MODEL CONFIG
     MODEL_PROVIDER: str = "gemini"
     GEMINI_MODEL: str = "gemini-2.5-flash-image"
