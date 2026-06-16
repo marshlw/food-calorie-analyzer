@@ -5,12 +5,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-    },
+    // Прокси не используется: клиент обращается к API по абсолютному
+    // VITE_API_URL (кросс-origin разрешён через CORS на бэкенде).
   },
   build: {
     outDir: 'dist',

@@ -2,6 +2,7 @@
 from pydantic import BaseModel, EmailStr, Field, root_validator, validator
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime, date
+from datetime import date as _date  # алиас: поле MealEntryCreate.date затеняет имя date
 import json
 import logging
 
@@ -61,15 +62,23 @@ class TokenData(BaseModel):
     email: Optional[str] = None
 
 
+class IngredientResponse(BaseModel):
+    name: str = ""
+    type: str = "unknown"  # protein | carb | fat | vegetable | unknown
+    weight_g: float = 0
+
+
 class NutritionResponse(BaseModel):
     food: str = Field(..., description="Название блюда")
-    weight_g: int = Field(..., ge=1, le=5000, description="Вес в граммах")
-    calories: int = Field(..., ge=0, le=10000, description="Калории")
+    weight_g: float = Field(..., ge=0.1, le=5000, description="Вес в граммах")
+    calories: float = Field(..., ge=0, le=10000, description="Калории")
     protein_g: float = Field(..., ge=0, description="Белки, г")
     fat_g: float = Field(..., ge=0, description="Жиры, г")
     carbs_g: float = Field(..., ge=0, description="Углеводы, г")
     confidence: float = Field(..., ge=0, le=1, description="Уверенность модели")
     note: Optional[str] = Field(None, description="Комментарий")
+    # Состав блюда от AI: нужен фронту для экрана подтверждения.
+    ingredients: List[IngredientResponse] = Field(default_factory=list)
 
     @validator('weight_g')
     def weight_must_be_reasonable(cls, v):
@@ -86,6 +95,7 @@ class TaskResponse(BaseModel):
     id: str
     status: str
     result: Optional[NutritionResponse] = None
+    image_path: Optional[str] = None
     error: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -98,6 +108,15 @@ class TaskResponse(BaseModel):
             except:
                 return None
         return v
+
+    @validator('image_path')
+    def to_image_url(cls, v):
+        # Бэкенд хранит абсолютный путь на диске; наружу отдаём URL,
+        # который раздаётся через StaticFiles на /uploads.
+        if not v:
+            return v
+        from pathlib import Path
+        return f"/uploads/{Path(v).name}"
 
     class Config:
         from_attributes = True
@@ -135,6 +154,9 @@ class MealEntryCreate(BaseModel):
     carbs_g: float = Field(..., ge=0)
     weight_g: float = Field(..., gt=0)
     meal_type: str = "snacks"
+    # День записи (по умолчанию сегодня) и связь с AI-задачей анализа.
+    date: Optional[_date] = None
+    task_id: Optional[str] = None
 
 
 class MealEntryResponse(BaseModel):
@@ -147,6 +169,8 @@ class MealEntryResponse(BaseModel):
     weight_g: float
     meal_type: str
     created_at: datetime
+    # Наличие task_id => запись создана из AI-анализа (источник на фронте).
+    task_id: Optional[str] = None
 
     class Config:
         from_attributes = True

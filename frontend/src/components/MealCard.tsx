@@ -13,7 +13,7 @@ const MEAL_TYPE_LABELS: Record<MealType, string> = {
   breakfast: '🌅 Завтрак',
   lunch: '🍽️ Обед',
   dinner: '🌙 Ужин',
-  snack: '🍿 Закуска',
+  snacks: '🍿 Закуска',
 }
 
 export const MealCard: React.FC<MealCardProps> = ({ meal, onEdit, onDelete, isLoading }) => {
@@ -22,9 +22,14 @@ export const MealCard: React.FC<MealCardProps> = ({ meal, onEdit, onDelete, isLo
       <div className="flex justify-between items-start mb-2">
         <div>
           <p className="font-semibold text-gray-900 dark:text-white">{meal.food_name}</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {MEAL_TYPE_LABELS[meal.meal_type]}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {MEAL_TYPE_LABELS[meal.meal_type]}
+            </p>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+              {meal.task_id ? '🤖 AI' : '✍️ вручную'}
+            </span>
+          </div>
         </div>
         <div className="flex gap-2">
           <button

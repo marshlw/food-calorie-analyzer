@@ -12,7 +12,7 @@ const MEAL_TYPES: { value: MealType; label: string }[] = [
   { value: 'breakfast', label: '🌅 Завтрак' },
   { value: 'lunch', label: '🍽️ Обед' },
   { value: 'dinner', label: '🌙 Ужин' },
-  { value: 'snack', label: '🍿 Закуска' },
+  { value: 'snacks', label: '🍿 Закуска' },
 ]
 
 export const MealForm: React.FC<MealFormProps> = ({
@@ -42,8 +42,8 @@ export const MealForm: React.FC<MealFormProps> = ({
     if (formData.calories < 0) {
       newErrors.calories = 'Калории не могут быть отрицательными'
     }
-    if (formData.weight_g < 0) {
-      newErrors.weight_g = 'Вес не может быть отрицательным'
+    if (formData.weight_g <= 0) {
+      newErrors.weight_g = 'Вес должен быть больше 0'
     }
 
     setErrors(newErrors)

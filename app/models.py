@@ -156,6 +156,12 @@ class Task(Base):
 
     user = relationship("User", back_populates="tasks")
 
+    @property
+    def result(self):
+        # TaskResponse.result читает этот атрибут; pre-валидатор схемы
+        # распарсит JSON-строку. Без этого свойства result всегда был None.
+        return self.result_json
+
 
 # ==================== FEEDBACK ====================
 

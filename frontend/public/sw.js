@@ -1,5 +1,5 @@
 // Service Worker for PWA support
-const CACHE_NAME = 'ai-healthy-v1'
+const CACHE_NAME = 'ai-healthy-v2'
 const urlsToCache = [
   '/',
   '/index.html',
@@ -44,49 +44,36 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Skip API calls - always fetch from network
+  // Skip API calls - let the browser handle them natively so that real
+  // network errors propagate to the HTTP client instead of a synthetic 503.
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(request).catch(() => {
-        return new Response(JSON.stringify({ error: 'Network error' }), {
-          status: 503,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      })
-    )
     return
   }
 
-  // Cache-first strategy for assets
+  // Network-first: всегда пытаемся взять свежую версию из сети, кэш — только
+  // фолбэк офлайн. Это исключает «залипание» старого бандла после деплоя.
   event.respondWith(
-    caches.match(request).then((response) => {
-      return (
-        response ||
-        fetch(request)
-          .then((fetchResponse) => {
-            // Cache successful responses
-            if (fetchResponse.status === 200) {
-              const responseToCache = fetchResponse.clone()
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(request, responseToCache)
-              })
-            }
-            return fetchResponse
+    fetch(request)
+      .then((fetchResponse) => {
+        if (fetchResponse.status === 200) {
+          const responseToCache = fetchResponse.clone()
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(request, responseToCache)
           })
-          .catch(() => {
-            // Return a basic offline page if available
-            return caches.match(request).then((cachedResponse) => {
-              return (
-                cachedResponse ||
-                new Response('Offline - please check your connection', {
-                  status: 503,
-                  headers: { 'Content-Type': 'text/plain' },
-                })
-              )
+        }
+        return fetchResponse
+      })
+      .catch(() => {
+        return caches.match(request).then((cachedResponse) => {
+          return (
+            cachedResponse ||
+            new Response('Offline - please check your connection', {
+              status: 503,
+              headers: { 'Content-Type': 'text/plain' },
             })
-          })
-      )
-    })
+          )
+        })
+      })
   )
 })
 

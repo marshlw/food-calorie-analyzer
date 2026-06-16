@@ -65,4 +65,4 @@ case $choice in
 esac
 
 echo ""
-echo "📖 Больше информации: cat DOCKER.md"
+echo "📖 Больше информации: cat docs/setup/DOCKER.md"

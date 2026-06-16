@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react'
-import { AxiosError } from 'axios'
-import { ApiError } from '../types'
+import { extractErrorMessage } from '../utils/errors'
 
 interface UseApiState<T> {
   data: T | null
@@ -29,16 +28,7 @@ export const useApi = <T,>(options: UseApiOptions = {}) => {
         options.onSuccess?.()
         return result
       } catch (error: any) {
-        const axiosError = error as AxiosError<ApiError>
-        const errorMessage =
-          axiosError?.response?.data?.detail ||
-          axiosError?.response?.data?.message ||
-          error?.message ||
-          'An error occurred'
-        
-        const message = Array.isArray(errorMessage) 
-          ? errorMessage.join(', ') 
-          : String(errorMessage)
+        const message = extractErrorMessage(error)
 
         setState({ data: null, isLoading: false, error: message })
         options.onError?.(message)

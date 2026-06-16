@@ -18,6 +18,22 @@ from .config import settings
 from . import models
 from .database import SessionLocal
 
+try:
+    from .food_map import SYNONYMS
+except Exception:  # словарь синонимов опционален
+    SYNONYMS = {}
+
+# Ориентировочные нутриенты на 100 г по типу ингредиента.
+# Используются как запасной вариант, когда продукт не найден в таблице products,
+# чтобы КБЖУ не оставались нулевыми. AI стабильно возвращает поле type.
+TYPE_KBJU_PER_100G = {
+    "protein":   {"calories": 165, "protein_g": 23.0, "fat_g": 7.0,  "carbs_g": 1.0},
+    "carb":      {"calories": 180, "protein_g": 5.0,  "fat_g": 2.0,  "carbs_g": 35.0},
+    "fat":       {"calories": 380, "protein_g": 3.0,  "fat_g": 40.0, "carbs_g": 5.0},
+    "vegetable": {"calories": 35,  "protein_g": 2.0,  "fat_g": 0.3,  "carbs_g": 6.0},
+    "unknown":   {"calories": 120, "protein_g": 5.0,  "fat_g": 4.0,  "carbs_g": 15.0},
+}
+
 logger = logging.getLogger(__name__)
 
 # ================= CONFIG / RESOURCES =================
@@ -935,35 +951,67 @@ def get_hash(path: str) -> str:
     return h.hexdigest()
 
 
+def normalize_product_name(name: str) -> str:
+    """Нормализует имя ингредиента: нижний регистр + словарь синонимов."""
+    key = (name or "").lower().strip()
+    return SYNONYMS.get(key, key)
+
+
 def get_product(session, name: str):
-    """Get product by normalized name."""
-    if not name:
+    """Get product by normalized name (с учётом синонимов)."""
+    norm = normalize_product_name(name)
+    if not norm:
         return None
     return (
         session.query(models.Product)
-        .filter(models.Product.name == name.lower().strip())
+        .filter(models.Product.name == norm)
         .first()
     )
 
 
+def _estimate_by_type(ing_type: str) -> dict:
+    """Оценка нутриентов на 100 г по типу ингредиента."""
+    return TYPE_KBJU_PER_100G.get((ing_type or "unknown").lower(), TYPE_KBJU_PER_100G["unknown"])
+
+
 def calc_kbju(session, ingredients: List[dict]) -> dict:
-    """Calculate total KBJU from ingredients."""
-    total = {
-        "calories": 0.0,
-        "protein_g": 0.0,
-        "fat_g": 0.0,
-        "carbs_g": 0.0,
-    }
+    """Суммарные КБЖУ по ингредиентам.
+
+    Для каждого ингредиента сначала пытаемся взять точные данные из таблицы
+    products; если совпадения нет (или таблица недоступна) — используем оценку
+    по типу ингредиента, чтобы итог не был нулевым. Ошибки по отдельному
+    ингредиенту не обнуляют весь расчёт.
+    """
+    total = {"calories": 0.0, "protein_g": 0.0, "fat_g": 0.0, "carbs_g": 0.0}
+
     for ing in ingredients:
-        product = get_product(session, ing.get("name"))
-        if not product:
+        try:
+            weight = int(ing.get("weight_g", 50) or 50)
+            k = weight / 100.0
+
+            product = None
+            try:
+                product = get_product(session, ing.get("name"))
+            except Exception as exc:
+                # таблица products может отсутствовать/быть недоступной — не падаем
+                logger.warning("Product lookup failed, falling back to type estimate", extra={"error": str(exc)})
+
+            if product is not None:
+                per100 = {
+                    "calories": float(product.calories),
+                    "protein_g": float(product.protein),
+                    "fat_g": float(product.fat),
+                    "carbs_g": float(product.carbs),
+                }
+            else:
+                per100 = _estimate_by_type(ing.get("type"))
+
+            for key in total:
+                total[key] += per100[key] * k
+        except Exception as exc:
+            logger.warning("Skipping ingredient in KBJU calc", extra={"error": str(exc), "ingredient": ing})
             continue
-        weight = int(ing.get("weight_g", 50) or 50)
-        k = weight / 100.0
-        total["calories"] += float(product.calories) * k
-        total["protein_g"] += float(product.protein) * k
-        total["fat_g"] += float(product.fat) * k
-        total["carbs_g"] += float(product.carbs) * k
+
     return {key: round(value, 1) for key, value in total.items()}
 
 

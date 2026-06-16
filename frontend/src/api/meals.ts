@@ -1,5 +1,6 @@
 import { apiClient } from './axios'
 import { MealEntry, MealEntryCreate, DailyLog } from '../types'
+import { weekDays } from '../utils/dates'
 
 export const mealsApi = {
   addMeal: async (meal: MealEntryCreate): Promise<MealEntry> => {
@@ -30,5 +31,16 @@ export const mealsApi = {
       params: dateStr ? { date_str: dateStr } : undefined,
     })
     return response.data
+  },
+
+  // Недельный обзор: 7 параллельных запросов к daily-log.
+  // Когда на бэкенде появится /api/v1/weekly-log, заменить тело на 1 запрос.
+  getWeekLogs: async (weekStart: string): Promise<Record<string, DailyLog>> => {
+    const dates = weekDays(weekStart)
+    const logs = await Promise.all(dates.map((d) => mealsApi.getDailyLog(d)))
+    return dates.reduce<Record<string, DailyLog>>((acc, d, i) => {
+      acc[d] = logs[i]
+      return acc
+    }, {})
   },
 }

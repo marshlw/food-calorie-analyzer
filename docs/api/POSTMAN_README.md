@@ -4,6 +4,8 @@
 
 ## 📦 Файлы
 
+Файлы коллекции находятся в **корне проекта**:
+
 1. **AI-Healthy-API-Collection.postman_collection.json** - Основная коллекция с 17 API endpoints
 2. **AI-Healthy-Environment.postman_environment.json** - Файл окружения с переменными
 

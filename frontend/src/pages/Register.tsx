@@ -27,8 +27,8 @@ export const Register: React.FC = () => {
       return
     }
 
-    if (password.length < 6) {
-      setLocalError('Пароль должен быть не менее 6 символов')
+    if (password.length < 8) {
+      setLocalError('Пароль должен быть не менее 8 символов')
       return
     }
 

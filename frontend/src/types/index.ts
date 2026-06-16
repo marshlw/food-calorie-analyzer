@@ -1,9 +1,10 @@
 /* Types for the application */
 
 export interface User {
-  id: string
+  id: number
   email: string
   full_name?: string
+  is_active: boolean
   created_at: string
 }
 
@@ -15,18 +16,27 @@ export interface Token {
 
 export type TaskStatus = 'pending' | 'processing' | 'success' | 'failure'
 
+// Поля соответствуют схеме TaskResponse на бэкенде (app/schemas.py).
+// Бэкенд НЕ возвращает result_json/user_id, а result уже распарсен.
 export interface Task {
   id: string
-  user_id: string
-  image_path: string
   status: TaskStatus
-  result_json?: string
+  image_path?: string
   error?: string
   created_at: string
+  updated_at?: string
 }
 
 export interface TaskResponse extends Task {
   result?: AnalysisResult
+}
+
+export type IngredientType = 'protein' | 'carb' | 'fat' | 'vegetable' | 'unknown'
+
+export interface Ingredient {
+  name: string
+  type: IngredientType
+  weight_g: number
 }
 
 export interface AnalysisResult {
@@ -37,9 +47,11 @@ export interface AnalysisResult {
   fat_g: number
   carbs_g: number
   weight_g: number
+  confidence?: number
+  ingredients?: Ingredient[]
 }
 
-export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks'
 
 export interface MealEntry {
   id: number
@@ -51,6 +63,9 @@ export interface MealEntry {
   weight_g: number
   meal_type: MealType
   created_at: string
+  // Если запись создана из AI-анализа, бэкенд возвращает связанный task_id.
+  // Источник (AI/ручной) выводим из его наличия — отдельной колонки в БД нет.
+  task_id?: string | null
 }
 
 export interface MealEntryCreate {
@@ -61,6 +76,9 @@ export interface MealEntryCreate {
   carbs_g: number
   weight_g: number
   meal_type: MealType
+  // Необязательные: день записи (по умолчанию сегодня) и связь с AI-задачей.
+  date?: string
+  task_id?: string
 }
 
 export interface DailyLog {
@@ -84,7 +102,9 @@ export interface AuthContextType {
   clearError: () => void
 }
 
+// FastAPI на ошибках валидации возвращает detail как массив объектов
+// вида { loc, msg, type }, поэтому тип расширен.
 export interface ApiError {
-  detail?: string | string[]
+  detail?: string | Array<string | { msg?: string; loc?: (string | number)[]; type?: string }>
   message?: string
 }

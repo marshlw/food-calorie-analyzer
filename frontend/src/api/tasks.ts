@@ -1,5 +1,14 @@
-import { apiClient } from './axios'
+import { apiClient, API_BASE_URL } from './axios'
 import { Task, TaskResponse } from '../types'
+
+// Бэкенд отдаёт image_path как относительный URL вида /uploads/<file>.
+// Превращаем его в абсолютный, т.к. фронтенд может работать на другом origin.
+const resolveImageUrl = <T extends { image_path?: string }>(task: T): T => {
+  if (task.image_path && task.image_path.startsWith('/')) {
+    task.image_path = `${API_BASE_URL}${task.image_path}`
+  }
+  return task
+}
 
 export const tasksApi = {
   uploadImage: async (file: File): Promise<Task> => {
@@ -16,34 +25,15 @@ export const tasksApi = {
 
   getTask: async (taskId: string): Promise<TaskResponse> => {
     const response = await apiClient.get<TaskResponse>(`/api/v1/task/${taskId}`)
-    
-    // Parse result_json if available
-    if (response.data.result_json) {
-      try {
-        response.data.result = JSON.parse(response.data.result_json)
-      } catch {
-        response.data.result = undefined
-      }
-    }
-    
-    return response.data
+    // Бэкенд уже возвращает распарсенный result, дополнительный парсинг не нужен.
+    return resolveImageUrl(response.data)
   },
 
   getTasks: async (limit: number = 50, offset: number = 0): Promise<TaskResponse[]> => {
     const response = await apiClient.get<TaskResponse[]>('/api/v1/tasks', {
       params: { limit, offset },
     })
-    
-    return response.data.map(task => {
-      if (task.result_json) {
-        try {
-          task.result = JSON.parse(task.result_json)
-        } catch {
-          task.result = undefined
-        }
-      }
-      return task
-    })
+    return response.data.map(resolveImageUrl)
   },
 
   submitFeedback: async (

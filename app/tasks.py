@@ -56,20 +56,24 @@ def analyze_image_task(self, task_id: str, file_path: str):
 
         update_task(session, task_id, models.TaskStatus.SUCCESS, result=result, error=None)
 
-        try:
-            p = Path(file_path).resolve()
-            upload_dir = Path(ml_service.UPLOAD_DIR).resolve()
-            if upload_dir in p.parents or p == upload_dir:
-                if p.exists() and p.is_file():
-                    p.unlink()
-                    logger.info("Deleted uploaded file", extra={"file_path": str(p)})
-            else:
-                logger.warning("Skipping delete of file outside upload dir", extra={"file_path": str(p)})
-        except Exception as cleanup_error:
-            logger.warning(
-                "Failed to delete uploaded file",
-                extra={"file_path": file_path, "error": str(cleanup_error)},
-            )
+        # По умолчанию фото сохраняем — оно нужно на экране «Результат анализа»
+        # и для обратной связи. Удаление включается флагом DELETE_UPLOAD_AFTER_ANALYSIS.
+        from .config import settings as _settings
+        if getattr(_settings, "DELETE_UPLOAD_AFTER_ANALYSIS", False):
+            try:
+                p = Path(file_path).resolve()
+                upload_dir = Path(ml_service.UPLOAD_DIR).resolve()
+                if upload_dir in p.parents or p == upload_dir:
+                    if p.exists() and p.is_file():
+                        p.unlink()
+                        logger.info("Deleted uploaded file", extra={"file_path": str(p)})
+                else:
+                    logger.warning("Skipping delete of file outside upload dir", extra={"file_path": str(p)})
+            except Exception as cleanup_error:
+                logger.warning(
+                    "Failed to delete uploaded file",
+                    extra={"file_path": file_path, "error": str(cleanup_error)},
+                )
 
         return result
     except Exception as exc:

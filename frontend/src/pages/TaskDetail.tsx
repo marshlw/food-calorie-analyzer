@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { TaskResponse } from '../types'
+import { TaskResponse, MealEntry, MealEntryCreate } from '../types'
 import { tasksApi } from '../api/tasks'
 import { mealsApi } from '../api/meals'
 import { useApi } from '../hooks/useApi'
@@ -8,6 +8,8 @@ import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { SuccessAlert } from '../components/SuccessAlert'
 import { Modal } from '../components/Modal'
+import { MealForm } from '../components/MealForm'
+import { IngredientList } from '../components/IngredientList'
 import { ArrowLeft, Send } from 'lucide-react'
 
 export const TaskDetail: React.FC = () => {
@@ -27,48 +29,34 @@ export const TaskDetail: React.FC = () => {
   } = useApi<TaskResponse>()
 
   // Submit feedback
-  const {
-    isLoading: isSubmittingFeedback,
-    execute: executeSubmitFeedback,
-  } = useApi<any>({
+  const { isLoading: isSubmittingFeedback, execute: executeSubmitFeedback } = useApi<any>({
     onSuccess: () => {
       setSuccessMessage('Спасибо за обратную связь!')
       setShowFeedbackModal(false)
       setFeedbackFood('')
       setFeedbackWeight('')
-      loadTask(() => tasksApi.getTask(taskId!))
     },
   })
 
-  // Add from analysis
-  const {
-    isLoading: isAdding,
-    execute: executeAddFromAnalysis,
-  } = useApi<any>({
-    onSuccess: () => {
-      setSuccessMessage('Результат добавлен в дневник!')
-      loadTask(() => tasksApi.getTask(taskId!))
-    },
+  // Save to diary (с редактируемыми КБЖУ и выбором приёма)
+  const { isLoading: isSaving, error: saveError, execute: executeSave } = useApi<MealEntry>({
+    onSuccess: () => setSuccessMessage('Добавлено в дневник питания!'),
   })
 
   useEffect(() => {
-    if (taskId) {
-      loadTask(() => tasksApi.getTask(taskId))
-    }
+    if (taskId) loadTask(() => tasksApi.getTask(taskId))
   }, [taskId])
 
   const handleSubmitFeedback = async () => {
-    if (!taskId || !feedbackFood) return
-    await executeSubmitFeedback(() =>
-      tasksApi.submitFeedback(taskId, feedbackFood, parseFloat(feedbackWeight) || 0)
-    )
+    const weight = parseInt(feedbackWeight, 10)
+    if (!taskId || !feedbackFood || !weight || weight <= 0) return
+    await executeSubmitFeedback(() => tasksApi.submitFeedback(taskId, feedbackFood, weight))
   }
 
-  const handleAddFromAnalysis = async (mealType: string) => {
+  // Сохранение в дневник: значения берём из формы, task_id => источник «AI»
+  const handleSaveToDiary = async (data: MealEntryCreate): Promise<void> => {
     if (!taskId) return
-    await executeAddFromAnalysis(() =>
-      mealsApi.addMealFromAnalysis(taskId, mealType)
-    )
+    await executeSave(() => mealsApi.addMeal({ ...data, task_id: taskId }))
   }
 
   const getStatusLabel = (status: string) => {
@@ -85,6 +73,24 @@ export const TaskDetail: React.FC = () => {
         return status
     }
   }
+
+  const r = task?.result
+  const confidencePct = typeof r?.confidence === 'number' ? Math.round(r.confidence * 100) : null
+
+  // Префилл формы значениями анализа
+  const formInitial: MealEntry | undefined = r
+    ? {
+        id: 0,
+        food_name: r.food || r.food_name || '',
+        calories: r.calories,
+        protein_g: r.protein_g,
+        fat_g: r.fat_g,
+        carbs_g: r.carbs_g,
+        weight_g: r.weight_g,
+        meal_type: 'lunch',
+        created_at: '',
+      }
+    : undefined
 
   return (
     <div className="max-w-md mx-auto px-4 py-6 pb-24">
@@ -105,126 +111,94 @@ export const TaskDetail: React.FC = () => {
           <SuccessAlert message={successMessage} onClose={() => setSuccessMessage('')} />
         </div>
       )}
-
-      {loadError && (
+      {(loadError || saveError) && (
         <div className="mb-4">
-          <ErrorAlert message={loadError} onClose={() => {}} />
+          <ErrorAlert message={loadError || saveError || ''} onClose={() => {}} />
         </div>
       )}
 
-      {/* Loading */}
       {isLoadingTask && <LoadingSpinner message="Загрузка..." />}
 
-      {/* Task Details */}
       {task && !isLoadingTask && (
         <>
-          {/* Status */}
-          <div className="card p-4 mb-4 rounded-xl">
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Статус</p>
-            <p className="text-lg font-semibold">{getStatusLabel(task.status)}</p>
-          </div>
-
-          {/* Image Preview */}
+          {/* Image */}
           {task.image_path && (
             <div className="card overflow-hidden mb-4 rounded-xl">
               <img
                 src={task.image_path}
-                alt="Анализируемое изображение"
+                alt="Анализируемое блюдо"
                 className="w-full h-64 object-cover"
               />
             </div>
           )}
 
-          {/* Analysis Result */}
-          {task.result && (
+          {/* Status (для незавершённых) */}
+          {task.status !== 'success' && (
             <div className="card p-4 mb-4 rounded-xl">
-              <h2 className="font-semibold mb-4">Результаты анализа</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Статус</p>
+              <p className="text-lg font-semibold">{getStatusLabel(task.status)}</p>
+              {task.error && (
+                <p className="text-red-600 dark:text-red-400 text-sm mt-2">{task.error}</p>
+              )}
+            </div>
+          )}
 
-              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 mb-4">
-                <p className="text-sm text-gray-600 dark:text-gray-400">Определенное блюдо</p>
-                <p className="text-lg font-semibold text-blue-600 dark:text-blue-400">
-                  {task.result.food || task.result.food_name}
-                </p>
+          {/* Result */}
+          {r && formInitial && (
+            <div className="card p-4 mb-4 rounded-xl space-y-4">
+              {/* Название + уверенность */}
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Определённое блюдо</p>
+                  <p className="text-lg font-semibold">{r.food || r.food_name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">≈ {Math.round(r.weight_g)} г</p>
+                </div>
+                {confidencePct !== null && (
+                  <span className="shrink-0 text-xs px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400">
+                    Уверенность {confidencePct}%
+                  </span>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-3">
-                  <p className="text-gray-600 dark:text-gray-400 text-xs">Калории</p>
-                  <p className="font-semibold text-orange-600 dark:text-orange-400">
-                    {task.result.calories} ккал
-                  </p>
+              {/* КБЖУ сводка (что посчитал AI) */}
+              <div className="grid grid-cols-4 gap-2 text-sm">
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded p-2">
+                  <p className="text-gray-600 dark:text-gray-400 text-xs">ккал</p>
+                  <p className="font-semibold text-blue-600 dark:text-blue-400">{Math.round(r.calories)}</p>
                 </div>
-                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3">
-                  <p className="text-gray-600 dark:text-gray-400 text-xs">Вес</p>
-                  <p className="font-semibold text-purple-600 dark:text-purple-400">
-                    {task.result.weight_g}г
-                  </p>
-                </div>
-                <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
+                <div className="bg-red-50 dark:bg-red-900/20 rounded p-2">
                   <p className="text-gray-600 dark:text-gray-400 text-xs">Белки</p>
-                  <p className="font-semibold text-red-600 dark:text-red-400">
-                    {task.result.protein_g.toFixed(1)}г
-                  </p>
+                  <p className="font-semibold text-red-600 dark:text-red-400">{r.protein_g.toFixed(1)}</p>
                 </div>
-                <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3">
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded p-2">
                   <p className="text-gray-600 dark:text-gray-400 text-xs">Жиры</p>
-                  <p className="font-semibold text-yellow-600 dark:text-yellow-400">
-                    {task.result.fat_g.toFixed(1)}г
-                  </p>
+                  <p className="font-semibold text-yellow-600 dark:text-yellow-400">{r.fat_g.toFixed(1)}</p>
                 </div>
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
-                  <p className="text-gray-600 dark:text-gray-400 text-xs">Углеводы</p>
-                  <p className="font-semibold text-green-600 dark:text-green-400">
-                    {task.result.carbs_g.toFixed(1)}г
-                  </p>
+                <div className="bg-green-50 dark:bg-green-900/20 rounded p-2">
+                  <p className="text-gray-600 dark:text-gray-400 text-xs">Углев.</p>
+                  <p className="font-semibold text-green-600 dark:text-green-400">{r.carbs_g.toFixed(1)}</p>
                 </div>
               </div>
 
-              {/* Add to Diary */}
-              <div className="mt-4 space-y-2">
-                <label className="block text-sm font-medium">Добавить в дневник как</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => handleAddFromAnalysis('breakfast')}
-                    disabled={isAdding}
-                    className="btn btn-secondary text-sm disabled:opacity-50"
-                  >
-                    🌅 Завтрак
-                  </button>
-                  <button
-                    onClick={() => handleAddFromAnalysis('lunch')}
-                    disabled={isAdding}
-                    className="btn btn-secondary text-sm disabled:opacity-50"
-                  >
-                    🍽️ Обед
-                  </button>
-                  <button
-                    onClick={() => handleAddFromAnalysis('dinner')}
-                    disabled={isAdding}
-                    className="btn btn-secondary text-sm disabled:opacity-50"
-                  >
-                    🌙 Ужин
-                  </button>
-                  <button
-                    onClick={() => handleAddFromAnalysis('snack')}
-                    disabled={isAdding}
-                    className="btn btn-secondary text-sm disabled:opacity-50"
-                  >
-                    🍿 Закуска
-                  </button>
-                </div>
+              {/* Состав */}
+              {r.ingredients && r.ingredients.length > 0 && (
+                <IngredientList ingredients={r.ingredients} />
+              )}
+
+              {/* Сохранение в дневник: редактируемые КБЖУ + выбор приёма */}
+              <div className="border-t border-gray-200 dark:border-gray-800 pt-4">
+                <p className="text-sm font-medium mb-3">Добавить в дневник питания</p>
+                <MealForm
+                  initialData={formInitial}
+                  onSubmit={handleSaveToDiary}
+                  isLoading={isSaving}
+                  submitLabel="Сохранить в дневник"
+                />
               </div>
             </div>
           )}
 
-          {/* Error */}
-          {task.error && (
-            <div className="card p-4 mb-4 rounded-xl bg-red-50 dark:bg-red-900/20">
-              <p className="text-red-600 dark:text-red-400 text-sm">{task.error}</p>
-            </div>
-          )}
-
-          {/* Feedback Button */}
+          {/* Feedback */}
           {task.status === 'success' && (
             <button
               onClick={() => setShowFeedbackModal(true)}
@@ -238,11 +212,7 @@ export const TaskDetail: React.FC = () => {
       )}
 
       {/* Feedback Modal */}
-      <Modal
-        isOpen={showFeedbackModal}
-        onClose={() => setShowFeedbackModal(false)}
-        title="Отправить исправление"
-      >
+      <Modal isOpen={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} title="Отправить исправление">
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Правильное название</label>
@@ -254,7 +224,6 @@ export const TaskDetail: React.FC = () => {
               className="input"
             />
           </div>
-
           <div>
             <label className="block text-sm font-medium mb-1">Правильный вес (г)</label>
             <input
@@ -262,15 +231,15 @@ export const TaskDetail: React.FC = () => {
               value={feedbackWeight}
               onChange={(e) => setFeedbackWeight(e.target.value)}
               placeholder="0"
-              min="0"
-              step="0.1"
+              min="1"
+              max="10000"
+              step="1"
               className="input"
             />
           </div>
-
           <button
             onClick={handleSubmitFeedback}
-            disabled={isSubmittingFeedback || !feedbackFood}
+            disabled={isSubmittingFeedback || !feedbackFood || !(parseInt(feedbackWeight, 10) > 0)}
             className="btn-primary w-full disabled:opacity-50"
           >
             {isSubmittingFeedback ? 'Отправка...' : 'Отправить'}

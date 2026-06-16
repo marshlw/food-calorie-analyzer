@@ -77,6 +77,17 @@ async def startup_event():
     except Exception as exc:
         logger.warning("Database schema creation failed", exc_info=exc)
 
+    # Засев справочника продуктов (КБЖУ на 100 г), идемпотентно
+    try:
+        from .seed_products import seed_products
+        session = SessionLocal()
+        try:
+            seed_products(session)
+        finally:
+            session.close()
+    except Exception as exc:
+        logger.warning("Product seeding failed", exc_info=exc)
+
     try:
         ml_service.get_http_client()
         ml_service.get_redis_client()
@@ -328,7 +339,7 @@ async def add_meal(
 ):
     try:
         logger.info(f"Adding meal for user {current_user.id}: {meal.food_name}, type={meal.meal_type}")
-        return crud.add_meal_entry(db, current_user.id, meal)
+        return crud.add_meal_entry(db, current_user.id, meal, target_date=meal.date, task_id=meal.task_id)
     except Exception as e:
         logger.error(f"Error adding meal: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -551,6 +562,13 @@ async def update_feedback_status(
         return {"status": "ok", "id": feedback_id, "new_status": status}
     finally:
         db.close()
+
+
+# ==================== UPLOADS ====================
+
+# Раздаём загруженные изображения, чтобы фронтенд мог показывать превью
+# (TaskResponse.image_path возвращает путь вида /uploads/<filename>)
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 
 # ==================== FRONTEND ====================

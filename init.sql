@@ -36,8 +36,12 @@ CREATE TABLE IF NOT EXISTS products (
     calories DOUBLE PRECISION NOT NULL,
     protein DOUBLE PRECISION NOT NULL,
     fat DOUBLE PRECISION NOT NULL,
-    carbs DOUBLE PRECISION NOT NULL
+    carbs DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- на случай уже существующей таблицы из старой схемы
+ALTER TABLE products ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
 
 -- важно: владелец
 ALTER TABLE products OWNER TO fooduser;

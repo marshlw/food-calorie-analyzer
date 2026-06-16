@@ -120,8 +120,8 @@ docker-compose exec telegram_bot env | grep -E 'API_URL|REDIS|TOKEN'
 
 ## Изменённые файлы:
 
-- ✅ [app/telegram_bot.py](app/telegram_bot.py) - добавлена инициализация и ожидание API
-- ✅ [docker-compose.yml](docker-compose.yml) - исправлена команда запуска и зависимости
+- ✅ [app/telegram_bot.py](../../app/telegram_bot.py) - добавлена инициализация и ожидание API
+- ✅ [docker-compose.yml](../../docker-compose.yml) - исправлена команда запуска и зависимости
 
 ---
 

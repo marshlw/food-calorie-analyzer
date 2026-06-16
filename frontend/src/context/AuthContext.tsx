@@ -2,6 +2,7 @@ import React, { createContext, useReducer, useCallback, useEffect } from 'react'
 import { User, Token, AuthContextType } from '../types'
 import { authApi } from '../api/auth'
 import { setAuthTokens, clearAuthTokens, getAuthTokens } from '../api/axios'
+import { extractErrorMessage } from '../utils/errors'
 
 interface AuthState {
   user: User | null
@@ -108,7 +109,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const user = await authApi.getMe()
       dispatch({ type: 'LOGIN_SUCCESS', payload: { user, token } })
     } catch (error: any) {
-      const message = error.response?.data?.detail || error.message || 'Login failed'
+      const message = extractErrorMessage(error, 'Login failed')
       dispatch({ type: 'LOGIN_ERROR', payload: message })
       throw error
     }
@@ -122,7 +123,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setAuthTokens(token)
       dispatch({ type: 'REGISTER_SUCCESS', payload: { user, token } })
     } catch (error: any) {
-      const message = error.response?.data?.detail || error.message || 'Registration failed'
+      const message = extractErrorMessage(error, 'Registration failed')
       dispatch({ type: 'LOGIN_ERROR', payload: message })
       throw error
     }

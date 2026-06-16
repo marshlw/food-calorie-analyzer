@@ -7,7 +7,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { Login } from './pages/Login'
 import { Register } from './pages/Register'
 import { Dashboard } from './pages/Dashboard'
-import { MealDiary } from './pages/MealDiary'
+import { DiaryPage } from './pages/DiaryPage'
 import { AnalysisHistory } from './pages/AnalysisHistory'
 import { TaskDetail } from './pages/TaskDetail'
 import { Profile } from './pages/Profile'
@@ -76,7 +76,7 @@ const AppRoutes: React.FC = () => {
         path="/meals"
         element={
           <ProtectedRoute>
-            <MealDiary />
+            <DiaryPage />
           </ProtectedRoute>
         }
       />
