@@ -1,6 +1,6 @@
 # app/schemas.py
-from pydantic import BaseModel, EmailStr, Field, validator
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, EmailStr, Field, root_validator, validator
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime, date
 import json
 import logging
@@ -10,7 +10,28 @@ logger = logging.getLogger(__name__)
 
 class Token(BaseModel):
     access_token: str
-    token_type: str
+    refresh_token: Optional[str] = None
+    token_type: Literal["bearer"] = "bearer"
+
+
+class AuthRequest(BaseModel):
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    grant_type: str = "password"
+    refresh_token: Optional[str] = None
+
+    @root_validator(pre=True)
+    def validate_grant_type(cls, values):
+        grant_type = values.get("grant_type", "password")
+        if grant_type == "password":
+            if not values.get("email"):
+                raise ValueError("email is required for password grant_type")
+            if not values.get("password"):
+                raise ValueError("password is required for password grant_type")
+        elif grant_type == "refresh_token":
+            if not values.get("refresh_token"):
+                raise ValueError("refresh_token is required for refresh_token grant_type")
+        return values
 
 
 class UserBase(BaseModel):
@@ -82,6 +103,14 @@ class TaskResponse(BaseModel):
         from_attributes = True
 
 
+class TaskCreatedResponse(BaseModel):
+    id: str
+    status: str
+
+    class Config:
+        from_attributes = True
+
+
 class MealItemBase(BaseModel):
     food_name: str
     quantity_g: float = Field(..., gt=0)
@@ -134,6 +163,7 @@ class DailyLogResponse(BaseModel):
 
 class AnalysisMealRequest(BaseModel):
     task_id: str
+    meal_type: str = "snacks"
 
 
 class MealItem(MealItemBase):

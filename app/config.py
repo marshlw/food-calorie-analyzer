@@ -9,29 +9,38 @@ logger = logging.getLogger(__name__)
 class Settings(BaseSettings):
     # ===================== CORE =====================
 
-    DATABASE_URL: str = "postgresql+asyncpg://fooduser:foodpass@postgres:5432/fooddb"
+    DATABASE_URL: str = "postgresql://fooduser:foodpass@postgres:5432/fooddb"
 
     REDIS_URL: str = "redis://redis:6379/0"
-    DEEPSEEK_API_KEY: str
-    DEEPSEEK_VISION_API_URL: str
-    DEEPSEEK_VISION_MODEL: str
+    DEEPSEEK_API_KEY: Optional[str] = None
+    DEEPSEEK_VISION_API_URL: Optional[str] = None
+    DEEPSEEK_VISION_MODEL: str = "gpt-image-1"
     # 🔥 MODEL CONFIG
-    MODEL_PROVIDER: str = "gemini"
+    MODEL_PROVIDER: str = "yandex"
     GEMINI_MODEL: str = "gemini-2.5-flash-image"
+    OLLAMA_HOST: str = "http://ollama:11434"
+    OLLAMA_MODEL: str = "llava:7b"
 
+    # Yandex settings
+    YANDEX_API_KEY: Optional[str] = None
+    YANDEX_FOLDER_ID: Optional[str] = None
+    YANDEX_VISION_MODEL: str = "qwen3.6-35b-a3b/latest"
+    YANDEX_API_URL: str = "https://ai.api.cloud.yandex.net/v1"
     # 👉 подтягивается из .env
-    GEMINI_API_KEY: str
+    GEMINI_API_KEY: Optional[str] = None
 
     # 🔥 оптимально под API
-    MODEL_TIMEOUT_SECONDS: int = 10
+    MODEL_TIMEOUT_SECONDS: int = 45
     MODEL_RETRY_ATTEMPTS: int = 2
     MODEL_BACKOFF_FACTOR: float = 1.0
+    MODEL_COOLDOWN_SECONDS: int = 300
 
     # ===================== SECURITY =====================
 
     SECRET_KEY: str = "change-this-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # ===================== FILES =====================
 
@@ -39,18 +48,32 @@ class Settings(BaseSettings):
 
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10 MB
 
-    # 🔥 уменьшили для экономии токенов
-    MAX_IMAGE_SIZE: int = 512
-    IMAGE_QUALITY: int = 85
+    # Увеличили для лучшего распознавания
+    MAX_IMAGE_SIZE: int = 1600
+    IMAGE_QUALITY: int = 95
 
     ALLOWED_EXTENSIONS: Set[str] = {
         ".jpg", ".jpeg", ".png", ".webp"
     }
 
+    # ===================== CORS =====================
+
+    ALLOWED_ORIGINS: list[str] = [
+        "http://localhost",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8000",
+        "http://0.0.0.0:8000",
+    ]
+
     # ===================== CACHE =====================
 
     CACHE_TTL: int = 60 * 60 * 24
-    CACHE_PREFIX: str = "food_analysis:v2"  # 🔥 версия кэша
+    CACHE_PREFIX: str = "food_analysis:v4"   # ← подняли версию кэша
 
     # ===================== CELERY =====================
 
@@ -84,11 +107,12 @@ class Settings(BaseSettings):
     # ===================== VALIDATION =====================
 
     def model_post_init(self, __context):
-        if not self.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY is not set in environment variables")
-
-        if self.MODEL_PROVIDER != "gemini":
-            logger.warning("MODEL_PROVIDER is not 'gemini' — current setup expects Gemini")
+        providers = {"gemini", "deepseek", "ollama", "yandex"}
+        if self.MODEL_PROVIDER not in providers:
+            logger.warning(
+                "MODEL_PROVIDER is not one of %s — current setup may not use the expected provider",
+                ", ".join(sorted(providers)),
+            )
 
     class Config:
         env_file = ".env"

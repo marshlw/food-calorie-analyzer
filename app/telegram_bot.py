@@ -1,11 +1,15 @@
 # app/telegram_bot.py
 
 import asyncio
+import json
 import logging
 import os
 import sys
 
-import aiohttp
+import httpx
+import redis
+from app.config import settings
+from app.api_client import APIClient
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup,
@@ -22,129 +26,127 @@ logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
-    logger.error("TELEGRAM_BOT_TOKEN is not set")
-    sys.exit(1)
+    logger.warning("TELEGRAM_BOT_TOKEN is not set; telegram bot will not start")
 
 API_URL = os.getenv("API_URL", "http://api:8000").rstrip("/")
 
-bot = Bot(token=TOKEN)
+bot = Bot(token=TOKEN) if TOKEN else None
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# 🔥 хранение токенов
-user_tokens: dict[int, str] = {}
 
-# ===================== AUTH =====================
+# 🔥 хранение токенов
+# tokens stored in Redis as hash: tg_tokens:{user_id} -> {access:..., refresh:...}
+
+def _init_redis_client():
+    redis_url = getattr(settings, "REDIS_URL", None)
+    if not redis_url:
+        # Build Redis URL from individual settings
+        redis_host = getattr(settings, "REDIS_HOST", "redis")
+        redis_port = getattr(settings, "REDIS_PORT", 6379)
+        redis_url = f"redis://{redis_host}:{redis_port}/0"
+
+    logger.info(f"Connecting to Redis at {redis_url}")
+    try:
+        client = redis.from_url(redis_url, decode_responses=True)
+        client.ping()
+        logger.info("✅ Redis connection successful")
+        return client
+    except Exception as e:
+        logger.error(f"❌ Redis connection failed: {e}")
+        raise
+
+
+redis_client = _init_redis_client()
+
+
+def _redis_key(user_id: int) -> str:
+    return f"tg_tokens:{user_id}"
+
+
+def _store_tokens(user_id: int, access: str | None, refresh: str | None = None) -> None:
+    key = _redis_key(user_id)
+    mapping = {}
+    if access is not None:
+        mapping["access"] = access
+    if refresh is not None:
+        mapping["refresh"] = refresh
+    if mapping:
+        redis_client.hset(key, mapping=mapping)
+
+
+def _get_tokens(user_id: int) -> tuple[str | None, str | None]:
+    key = _redis_key(user_id)
+    data = redis_client.hgetall(key) or {}
+    return data.get("access"), data.get("refresh")
+
+
+def _pop_tokens(user_id: int) -> None:
+    redis_client.delete(_redis_key(user_id))
+
+
+api_client = APIClient(API_URL, _get_tokens, _store_tokens, _pop_tokens)
+
 
 async def register_user(user_id: int) -> bool:
     email = f"{user_id}@tg.local"
     password = str(user_id)
 
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post(
-                f"{API_URL}/api/v1/register",
-                json={"email": email, "password": password},
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status == 200:
-                    logger.info(f"User {user_id} registered successfully")
-                    return True
-                elif resp.status == 400:
-                    logger.info(f"User {user_id} already exists")
-                    return True
-                else:
-                    logger.error(f"Register failed for {user_id}: {resp.status}")
-                    return False
-        except Exception as e:
-            logger.error(f"Register error for {user_id}: {e}")
-            return False
+    success, error = await api_client.register(user_id, email, password)
+    if success:
+        logger.info("User registered successfully", extra={"user_id": user_id})
+        return True
+
+    if error == "User already exists":
+        logger.info("User already exists, continuing", extra={"user_id": user_id})
+        return True
+
+    logger.error("Register failed", extra={"user_id": user_id, "error": error})
+    return False
 
 
-async def login_user(user_id: int) -> str | None:
+async def login_user(user_id: int) -> bool:
     email = f"{user_id}@tg.local"
     password = str(user_id)
 
-    async with aiohttp.ClientSession() as session:
-        try:
-            form = aiohttp.FormData()
-            form.add_field("email", email)
-            form.add_field("password", password)
+    success, error = await api_client.login(user_id, email, password)
+    if success:
+        logger.info("User logged in successfully", extra={"user_id": user_id})
+        return True
 
-            async with session.post(
-                f"{API_URL}/api/v1/login",
-                data=form,
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    token = data.get("access_token")
-                    if token:
-                        logger.info(f"User {user_id} logged in successfully")
-                        return token
-                    else:
-                        logger.error(f"Login response missing token for {user_id}")
-                        return None
-                else:
-                    logger.error(f"Login failed for {user_id}: {resp.status}")
-                    return None
-        except Exception as e:
-            logger.error(f"Login error for {user_id}: {e}")
-            return None
+    logger.error("Login failed", extra={"user_id": user_id, "error": error})
+    return False
 
 
-async def register_and_login(user_id: int) -> str | None:
-    # Сначала пытаемся зарегистрировать (если не существует)
-    await register_user(user_id)
-    # Затем логинимся
+async def register_and_login(user_id: int) -> bool:
+    if await login_user(user_id):
+        return True
+    if not await register_user(user_id):
+        return False
     return await login_user(user_id)
 
 
 async def get_token(user_id: int) -> str | None:
-    if user_id in user_tokens:
-        return user_tokens[user_id]
+    access, _ = _get_tokens(user_id)
+    if access:
+        return access
 
-    token = await register_and_login(user_id)
-    if token:
-        user_tokens[user_id] = token
-
-    return token
+    if await register_and_login(user_id):
+        access, _ = _get_tokens(user_id)
+        return access
+    return None
 
 
 async def refresh_token(user_id: int) -> str | None:
-    """Обновляет токен для пользователя"""
-    user_tokens.pop(user_id, None)
-    return await get_token(user_id)
+    success, error = await api_client.refresh_access_token(user_id)
+    if success:
+        access, _ = _get_tokens(user_id)
+        return access
 
-
-async def make_authenticated_request(method: str, url: str, user_id: int, **kwargs) -> aiohttp.ClientResponse | None:
-    """Делает запрос с авторизацией, автоматически обновляя токен при 401"""
-    token = await get_token(user_id)
-    if not token:
-        return None
-
-    headers = kwargs.get('headers', {})
-    headers['Authorization'] = f"Bearer {token}"
-    kwargs['headers'] = headers
-    kwargs.setdefault('timeout', aiohttp.ClientTimeout(total=30))
-
-    async with aiohttp.ClientSession() as session:
-        for attempt in range(2):  # Одна попытка с текущим токеном, вторая с новым
-            try:
-                async with session.request(method, url, **kwargs) as resp:
-                    if resp.status == 401 and attempt == 0:
-                        # Токен истек, обновляем и повторяем
-                        logger.warning(f"Token expired for user {user_id}, refreshing")
-                        token = await refresh_token(user_id)
-                        if token:
-                            headers['Authorization'] = f"Bearer {token}"
-                            continue
-                        else:
-                            return None
-                    return resp
-            except Exception as e:
-                logger.error(f"Request error: {e}")
-                return None
+    _pop_tokens(user_id)
+    if await register_and_login(user_id):
+        access, _ = _get_tokens(user_id)
+        return access
     return None
 
 
@@ -243,7 +245,7 @@ async def status(msg: Message):
         await msg.answer("❌ Вы не авторизованы", reply_markup=get_main_menu_keyboard())
 
 
-@dp.message(F.text == "� Отправить фото еды")
+@dp.message(F.text == "📸 Отправить фото еды")
 async def send_photo_prompt(msg: Message):
     token = await get_token(msg.from_user.id)
     if not token:
@@ -333,23 +335,11 @@ async def process_register_confirm(message: Message, state: FSMContext):
         await message.answer("❌ Пароли не совпадают. Попробуйте снова:")
         return
 
-    # Регистрация
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post(
-                f"{API_URL}/api/v1/register",
-                json={"email": data["email"], "password": password},
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status == 200:
-                    await message.answer("✅ Регистрация успешна! Теперь авторизуйтесь.", reply_markup=get_main_menu_keyboard())
-                elif resp.status == 400:
-                    await message.answer("❌ Пользователь уже существует", reply_markup=get_main_menu_keyboard())
-                else:
-                    await message.answer("❌ Ошибка регистрации", reply_markup=get_main_menu_keyboard())
-        except Exception as e:
-            logger.error(f"Register error: {e}")
-            await message.answer("❌ Ошибка соединения", reply_markup=get_main_menu_keyboard())
+    if await api_client.register(message.from_user.id, data["email"], password):
+        await message.answer("✅ Регистрация успешна! Теперь авторизуйтесь.", reply_markup=get_main_menu_keyboard())
+    else:
+        await message.answer("❌ Не удалось зарегистрироваться. Попробуйте позже.",
+                             reply_markup=get_main_menu_keyboard())
 
     await state.clear()
 
@@ -385,31 +375,10 @@ async def process_login_password(message: Message, state: FSMContext):
     email = data.get("email")
     password = message.text.strip()
 
-    # Логин
-    async with aiohttp.ClientSession() as session:
-        try:
-            form = aiohttp.FormData()
-            form.add_field("email", email)
-            form.add_field("password", password)
-
-            async with session.post(
-                f"{API_URL}/api/v1/login",
-                data=form,
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status == 200:
-                    login_data = await resp.json()
-                    token = login_data.get("access_token")
-                    if token:
-                        user_tokens[message.from_user.id] = token
-                        await message.answer("✅ Авторизация успешна!", reply_markup=get_main_menu_keyboard())
-                    else:
-                        await message.answer("❌ Ошибка получения токена", reply_markup=get_main_menu_keyboard())
-                else:
-                    await message.answer("❌ Неверный email или пароль", reply_markup=get_main_menu_keyboard())
-        except Exception as e:
-            logger.error(f"Login error: {e}")
-            await message.answer("❌ Ошибка соединения", reply_markup=get_main_menu_keyboard())
+    if await api_client.login(message.from_user.id, email, password):
+        await message.answer("✅ Авторизация успешна!", reply_markup=get_main_menu_keyboard())
+    else:
+        await message.answer("❌ Неверный email или пароль или ошибка соединения", reply_markup=get_main_menu_keyboard())
 
     await state.clear()
 
@@ -424,56 +393,127 @@ async def handle_photo(message: Message, state: FSMContext):
         )
         return
 
-    msg = await message.answer("🔍 Анализирую...")
+    msg = await message.answer("🔍 Загружаю фото и запускаю анализ...")
 
     try:
         photo = message.photo[-1]
-        file = await bot.get_file(photo.file_id)
-        file_bytes = await bot.download_file(file.file_path)
+        file_info = await bot.get_file(photo.file_id)
+        file_bytes = await bot.download_file(file_info.file_path)
 
-        # Отправляем файл на анализ
-        form = aiohttp.FormData()
-        form.add_field("file", file_bytes, filename="image.jpg")
-
-        resp = await make_authenticated_request(
-            "POST",
-            f"{API_URL}/api/v1/analyze",
+        task, error = await api_client.upload_photo(
             message.from_user.id,
-            data=form
+            file_bytes,
+            filename="image.jpg"
         )
 
-        if not resp or resp.status != 200:
-            await msg.edit_text("❌ Ошибка при отправке изображения")
+        if error or not task:
+            await msg.edit_text(f"❌ Ошибка при отправке изображения: {error or 'unknown'}")
             return
 
-        task = await resp.json()
-        task_id = task["id"]
+        task_id = task.get("id")
+        if not task_id:
+            await msg.edit_text("❌ Сервер не вернул ID задачи")
+            return
 
-        # Ждем результат
+        await msg.edit_text("⌛ Задача зарегистрирована, ожидаю результат...")
+
+        # ========== УЛУЧШЕННОЕ ОЖИДАНИЕ РЕЗУЛЬТАТА ==========
+        MAX_WAIT_SECONDS = 60
+        start_time = asyncio.get_event_loop().time()
+        attempt = 0
         result = None
-        delay = 1
 
-        for _ in range(40):  # Максимум 40 попыток
-            await asyncio.sleep(delay)
-            delay = min(delay * 1.2, 5)
+        while (asyncio.get_event_loop().time() - start_time) < MAX_WAIT_SECONDS:
+            attempt += 1
+            data, error = await api_client.get_task_status(message.from_user.id, task_id)
 
-            resp = await make_authenticated_request(
-                "GET",
-                f"{API_URL}/api/v1/task/{task_id}",
-                message.from_user.id
-            )
-
-            if not resp or resp.status != 200:
+            if error:
+                logger.warning(f"Task status error (attempt {attempt}): {error}")
+                await asyncio.sleep(min(1.0 * (1.2 ** attempt), 5.0))
                 continue
 
-            data = await resp.json()
+            if not data:
+                await asyncio.sleep(min(1.0 * (1.2 ** attempt), 5.0))
+                continue
 
-            if data["status"] == "success":
-                result = data["result"]
-                break
-            elif data["status"] == "failure":
-                await msg.edit_text(f"❌ Ошибка анализа: {data.get('error', 'Неизвестная ошибка')}")
+            # Логируем ответ для диагностики
+            logger.info(f"Task status response (attempt {attempt}): {data}")
+
+            status = str(data.get("status", "")).lower()
+
+            # Признаки успешного завершения
+            success_statuses = {"success", "completed", "done"}
+
+            if status in success_statuses:
+                # Пытаемся извлечь результат из разных полей
+                result = (
+                        data.get("result") or
+                        data.get("result_json") or
+                        data.get("output") or
+                        data.get("data")
+                )
+                if result:
+                    # Если результат – строка JSON, парсим
+                    if isinstance(result, str):
+                        try:
+                            result = json.loads(result)
+                        except json.JSONDecodeError:
+                            logger.warning("Failed to parse result JSON, keeping as string")
+                    break
+                else:
+                    # Статус успешный, но результат отсутствует – возможно, ещё не записался
+                    logger.warning(f"Status {status} but no result found in data: {data}")
+                    # Дадим ещё несколько попыток
+                    await asyncio.sleep(1.0)
+                    continue
+
+            elif status in ("pending", "processing", "started"):
+                if attempt % 5 == 0:
+                    elapsed = int(asyncio.get_event_loop().time() - start_time)
+                    await msg.edit_text(f"⌛ Анализ продолжается... (прошло {elapsed} сек)")
+                await asyncio.sleep(min(1.0 * (1.2 ** attempt), 5.0))
+                continue
+
+            elif status == "failure":
+                error_msg = data.get("error", "Неизвестная ошибка")
+                await msg.edit_text(f"❌ Ошибка анализа: {error_msg}")
                 return
+
+            else:
+                # Неизвестный статус – пробуем извлечь результат на всякий случай
+                logger.warning(f"Unknown status: {status}, trying to extract result")
+                result = (
+                        data.get("result") or
+                        data.get("result_json") or
+                        data.get("output") or
+                        data.get("data")
+                )
+                if result:
+                    if isinstance(result, str):
+                        try:
+                            result = json.loads(result)
+                        except json.JSONDecodeError:
+                            pass
+                    break
+                else:
+                    await asyncio.sleep(min(1.0 * (1.2 ** attempt), 5.0))
+                    continue
+
+        # Если результат так и не получен, делаем последнюю попытку
+        if not result:
+            data, error = await api_client.get_task_status(message.from_user.id, task_id)
+            if data:
+                result = (
+                        data.get("result") or
+                        data.get("result_json") or
+                        data.get("output") or
+                        data.get("data")
+                )
+                if isinstance(result, str):
+                    try:
+                        result = json.loads(result)
+                    except json.JSONDecodeError:
+                        pass
 
         if result:
             await msg.edit_text(
@@ -481,11 +521,11 @@ async def handle_photo(message: Message, state: FSMContext):
                 reply_markup=get_feedback_keyboard(task_id)
             )
         else:
-            await msg.edit_text("❌ Не удалось обработать изображение (таймаут)")
+            await msg.edit_text("❌ Не удалось получить результат за отведённое время. Попробуйте ещё раз.")
 
-    except Exception:
-        logger.exception("Error handling photo")
-        await msg.edit_text("❌ Ошибка при обработке")
+    except Exception as exc:
+        logger.exception("Error handling photo", exc_info=exc)
+        await msg.edit_text("❌ Ошибка при обработке изображения. Попробуйте позже.")
 
 
 # ===================== FEEDBACK =====================
@@ -549,26 +589,63 @@ async def process_correct_weight(message: Message, state: FSMContext):
         "correct_weight": weight
     }
 
-    resp = await make_authenticated_request(
-        "POST",
-        f"{API_URL}/api/v1/feedback",
+    success, error = await api_client.submit_feedback(
         message.from_user.id,
-        json=payload
+        data["task_id"],
+        data["correct_food"],
+        weight,
     )
 
-    if resp and resp.status == 200:
+    if success:
         await message.answer("✅ Сохранено", reply_markup=get_main_menu_keyboard())
     else:
-        await message.answer("⚠️ Ошибка сохранения", reply_markup=get_main_menu_keyboard())
+        await message.answer(f"⚠️ Ошибка сохранения: {error or 'Неизвестная ошибка'}",
+                             reply_markup=get_main_menu_keyboard())
 
     await state.clear()
 
 
 # ===================== START =====================
 
+async def wait_for_api(max_attempts: int = 30, delay: int = 2) -> bool:
+    """Wait for API to be ready before starting the bot"""
+    logger.info(f"🔄 Waiting for API at {API_URL}...")
+    for attempt in range(max_attempts):
+        try:
+            # Try to access any endpoint to check if API is ready
+            response = await api_client.client.get("/health", timeout=5)
+            if response.status_code == 200:
+                logger.info("✅ API is ready!")
+                return True
+        except httpx.ConnectError as e:
+            logger.warning(f"❌ Cannot connect to API (attempt {attempt + 1}/{max_attempts}): Connection refused - {e}")
+        except httpx.TimeoutException as e:
+            logger.warning(f"⏱️ API timeout (attempt {attempt + 1}/{max_attempts}): {e}")
+        except Exception as e:
+            logger.warning(f"❌ API check failed (attempt {attempt + 1}/{max_attempts}): {type(e).__name__} - {e}")
+
+        if attempt < max_attempts - 1:
+            logger.info(f"   Retrying in {delay}s...")
+            await asyncio.sleep(delay)
+
+    logger.error(f"❌ API failed to become ready after {max_attempts} attempts")
+    return False
+
+
 async def main():
+    if not TOKEN:
+        logger.error("❌ TELEGRAM_BOT_TOKEN is not set! Cannot start bot.")
+        return
+
+    if not await wait_for_api():
+        logger.error("❌ Failed to connect to API. Exiting.")
+        return
+
     logger.info("Starting Telegram bot")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    except Exception as e:
+        logger.exception("Telegram bot error", exc_info=e)
 
 
 if __name__ == "__main__":

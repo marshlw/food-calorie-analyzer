@@ -19,6 +19,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - backend
 
   redis:
     image: redis:7-alpine
@@ -29,6 +31,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - backend
 
   ollama:
     image: ollama/ollama
@@ -41,6 +45,8 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    networks:
+      - backend
 
   ollama-pull:
     image: ollama/ollama
@@ -59,12 +65,15 @@ services:
         ollama pull $MODEL_NAME
         echo "Model $MODEL_NAME pulled successfully."
     restart: "no"
+    networks:
+      - backend
 
   api:
     build: .
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    working_dir: /app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
-      - ./app:/app
+      - ./:/app:delegated
       - ./app/app/uploads:/app/app/uploads
     ports:
       - "8000:8000"
@@ -79,12 +88,16 @@ services:
         condition: service_healthy
       ollama-pull:
         condition: service_completed_successfully
+    restart: unless-stopped
+    networks:
+      - backend
 
-  celery:
+  celery_worker:
     build: .
+    working_dir: /app
     command: celery -A app.celery_app worker --loglevel=info --concurrency=4
     volumes:
-      - ./app:/app
+      - ./:/app:delegated
       - ./app/app/uploads:/app/app/uploads
     env_file:
       - .env
@@ -98,27 +111,37 @@ services:
         condition: service_completed_successfully
       api:
         condition: service_started
+    restart: unless-stopped
+    networks:
+      - backend
 
   telegram_bot:
     build: .
-    command: python telegram_bot.py
+    working_dir: /app
+    command: python -m app.telegram_bot
     volumes:
-      - ./app:/app
+      - ./:/app:delegated
       - ./app/app/uploads:/app/app/uploads
     env_file:
       - .env
     environment:
       - API_URL=http://api:8000
+      - PYTHONPATH=/app
     depends_on:
       api:
         condition: service_started
+      redis:
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - backend
 
   gradio:
     build: .
+    working_dir: /app
     command: python -m app.gradio_app
     volumes:
-      - ./app:/app
+      - ./:/app:delegated
       - ./app/app/uploads:/app/app/uploads
     ports:
       - "7860:7860"
@@ -129,7 +152,14 @@ services:
     depends_on:
       api:
         condition: service_started
+    restart: unless-stopped
+    networks:
+      - backend
 
 volumes:
   postgres_data:
   ollama_data:
+
+networks:
+  backend:
+    driver: bridge

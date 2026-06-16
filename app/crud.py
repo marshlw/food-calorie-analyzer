@@ -7,7 +7,6 @@ from datetime import datetime, date
 from . import models, schemas
 import logging
 
-from .tasks import retrain_model_task
 import json
 
 logger = logging.getLogger(__name__)
@@ -274,6 +273,7 @@ def create_feedback_sync(
 
         if pending_count >= 10:  # retrain каждые 10 feedback
             logger.info(f"Triggering model retraining: {pending_count} pending feedbacks")
+            from .tasks import retrain_model_task
             retrain_model_task.delay()
     except Exception as e:
         logger.warning(f"Retraining trigger failed: {e}")

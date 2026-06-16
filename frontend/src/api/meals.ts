@@ -1,0 +1,34 @@
+import { apiClient } from './axios'
+import { MealEntry, MealEntryCreate, DailyLog } from '../types'
+
+export const mealsApi = {
+  addMeal: async (meal: MealEntryCreate): Promise<MealEntry> => {
+    const response = await apiClient.post<MealEntry>('/api/v1/meals', meal)
+    return response.data
+  },
+
+  addMealFromAnalysis: async (taskId: string, mealType: string): Promise<MealEntry> => {
+    const response = await apiClient.post<MealEntry>('/api/v1/meals/from-analysis', {
+      task_id: taskId,
+      meal_type: mealType,
+    })
+    return response.data
+  },
+
+  updateMeal: async (mealId: number, meal: MealEntryCreate): Promise<MealEntry> => {
+    const response = await apiClient.patch<MealEntry>(`/api/v1/meals/${mealId}`, meal)
+    return response.data
+  },
+
+  deleteMeal: async (mealId: number): Promise<{ status: string; deleted_id: number }> => {
+    const response = await apiClient.delete(`/api/v1/meals/${mealId}`)
+    return response.data
+  },
+
+  getDailyLog: async (dateStr?: string): Promise<DailyLog> => {
+    const response = await apiClient.get<DailyLog>('/api/v1/daily-log', {
+      params: dateStr ? { date_str: dateStr } : undefined,
+    })
+    return response.data
+  },
+}
