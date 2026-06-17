@@ -42,6 +42,10 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
+    # Опционально при регистрации: если заполнены, вес станет первой
+    # записью в истории взвешиваний (см. main.register).
+    height_cm: Optional[float] = Field(None, gt=0, lt=300)
+    weight_kg: Optional[float] = Field(None, gt=0, lt=300)
 
 
 class UserUpdate(BaseModel):
@@ -53,6 +57,68 @@ class User(UserBase):
     id: int
     is_active: bool
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ==================== PROFILE / WEIGHT ====================
+
+class WeightRecordCreate(BaseModel):
+    weight_kg: float = Field(..., gt=0, lt=300)
+    recorded_on: Optional[_date] = None  # по умолчанию -- сегодня
+    note: Optional[str] = Field(None, max_length=200)
+
+
+class WeightRecordResponse(BaseModel):
+    id: int
+    weight_kg: float
+    recorded_on: _date
+    note: Optional[str] = None
+    source: str
+
+    class Config:
+        from_attributes = True
+
+
+class ProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    height_cm: Optional[float] = Field(None, gt=0, lt=300)
+    weight_kg: Optional[float] = Field(None, gt=0, lt=300)
+    sex: Optional[Literal["male", "female"]] = None
+    birth_date: Optional[_date] = None
+    activity_level: Optional[Literal[
+        "sedentary", "light", "moderate", "active", "very_active"
+    ]] = None
+    # UX «Сохранить как новую запись?». По умолчанию True: вес из формы
+    # профиля попадает в историю (за сегодня, upsert'ом).
+    save_weight_as_record: bool = True
+
+
+class NutritionTargets(BaseModel):
+    """Суточные нормы КБЖУ, рассчитанные из веса/роста/возраста/активности."""
+    calories: Optional[float] = None
+    protein_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    carbs_g: Optional[float] = None
+
+
+class ProfileResponse(BaseModel):
+    id: int
+    email: EmailStr
+    full_name: Optional[str] = None
+    height_cm: Optional[float] = None
+    current_weight_kg: Optional[float] = None  # выводится из последней записи
+    sex: Optional[str] = None
+    birth_date: Optional[_date] = None
+    activity_level: Optional[str] = None
+    recent_weights: List[WeightRecordResponse] = Field(default_factory=list)
+    bmr: Optional[float] = None                 # базовый обмен веществ
+    daily_calorie_target: Optional[float] = None
+    # Нормы макронутриентов (по аналогии с нормой калорий)
+    protein_target_g: Optional[float] = None
+    fat_target_g: Optional[float] = None
+    carbs_target_g: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -183,6 +249,8 @@ class DailyLogResponse(BaseModel):
     total_fat: float
     total_carbs: float
     meals: List[MealEntryResponse]
+    # Суточные нормы КБЖУ пользователя (для колец/сводки в дневнике).
+    targets: Optional[NutritionTargets] = None
 
 
 class AnalysisMealRequest(BaseModel):

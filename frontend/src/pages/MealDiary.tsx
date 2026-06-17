@@ -3,6 +3,7 @@ import { DailyLog, MealEntry, MealEntryCreate } from '../types'
 import { mealsApi } from '../api/meals'
 import { MealCard } from '../components/MealCard'
 import { MealForm } from '../components/MealForm'
+import { DailyStats } from '../components/DailyStats'
 import { Modal } from '../components/Modal'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { SuccessAlert } from '../components/SuccessAlert'
@@ -108,38 +109,8 @@ export const MealDiary: React.FC = () => {
       {/* Loading */}
       {isLoadingLog && <LoadingSpinner message="Загрузка дневника..." />}
 
-      {/* Daily Stats Summary */}
-      {dailyLog && !isLoadingLog && (
-        <div className="card p-4 mb-6 rounded-xl">
-          <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-3">Сводка за день</h2>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded p-2">
-              <p className="text-xs text-gray-600 dark:text-gray-400">Калории</p>
-              <p className="font-semibold text-blue-600 dark:text-blue-400">
-                {Math.round(dailyLog.total_calories)}
-              </p>
-            </div>
-            <div className="bg-red-50 dark:bg-red-900/20 rounded p-2">
-              <p className="text-xs text-gray-600 dark:text-gray-400">Белки</p>
-              <p className="font-semibold text-red-600 dark:text-red-400">
-                {dailyLog.total_protein.toFixed(1)}г
-              </p>
-            </div>
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded p-2">
-              <p className="text-xs text-gray-600 dark:text-gray-400">Жиры</p>
-              <p className="font-semibold text-yellow-600 dark:text-yellow-400">
-                {dailyLog.total_fat.toFixed(1)}г
-              </p>
-            </div>
-            <div className="bg-green-50 dark:bg-green-900/20 rounded p-2">
-              <p className="text-xs text-gray-600 dark:text-gray-400">Углеводы</p>
-              <p className="font-semibold text-green-600 dark:text-green-400">
-                {dailyLog.total_carbs.toFixed(1)}г
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Daily Stats Summary (кольца КБЖУ с нормами) */}
+      {dailyLog && !isLoadingLog && <DailyStats log={dailyLog} />}
 
       {/* Meals List */}
       {dailyLog && !isLoadingLog && (

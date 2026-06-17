@@ -65,6 +65,7 @@ export const WeekCalendar: React.FC = () => {
               label={WEEKDAY_LABELS[i]}
               dayNum={new Date(date).getDate()}
               calories={log?.total_calories ?? 0}
+              goal={log?.targets?.calories ?? undefined}
               hasMeals={(log?.meals.length ?? 0) > 0}
               isSelected={date === selectedDate}
               isToday={date === today}

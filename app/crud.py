@@ -31,10 +31,133 @@ def create_user_sync(db: Session, user: schemas.UserCreate, hashed_password: str
     db_user = models.User(
         email=user.email,
         full_name=user.full_name,
-        hashed_password=hashed_password
+        hashed_password=hashed_password,
+        height_cm=getattr(user, "height_cm", None),
     )
     db.add(db_user)
     db.commit()
+    db.refresh(db_user)
+    return db_user
+
+
+# ==================== PROFILE / WEIGHT ====================
+
+def compute_nutrition_targets(db: Session, user: models.User) -> Dict[str, Any]:
+    """Единый расчёт суточных норм (BMR, калории, БЖУ) из веса/роста/возраста/
+    активности. Используется и профилем, и дневником, чтобы цифры совпадали.
+    Текущий вес берётся из последней записи истории."""
+    from app import utils
+
+    latest = get_latest_weight(db, user.id)
+    weight = latest.weight_kg if latest else None
+    age = utils.calc_age(user.birth_date)
+    bmr = utils.calc_bmr(weight, user.height_cm, age, user.sex)
+    calories = utils.calc_daily_calorie_target(bmr, user.activity_level)
+    macros = utils.calc_macro_targets(calories)
+    return {
+        "bmr": bmr,
+        "calories": calories,
+        "protein_g": macros["protein_g"],
+        "fat_g": macros["fat_g"],
+        "carbs_g": macros["carbs_g"],
+        "current_weight_kg": weight,
+    }
+
+
+def get_latest_weight(db: Session, user_id: int) -> Optional[models.WeightRecord]:
+    """Последнее взвешивание = источник правды для «текущего веса»."""
+    return (
+        db.query(models.WeightRecord)
+        .filter(models.WeightRecord.user_id == user_id)
+        .order_by(
+            models.WeightRecord.recorded_on.desc(),
+            models.WeightRecord.created_at.desc(),
+        )
+        .first()
+    )
+
+
+def list_weight_history(
+    db: Session,
+    user_id: int,
+    start: Optional[date] = None,
+    end: Optional[date] = None,
+) -> List[models.WeightRecord]:
+    q = db.query(models.WeightRecord).filter(models.WeightRecord.user_id == user_id)
+    if start:
+        q = q.filter(models.WeightRecord.recorded_on >= start)
+    if end:
+        q = q.filter(models.WeightRecord.recorded_on <= end)
+    return q.order_by(models.WeightRecord.recorded_on.asc()).all()
+
+
+def upsert_weight_record(
+    db: Session,
+    user_id: int,
+    weight_kg: float,
+    recorded_on: Optional[date] = None,
+    note: Optional[str] = None,
+    source: str = "manual",
+) -> models.WeightRecord:
+    """Одна запись на (user, дата): повторное сохранение за тот же день
+    обновляет существующую строку, а не создаёт дубль."""
+    recorded_on = recorded_on or date.today()
+    rec = (
+        db.query(models.WeightRecord)
+        .filter(
+            models.WeightRecord.user_id == user_id,
+            models.WeightRecord.recorded_on == recorded_on,
+        )
+        .first()
+    )
+    if rec:
+        rec.weight_kg = weight_kg
+        if note is not None:
+            rec.note = note
+        rec.source = source
+    else:
+        rec = models.WeightRecord(
+            user_id=user_id,
+            weight_kg=weight_kg,
+            recorded_on=recorded_on,
+            note=note,
+            source=source,
+        )
+        db.add(rec)
+    db.commit()
+    db.refresh(rec)
+    return rec
+
+
+def update_profile(db: Session, user: models.User, payload: schemas.ProfileUpdate) -> models.User:
+    # ВАЖНО: current_user приходит из сессии auth.get_current_user
+    # (database.get_db), а эндпоинты работают через свою сессию (main.get_db).
+    # Это РАЗНЫЕ сессии, поэтому коммит/refresh переданного объекта падает с
+    # "not persistent within this Session". Перечитываем пользователя в
+    # рабочей сессии db и мутируем уже его.
+    db_user = db.query(models.User).filter(models.User.id == user.id).first()
+    if db_user is None:
+        raise ValueError(f"User {user.id} not found")
+
+    if payload.full_name is not None:
+        db_user.full_name = payload.full_name
+    if payload.height_cm is not None:
+        db_user.height_cm = payload.height_cm
+    if payload.sex is not None:
+        db_user.sex = payload.sex
+    if payload.birth_date is not None:
+        db_user.birth_date = payload.birth_date
+    if payload.activity_level is not None:
+        db_user.activity_level = payload.activity_level
+    db.commit()
+
+    # Вес из профиля -> в историю, только если изменился относительно
+    # последнего значения (иначе незачем трогать запись за сегодня).
+    if payload.weight_kg is not None and payload.save_weight_as_record:
+        latest = get_latest_weight(db, db_user.id)
+        if latest is None or latest.weight_kg != payload.weight_kg:
+            upsert_weight_record(db, db_user.id, payload.weight_kg, source="profile_edit")
+
     db.refresh(db_user)
     return db_user
 

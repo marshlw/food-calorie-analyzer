@@ -9,6 +9,8 @@ export const Register: React.FC = () => {
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [height, setHeight] = useState('')
+  const [weight, setWeight] = useState('')
   const [localError, setLocalError] = useState('')
   const navigate = useNavigate()
   const { register, isLoading, error, clearError } = useAuth()
@@ -32,8 +34,19 @@ export const Register: React.FC = () => {
       return
     }
 
+    const h = height ? parseFloat(height) : undefined
+    const w = weight ? parseFloat(weight) : undefined
+    if (h !== undefined && (isNaN(h) || h <= 0 || h >= 300)) {
+      setLocalError('Рост должен быть больше 0 и меньше 300 см')
+      return
+    }
+    if (w !== undefined && (isNaN(w) || w <= 0 || w >= 300)) {
+      setLocalError('Вес должен быть больше 0 и меньше 300 кг')
+      return
+    }
+
     try {
-      await register(email, password, fullName || undefined)
+      await register(email, password, fullName || undefined, { height_cm: h, weight_kg: w })
       navigate('/')
     } catch {
       // Error is already set by auth context
@@ -111,6 +124,37 @@ export const Register: React.FC = () => {
                 className="input"
                 disabled={isLoading}
               />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Рост, см (опц.)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="300"
+                  value={height}
+                  onChange={(e) => setHeight(e.target.value)}
+                  placeholder="180"
+                  className="input"
+                  disabled={isLoading}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Вес, кг (опц.)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="300"
+                  value={weight}
+                  onChange={(e) => setWeight(e.target.value)}
+                  placeholder="75"
+                  className="input"
+                  disabled={isLoading}
+                />
+              </div>
             </div>
 
             <button

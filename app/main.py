@@ -31,7 +31,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
@@ -72,7 +72,10 @@ ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
 @app.on_event("startup")
 async def startup_event():
     try:
-        models.Base.metadata.create_all(bind=engine)
+        # ensure_schema() = create_all() + добор недостающих колонок профиля
+        # в существующей таблице users (create_all сам колонки не добавляет).
+        from app.database import ensure_schema
+        ensure_schema()
         logger.info("Database schema checked/created")
     except Exception as exc:
         logger.warning("Database schema creation failed", exc_info=exc)
@@ -237,6 +240,14 @@ async def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     hashed_password = auth.get_password_hash(user.password)
     db_user = crud.create_user_sync(db, user, hashed_password)
 
+    # UX из ТЗ: вес, заполненный при регистрации, становится первой
+    # записью в истории взвешиваний.
+    if user.weight_kg:
+        try:
+            crud.upsert_weight_record(db, db_user.id, user.weight_kg, source="registration")
+        except Exception as exc:
+            logger.warning("Failed to seed initial weight record", exc_info=exc)
+
     logger.info(f"User registered: {user.email}")
     return db_user
 
@@ -305,6 +316,82 @@ async def get_me(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
 
 
+# ===================== PROFILE =====================
+
+def _build_profile(db: Session, user: models.User) -> dict:
+    """Собирает ProfileResponse: текущий вес = последняя запись истории,
+    плюс производные BMR и суточные нормы КБЖУ."""
+    # Для графика на профиле достаточно последних ~30 записей.
+    recent = crud.list_weight_history(db, user.id)[-30:]
+    t = crud.compute_nutrition_targets(db, user)
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "height_cm": user.height_cm,
+        "current_weight_kg": t["current_weight_kg"],
+        "sex": user.sex,
+        "birth_date": user.birth_date,
+        "activity_level": user.activity_level,
+        "recent_weights": recent,
+        "bmr": t["bmr"],
+        "daily_calorie_target": t["calories"],
+        "protein_target_g": t["protein_g"],
+        "fat_target_g": t["fat_g"],
+        "carbs_target_g": t["carbs_g"],
+    }
+
+
+@app.get("/api/v1/profile", response_model=schemas.ProfileResponse)
+async def get_profile(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    return _build_profile(db, current_user)
+
+
+@app.put("/api/v1/profile", response_model=schemas.ProfileResponse)
+async def update_profile(
+    payload: schemas.ProfileUpdate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = crud.update_profile(db, current_user, payload)
+    return _build_profile(db, user)
+
+
+@app.post(
+    "/api/v1/profile/weight",
+    response_model=schemas.WeightRecordResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_weight_record(
+    payload: schemas.WeightRecordCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    if payload.recorded_on and payload.recorded_on > date.today():
+        raise HTTPException(status_code=400, detail="Дата записи не может быть в будущем")
+    return crud.upsert_weight_record(
+        db, current_user.id, payload.weight_kg,
+        recorded_on=payload.recorded_on, note=payload.note, source="manual",
+    )
+
+
+@app.get(
+    "/api/v1/profile/weight-history",
+    response_model=List[schemas.WeightRecordResponse],
+)
+async def get_weight_history(
+    start: Optional[date] = None,
+    end: Optional[date] = None,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    return crud.list_weight_history(db, current_user.id, start, end)
+
+
 # ===================== TASK STATUS =====================
 
 @app.get("/api/v1/task/{task_id}", response_model=schemas.TaskResponse)
@@ -356,6 +443,15 @@ async def get_daily_log(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
 
+    # Суточные нормы КБЖУ пользователя — одни и те же для любого дня.
+    targets = crud.compute_nutrition_targets(db, current_user)
+    targets_payload = {
+        "calories": targets["calories"],
+        "protein_g": targets["protein_g"],
+        "fat_g": targets["fat_g"],
+        "carbs_g": targets["carbs_g"],
+    }
+
     log = crud.get_daily_log(db, current_user.id, date_value)
     if not log:
         return {
@@ -364,14 +460,16 @@ async def get_daily_log(
             "total_protein": 0.0,
             "total_fat": 0.0,
             "total_carbs": 0.0,
-            "meals": []
+            "meals": [],
+            "targets": targets_payload,
         }
 
     totals = crud.calculate_daily_totals(log)
     return {
         "date": log.date,
         **totals,
-        "meals": log.entries
+        "meals": log.entries,
+        "targets": targets_payload,
     }
 
 

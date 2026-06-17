@@ -3,9 +3,69 @@ from pathlib import Path
 from PIL import Image
 import magic
 from typing import Tuple, Optional
+from datetime import date
 import os
 import logging
 logger = logging.getLogger(__name__)
+
+
+# ==================== BMR / НОРМА КАЛОРИЙ ====================
+
+# Коэффициенты физической активности (множитель к BMR -> TDEE).
+ACTIVITY_FACTORS = {
+    "sedentary": 1.2,
+    "light": 1.375,
+    "moderate": 1.55,
+    "active": 1.725,
+    "very_active": 1.9,
+}
+
+
+def calc_age(birth_date: Optional[date]) -> Optional[int]:
+    """Полных лет на сегодня."""
+    if not birth_date:
+        return None
+    today = date.today()
+    return today.year - birth_date.year - (
+        (today.month, today.day) < (birth_date.month, birth_date.day)
+    )
+
+
+def calc_bmr(weight_kg: Optional[float], height_cm: Optional[float],
+             age: Optional[int], sex: Optional[str]) -> Optional[float]:
+    """Базовый обмен веществ по формуле Миффлина-Сан-Жеора.
+    Возвращает None, если данных не хватает."""
+    if not all([weight_kg, height_cm, age, sex]):
+        return None
+    base = 10 * weight_kg + 6.25 * height_cm - 5 * age
+    return round(base + (5 if sex == "male" else -161), 1)
+
+
+def calc_daily_calorie_target(bmr: Optional[float],
+                              activity_level: Optional[str]) -> Optional[float]:
+    """Дневная норма калорий (TDEE) = BMR * коэффициент активности."""
+    if bmr is None:
+        return None
+    return round(bmr * ACTIVITY_FACTORS.get(activity_level or "sedentary", 1.2))
+
+
+# Распределение суточной нормы калорий по макронутриентам (доля от ккал).
+# 30% белки / 30% жиры / 40% углеводы — сбалансированный дефолт.
+MACRO_SPLIT = {"protein": 0.30, "fat": 0.30, "carbs": 0.40}
+# Калорийность 1 г макронутриента.
+KCAL_PER_GRAM = {"protein": 4.0, "fat": 9.0, "carbs": 4.0}
+
+
+def calc_macro_targets(calorie_target: Optional[float]) -> dict:
+    """Норма белков/жиров/углеводов (в граммах) из суточной нормы калорий —
+    по аналогии с нормой калорий. Возвращает None-значения, если калорий нет."""
+    if not calorie_target:
+        return {"protein_g": None, "fat_g": None, "carbs_g": None}
+    return {
+        "protein_g": round(calorie_target * MACRO_SPLIT["protein"] / KCAL_PER_GRAM["protein"]),
+        "fat_g": round(calorie_target * MACRO_SPLIT["fat"] / KCAL_PER_GRAM["fat"]),
+        "carbs_g": round(calorie_target * MACRO_SPLIT["carbs"] / KCAL_PER_GRAM["carbs"]),
+    }
 from PIL import Image
 import hashlib
 import magic

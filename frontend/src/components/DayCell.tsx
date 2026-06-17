@@ -5,6 +5,7 @@ interface Props {
   label: string
   dayNum: number
   calories: number
+  goal?: number
   hasMeals: boolean
   isSelected: boolean
   isToday: boolean
@@ -13,7 +14,7 @@ interface Props {
 
 // Один день в недельной сетке. Глупый, мемоизированный.
 export const DayCell = React.memo<Props>(
-  ({ label, dayNum, calories, hasMeals, isSelected, isToday, onClick }) => (
+  ({ label, dayNum, calories, goal, hasMeals, isSelected, isToday, onClick }) => (
     <button
       onClick={onClick}
       className={`flex flex-col items-center gap-1 py-2 rounded-xl transition-colors ${
@@ -27,7 +28,7 @@ export const DayCell = React.memo<Props>(
         {dayNum}
       </span>
       <div className="relative grid place-items-center">
-        <CalorieRing value={calories} />
+        <CalorieRing value={calories} goal={goal} />
         <span className="absolute text-[10px] font-medium">
           {calories ? Math.round(calories) : '·'}
         </span>

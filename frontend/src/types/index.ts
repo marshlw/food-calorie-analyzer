@@ -81,6 +81,13 @@ export interface MealEntryCreate {
   task_id?: string
 }
 
+export interface NutritionTargets {
+  calories?: number | null
+  protein_g?: number | null
+  fat_g?: number | null
+  carbs_g?: number | null
+}
+
 export interface DailyLog {
   date: string
   total_calories: number
@@ -88,6 +95,55 @@ export interface DailyLog {
   total_fat: number
   total_carbs: number
   meals: MealEntry[]
+  // Суточные нормы КБЖУ пользователя (для колец/сводки).
+  targets?: NutritionTargets | null
+}
+
+// ==================== PROFILE / WEIGHT ====================
+
+export type Sex = 'male' | 'female'
+export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active'
+
+export interface WeightRecord {
+  id: number
+  weight_kg: number
+  recorded_on: string // YYYY-MM-DD
+  note?: string | null
+  source: string // manual | registration | profile_edit
+}
+
+export interface Profile {
+  id: number
+  email: string
+  full_name?: string | null
+  height_cm?: number | null
+  current_weight_kg?: number | null
+  sex?: Sex | null
+  birth_date?: string | null
+  activity_level?: ActivityLevel | null
+  recent_weights: WeightRecord[]
+  bmr?: number | null
+  daily_calorie_target?: number | null
+  protein_target_g?: number | null
+  fat_target_g?: number | null
+  carbs_target_g?: number | null
+}
+
+export interface ProfileUpdate {
+  full_name?: string
+  height_cm?: number
+  weight_kg?: number
+  sex?: Sex
+  birth_date?: string
+  activity_level?: ActivityLevel
+  // По умолчанию true: изменённый в форме вес уходит в историю.
+  save_weight_as_record?: boolean
+}
+
+export interface WeightRecordCreate {
+  weight_kg: number
+  recorded_on?: string
+  note?: string
 }
 
 export interface AuthContextType {
@@ -97,7 +153,12 @@ export interface AuthContextType {
   isLoading: boolean
   error: string | null
   login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string, fullName?: string) => Promise<void>
+  register: (
+    email: string,
+    password: string,
+    fullName?: string,
+    profile?: { height_cm?: number; weight_kg?: number }
+  ) => Promise<void>
   logout: () => void
   clearError: () => void
 }

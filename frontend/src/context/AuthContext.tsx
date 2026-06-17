@@ -115,10 +115,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, [])
 
-  const register = useCallback(async (email: string, password: string, fullName?: string) => {
+  const register = useCallback(async (
+    email: string,
+    password: string,
+    fullName?: string,
+    profile?: { height_cm?: number; weight_kg?: number }
+  ) => {
     dispatch({ type: 'LOGIN_START' })
     try {
-      const user = await authApi.register(email, password, fullName)
+      const user = await authApi.register(email, password, fullName, profile)
       const token = await authApi.login(email, password)
       setAuthTokens(token)
       dispatch({ type: 'REGISTER_SUCCESS', payload: { user, token } })

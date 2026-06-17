@@ -1,12 +1,15 @@
 import React from 'react'
 import { DailyLog } from '../types'
 import { TrendingUp } from 'lucide-react'
+import { NutritionRings } from './NutritionRings'
 
 interface DailyStatsProps {
   log: DailyLog
 }
 
 export const DailyStats: React.FC<DailyStatsProps> = ({ log }) => {
+  const hasTargets = !!log.targets && log.targets.calories != null
+
   const stats = [
     { label: 'Калории', value: Math.round(log.total_calories), unit: 'ккал', color: 'blue' },
     { label: 'Белки', value: log.total_protein.toFixed(1), unit: 'г', color: 'red' },
@@ -25,23 +28,40 @@ export const DailyStats: React.FC<DailyStatsProps> = ({ log }) => {
     <div className="card p-6 mb-6">
       <div className="flex items-center gap-2 mb-4">
         <TrendingUp className="h-5 w-5 text-primary-500" />
-        <h3 className="text-lg font-semibold">Сегодняшняя сводка</h3>
+        <h3 className="text-lg font-semibold">Сводка за день</h3>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        {stats.map((stat) => (
-          <div
-            key={stat.label}
-            className={`${colorMap[stat.color as keyof typeof colorMap]} rounded-lg p-4`}
-          >
-            <p className="text-xs font-medium opacity-75 mb-1">{stat.label}</p>
-            <p className="text-2xl font-bold">
-              {stat.value}
-              <span className="text-sm ml-1">{stat.unit}</span>
-            </p>
+      {hasTargets ? (
+        <NutritionRings
+          totals={{
+            calories: log.total_calories,
+            protein: log.total_protein,
+            fat: log.total_fat,
+            carbs: log.total_carbs,
+          }}
+          targets={log.targets}
+        />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            {stats.map((stat) => (
+              <div
+                key={stat.label}
+                className={`${colorMap[stat.color as keyof typeof colorMap]} rounded-lg p-4`}
+              >
+                <p className="text-xs font-medium opacity-75 mb-1">{stat.label}</p>
+                <p className="text-2xl font-bold">
+                  {stat.value}
+                  <span className="text-sm ml-1">{stat.unit}</span>
+                </p>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+          <p className="text-xs text-gray-400 mt-3">
+            Заполните профиль (рост, вес, возраст, активность), чтобы видеть нормы КБЖУ.
+          </p>
+        </>
+      )}
     </div>
   )
 }

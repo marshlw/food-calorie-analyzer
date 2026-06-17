@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Enum as SQLEnum, JSON, Date
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Enum as SQLEnum, JSON, Date, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -34,9 +34,51 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # ---- Профиль (всё опционально, не блокирует регистрацию) ----
+    # Рост меняется редко -> храним снимок прямо на пользователе.
+    # Текущий вес НЕ дублируем здесь: источник правды -- последняя
+    # запись в weight_records (см. crud.get_latest_weight), чтобы
+    # два источника не разъезжались.
+    height_cm = Column(Float, nullable=True)
+    # Задел под расчёт BMR / нормы калорий (формула Миффлина-Сан-Жеора).
+    sex = Column(String, nullable=True)             # "male" | "female"
+    birth_date = Column(Date, nullable=True)
+    activity_level = Column(String, nullable=True)  # sedentary|light|moderate|active|very_active
+
     meals = relationship("Meal", back_populates="user", cascade="all, delete-orphan")
     tasks = relationship("Task", back_populates="user")
     daily_logs = relationship("DailyLog", back_populates="user", cascade="all, delete-orphan")
+    weight_records = relationship(
+        "WeightRecord",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="WeightRecord.recorded_on",
+    )
+
+
+# ==================== WEIGHT HISTORY ====================
+
+class WeightRecord(Base):
+    """История взвешиваний. Одна строка на (пользователь + дата):
+    повторное сохранение веса за тот же день обновляет запись, а не
+    плодит дубли (см. crud.upsert_weight_record). Это и есть защита
+    от случайных дублей из UX «сохранить как новую запись?»."""
+
+    __tablename__ = "weight_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    weight_kg = Column(Float, nullable=False)
+    recorded_on = Column(Date, nullable=False, server_default=func.current_date())
+    note = Column(String, nullable=True)
+    source = Column(String, default="manual")  # manual | registration | profile_edit
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="weight_records")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "recorded_on", name="uq_weight_user_date"),
+    )
 
 
 # ==================== DAILY LOG ====================
