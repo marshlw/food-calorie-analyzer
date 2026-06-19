@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Settings, Plus, AlertCircle, Flame } from 'lucide-react'
+import { LogOut, Settings, Plus, AlertCircle, Flame, Droplet } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { profileApi } from '../api/profile'
 import { Profile as ProfileType, ProfileUpdate, WeightRecordCreate } from '../types'
@@ -154,6 +154,18 @@ export const Profile: React.FC = () => {
                 Заполните рост, вес, дату рождения и активность ниже — и нормы рассчитаются автоматически.
               </p>
             )}
+          </div>
+
+          {/* Суточная норма воды */}
+          <div className="card p-4 rounded-xl flex items-center justify-between">
+            <p className="text-xs text-gray-500 flex items-center gap-1.5">
+              <Droplet className="h-4 w-4 text-cyan-500" /> Норма воды в день
+            </p>
+            <p className="text-2xl font-bold">
+              {profile.water_target_ml != null
+                ? `${(profile.water_target_ml / 1000).toFixed(1)} л`
+                : '—'}
+            </p>
           </div>
 
           {/* График + кнопка добавления */}

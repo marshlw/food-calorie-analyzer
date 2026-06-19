@@ -1,0 +1,607 @@
+{
+  "info": {
+    "name": "AI Healthy API",
+    "_postman_id": "ai-healthy-api-collection-v1",
+    "description": "Полная коллекция API AI Healthy, соответствующая swagger.yaml (OpenAPI 3.0). Перед использованием задайте переменные окружения: base_url, email, password. Токены (access_token, refresh_token) и id ресурсов сохраняются автоматически тестовыми скриптами.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{access_token}}", "type": "string" }
+    ]
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000" },
+    { "key": "email", "value": "qa_user@example.com" },
+    { "key": "password", "value": "password123" },
+    { "key": "access_token", "value": "" },
+    { "key": "refresh_token", "value": "" },
+    { "key": "admin_token", "value": "change-me-in-production" },
+    { "key": "task_id", "value": "" },
+    { "key": "meal_id", "value": "" },
+    { "key": "feedback_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Проверка работоспособности сервиса. Без аутентификации."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201 or 400 (already exists)', function () {",
+                  "  pm.expect([201, 400]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"full_name\": \"QA User\",\n  \"height_cm\": 180,\n  \"weight_kg\": 80\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "register"]
+            },
+            "description": "Регистрация пользователя. Пароль ≥ 8 символов. Поля height_cm/weight_kg опциональны."
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "if (json.access_token) { pm.collectionVariables.set('access_token', json.access_token); }",
+                  "if (json.refresh_token) { pm.collectionVariables.set('refresh_token', json.refresh_token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"grant_type\": \"password\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "login"]
+            },
+            "description": "Вход по email/паролю. Сохраняет access_token и refresh_token в переменные коллекции."
+          },
+          "response": []
+        },
+        {
+          "name": "Token - Password Grant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "if (json.access_token) { pm.collectionVariables.set('access_token', json.access_token); }",
+                  "if (json.refresh_token) { pm.collectionVariables.set('refresh_token', json.refresh_token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"grant_type\": \"password\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/token",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "token"]
+            },
+            "description": "OAuth2-совместимый эндпоинт, grant_type=password."
+          },
+          "response": []
+        },
+        {
+          "name": "Token - Refresh Grant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "if (json.access_token) { pm.collectionVariables.set('access_token', json.access_token); }",
+                  "if (json.refresh_token) { pm.collectionVariables.set('refresh_token', json.refresh_token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"refresh_token\",\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/token",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "token"]
+            },
+            "description": "Обновление пары токенов по refresh_token."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "me"]
+            },
+            "description": "Текущий пользователь (требует Bearer-токен)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Profile",
+      "item": [
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "profile"]
+            },
+            "description": "Профиль с BMR, нормами КБЖУ и последними взвешиваниями."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"QA User Updated\",\n  \"height_cm\": 180,\n  \"weight_kg\": 79.5,\n  \"sex\": \"male\",\n  \"birth_date\": \"1995-05-15\",\n  \"activity_level\": \"moderate\",\n  \"save_weight_as_record\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "profile"]
+            },
+            "description": "Частичное обновление профиля. sex ∈ {male,female}; activity_level ∈ {sedentary,light,moderate,active,very_active}."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Weight Record",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight_kg\": 79.2,\n  \"recorded_on\": \"2026-06-17\",\n  \"note\": \"Утреннее взвешивание\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/profile/weight",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "profile", "weight"]
+            },
+            "description": "Upsert записи о взвешивании. recorded_on не может быть в будущем."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Weight History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/profile/weight-history?start=2026-01-01&end=2026-12-31",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "profile", "weight-history"],
+              "query": [
+                { "key": "start", "value": "2026-01-01" },
+                { "key": "end", "value": "2026-12-31" }
+              ]
+            },
+            "description": "История взвешиваний с фильтром по диапазону дат (оба параметра опциональны)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Analysis",
+      "item": [
+        {
+          "name": "Analyze Image",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+                  "var json = pm.response.json();",
+                  "if (json.id) { pm.collectionVariables.set('task_id', json.id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": [], "description": "Изображение блюда (jpg/jpeg/png/webp, ≤ 10 МБ)" }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/analyze",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "analyze"]
+            },
+            "description": "Загрузка фото и постановка в очередь анализа. Выберите файл в поле 'file'. Сохраняет task_id."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Task",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/task/{{task_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "task", "{{task_id}}"]
+            },
+            "description": "Статус и результат задачи анализа. Доступна только владельцу (иначе 404)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get User Tasks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks?limit=50&offset=0",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "tasks"],
+              "query": [
+                { "key": "limit", "value": "50" },
+                { "key": "offset", "value": "0" }
+              ]
+            },
+            "description": "История задач пользователя с пагинацией."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Diary",
+      "item": [
+        {
+          "name": "Add Meal",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+                  "var json = pm.response.json();",
+                  "if (json.id) { pm.collectionVariables.set('meal_id', json.id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"food_name\": \"Овсяная каша\",\n  \"calories\": 350,\n  \"protein_g\": 12,\n  \"fat_g\": 7,\n  \"carbs_g\": 60,\n  \"weight_g\": 250,\n  \"meal_type\": \"breakfast\",\n  \"date\": \"2026-06-17\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/meals",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "meals"]
+            },
+            "description": "Добавить приём пищи вручную. meal_type ∈ {breakfast,lunch,dinner,snacks}. Сохраняет meal_id."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Meal From Analysis",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task_id\": \"{{task_id}}\",\n  \"meal_type\": \"lunch\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/meals/from-analysis",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "meals", "from-analysis"]
+            },
+            "description": "Создать приём пищи из результата успешной задачи анализа (status=success)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Daily Log",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/daily-log?date_str=2026-06-17",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "daily-log"],
+              "query": [ { "key": "date_str", "value": "2026-06-17" } ]
+            },
+            "description": "Дневник за дату (YYYY-MM-DD; по умолчанию сегодня) с суммами и нормами КБЖУ."
+          },
+          "response": []
+        },
+        {
+          "name": "Edit Meal",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"food_name\": \"Овсяная каша с ягодами\",\n  \"calories\": 380,\n  \"protein_g\": 13,\n  \"fat_g\": 8,\n  \"carbs_g\": 65,\n  \"weight_g\": 280,\n  \"meal_type\": \"breakfast\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/meals/{{meal_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "meals", "{{meal_id}}"]
+            },
+            "description": "Редактировать запись приёма пищи. Чужая/несуществующая запись → 404."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Meal",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meals/{{meal_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "meals", "{{meal_id}}"]
+            },
+            "description": "Удалить запись приёма пищи. Возвращает {status, deleted_id}."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Water",
+      "item": [
+        {
+          "name": "Get Water",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/water?date_str=2026-06-17",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "water"],
+              "query": [ { "key": "date_str", "value": "2026-06-17" } ]
+            },
+            "description": "Вода за дату (YYYY-MM-DD; по умолчанию сегодня): total_ml + норма goal_ml + объём стакана glass_ml."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Glass",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/water",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "water"]
+            },
+            "description": "Добавить один стакан (250 мл) за сегодня. Пустое тело {} = +1 стакан."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Glass",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount_ml\": -250\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/water",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "water"]
+            },
+            "description": "Убрать один стакан. Итог не опускается ниже нуля."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Custom Amount",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount_ml\": 500,\n  \"date\": \"2026-06-17\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/water",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "water"]
+            },
+            "description": "Произвольный объём за конкретную дату. Будущая дата → 400."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Feedback",
+      "item": [
+        {
+          "name": "Submit Feedback",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+                  "var json = pm.response.json();",
+                  "if (json.id) { pm.collectionVariables.set('feedback_id', json.id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task_id\": \"{{task_id}}\",\n  \"correct_food\": \"Борщ\",\n  \"correct_weight\": 300\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/feedback",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "feedback"]
+            },
+            "description": "Исправление результата анализа. correct_food: 1..200 симв., correct_weight: 1..10000."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "List Feedback",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [ { "key": "X-Admin-Token", "value": "{{admin_token}}" } ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/feedback?limit=100&offset=0&status=pending",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "feedback"],
+              "query": [
+                { "key": "limit", "value": "100" },
+                { "key": "offset", "value": "0" },
+                { "key": "status", "value": "pending" }
+              ]
+            },
+            "description": "Список фидбеков. Требует заголовок X-Admin-Token."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Feedback By Id",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [ { "key": "X-Admin-Token", "value": "{{admin_token}}" } ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/feedback/{{feedback_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "feedback", "{{feedback_id}}"]
+            },
+            "description": "Получить один фидбек по id."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Feedback Status",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "PATCH",
+            "header": [ { "key": "X-Admin-Token", "value": "{{admin_token}}" } ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/feedback/{{feedback_id}}/status?status=used",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "feedback", "{{feedback_id}}", "status"],
+              "query": [ { "key": "status", "value": "used" } ]
+            },
+            "description": "Изменить статус фидбека (pending|used)."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

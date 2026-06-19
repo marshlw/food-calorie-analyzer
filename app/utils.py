@@ -66,6 +66,34 @@ def calc_macro_targets(calorie_target: Optional[float]) -> dict:
         "fat_g": round(calorie_target * MACRO_SPLIT["fat"] / KCAL_PER_GRAM["fat"]),
         "carbs_g": round(calorie_target * MACRO_SPLIT["carbs"] / KCAL_PER_GRAM["carbs"]),
     }
+
+
+# ==================== НОРМА ВОДЫ ====================
+
+# Объём одного стакана (мл) — единица учёта в трекере воды.
+GLASS_ML = 250
+
+# Норма воды считается как «мл на кг массы тела». Базовая медицинская норма
+# для взрослого ~30 мл/кг; с ростом активности потребность в жидкости выше,
+# поэтому коэффициент растёт по тем же уровням, что и активность для калорий.
+WATER_ML_PER_KG = {
+    "sedentary": 30,
+    "light": 32,
+    "moderate": 35,
+    "active": 38,
+    "very_active": 40,
+}
+
+
+def calc_water_target(weight_kg: Optional[float],
+                      activity_level: Optional[str]) -> Optional[float]:
+    """Суточная норма воды (мл) = вес * (мл/кг по уровню активности).
+    Возвращает None, если неизвестен вес. Рост/возраст на питьевую норму
+    напрямую не влияют — определяющий фактор это масса тела и активность."""
+    if not weight_kg:
+        return None
+    ml_per_kg = WATER_ML_PER_KG.get(activity_level or "sedentary", 30)
+    return round(weight_kg * ml_per_kg)
 from PIL import Image
 import hashlib
 import magic

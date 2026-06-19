@@ -88,6 +88,13 @@ export interface NutritionTargets {
   carbs_g?: number | null
 }
 
+export interface WaterStatus {
+  date: string
+  total_ml: number
+  goal_ml?: number | null // суточная норма (null, если нет веса в профиле)
+  glass_ml: number // объём одного стакана
+}
+
 export interface DailyLog {
   date: string
   total_calories: number
@@ -97,6 +104,8 @@ export interface DailyLog {
   meals: MealEntry[]
   // Суточные нормы КБЖУ пользователя (для колец/сводки).
   targets?: NutritionTargets | null
+  // Вода за этот день (для кольца-инфографики).
+  water?: WaterStatus | null
 }
 
 // ==================== PROFILE / WEIGHT ====================
@@ -127,6 +136,7 @@ export interface Profile {
   protein_target_g?: number | null
   fat_target_g?: number | null
   carbs_target_g?: number | null
+  water_target_ml?: number | null
 }
 
 export interface ProfileUpdate {

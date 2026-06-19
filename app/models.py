@@ -54,6 +54,11 @@ class User(Base):
         cascade="all, delete-orphan",
         order_by="WeightRecord.recorded_on",
     )
+    water_logs = relationship(
+        "WaterLog",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 # ==================== WEIGHT HISTORY ====================
@@ -111,6 +116,30 @@ class MealEntry(Base):
 
     daily_log = relationship("DailyLog", back_populates="entries")
     task = relationship("Task")
+
+
+# ==================== WATER LOG ====================
+
+class WaterLog(Base):
+    """Выпитая вода за день. Одна строка на (пользователь + дата): учёт
+    ведётся в миллилитрах, фронт добавляет/убирает по одному стакану
+    (см. utils.GLASS_ML). По аналогии с weight_records — upsert по дате,
+    без дублей."""
+
+    __tablename__ = "water_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True, server_default=func.current_date())
+    total_ml = Column(Float, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", back_populates="water_logs")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_water_user_date"),
+    )
 
 
 # ==================== MEALS ====================

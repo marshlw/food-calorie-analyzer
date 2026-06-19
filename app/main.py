@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.celery_app import celery_app
 from app.database import SessionLocal, engine
-from app import models, schemas, crud, auth, ml_service
+from app import models, schemas, crud, auth, ml_service, utils
 from app.tasks import analyze_image_task
 
 app = FastAPI()
@@ -340,6 +340,7 @@ def _build_profile(db: Session, user: models.User) -> dict:
         "protein_target_g": t["protein_g"],
         "fat_target_g": t["fat_g"],
         "carbs_target_g": t["carbs_g"],
+        "water_target_ml": t["water_ml"],
     }
 
 
@@ -452,6 +453,14 @@ async def get_daily_log(
         "carbs_g": targets["carbs_g"],
     }
 
+    # Вода за этот день (для кольца-инфографики). Норма — из тех же расчётов.
+    water_payload = {
+        "date": date_value,
+        "total_ml": crud.get_water_total(db, current_user.id, date_value),
+        "goal_ml": targets["water_ml"],
+        "glass_ml": utils.GLASS_ML,
+    }
+
     log = crud.get_daily_log(db, current_user.id, date_value)
     if not log:
         return {
@@ -462,6 +471,7 @@ async def get_daily_log(
             "total_carbs": 0.0,
             "meals": [],
             "targets": targets_payload,
+            "water": water_payload,
         }
 
     totals = crud.calculate_daily_totals(log)
@@ -470,7 +480,49 @@ async def get_daily_log(
         **totals,
         "meals": log.entries,
         "targets": targets_payload,
+        "water": water_payload,
     }
+
+
+# ===================== WATER =====================
+
+def _build_water_payload(db: Session, user: models.User, date_value: date) -> dict:
+    """Состояние воды за день: выпито + норма (из тех же расчётов, что КБЖУ)."""
+    targets = crud.compute_nutrition_targets(db, user)
+    return {
+        "date": date_value,
+        "total_ml": crud.get_water_total(db, user.id, date_value),
+        "goal_ml": targets["water_ml"],
+        "glass_ml": utils.GLASS_ML,
+    }
+
+
+@app.get("/api/v1/water", response_model=schemas.WaterResponse)
+async def get_water(
+    date_str: Optional[str] = None,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        date_value = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else date.today()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
+    return _build_water_payload(db, current_user, date_value)
+
+
+@app.post("/api/v1/water", response_model=schemas.WaterResponse)
+async def update_water(
+    payload: schemas.WaterUpdate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    date_value = payload.date or date.today()
+    if date_value > date.today():
+        raise HTTPException(status_code=400, detail="Дата не может быть в будущем")
+    # По умолчанию — добавить один стакан.
+    amount = payload.amount_ml if payload.amount_ml is not None else utils.GLASS_ML
+    crud.adjust_water(db, current_user.id, amount, date_value=date_value)
+    return _build_water_payload(db, current_user, date_value)
 
 
 @app.post("/api/v1/meals/from-analysis", response_model=schemas.MealEntryResponse, status_code=status.HTTP_201_CREATED)

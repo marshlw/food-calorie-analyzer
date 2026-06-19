@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { useFoodAnalysis } from '../hooks/useFoodAnalysis'
 import { MealForm } from './MealForm'
 import { IngredientList } from './IngredientList'
@@ -18,7 +18,13 @@ interface Props {
 export const AnalysisFlow: React.FC<Props> = ({ file, onConfirm, onCancel, saving }) => {
   const { phase, task, error, previewUrl, analyze, reset } = useFoodAnalysis()
 
+  // Защита от повторной загрузки одного и того же файла. React.StrictMode в dev
+  // монтирует компонент дважды — без этого было бы два POST /analyze и дубль в истории.
+  const analyzedFile = useRef<File | null>(null)
+
   useEffect(() => {
+    if (analyzedFile.current === file) return
+    analyzedFile.current = file
     analyze(file)
   }, [file]) // eslint-disable-line react-hooks/exhaustive-deps
 

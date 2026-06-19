@@ -1,0 +1,21 @@
+# Домен берётся из переменной окружения DOMAIN (см. .env).
+# Caddy сам получит и будет продлевать TLS-сертификат Let's Encrypt.
+{$DOMAIN} {
+	reverse_proxy api:8000
+
+	# Загрузка фото может быть крупной
+	request_body {
+		max_size 12MB
+	}
+
+	encode gzip zstd
+}
+
+# --- Вариант без домена (тест по голому IP, HTTP, без HTTPS) ---
+# Закомментируй блок выше и раскомментируй этот, оставь DOMAIN пустым:
+# :80 {
+# 	reverse_proxy api:8000
+# 	request_body {
+# 		max_size 12MB
+# 	}
+# }

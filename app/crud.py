@@ -54,12 +54,14 @@ def compute_nutrition_targets(db: Session, user: models.User) -> Dict[str, Any]:
     bmr = utils.calc_bmr(weight, user.height_cm, age, user.sex)
     calories = utils.calc_daily_calorie_target(bmr, user.activity_level)
     macros = utils.calc_macro_targets(calories)
+    water_ml = utils.calc_water_target(weight, user.activity_level)
     return {
         "bmr": bmr,
         "calories": calories,
         "protein_g": macros["protein_g"],
         "fat_g": macros["fat_g"],
         "carbs_g": macros["carbs_g"],
+        "water_ml": water_ml,
         "current_weight_kg": weight,
     }
 
@@ -290,6 +292,45 @@ def calculate_daily_totals(log: models.DailyLog) -> Dict[str, float]:
         "total_fat": round(total_fat, 1),
         "total_carbs": round(total_carbs, 1)
     }
+
+
+# ==================== WATER ====================
+
+def get_water_log(db: Session, user_id: int, date_value: date) -> Optional[models.WaterLog]:
+    return (
+        db.query(models.WaterLog)
+        .filter(
+            models.WaterLog.user_id == user_id,
+            models.WaterLog.date == date_value,
+        )
+        .first()
+    )
+
+
+def get_water_total(db: Session, user_id: int, date_value: date) -> float:
+    """Сколько выпито за день (мл). 0, если записи ещё нет."""
+    log = get_water_log(db, user_id, date_value)
+    return float(log.total_ml) if log else 0.0
+
+
+def adjust_water(
+    db: Session,
+    user_id: int,
+    amount_ml: float,
+    date_value: Optional[date] = None,
+) -> models.WaterLog:
+    """Прибавляет (или убавляет при отрицательном amount_ml) воду за день.
+    Одна строка на (user, дата) — upsert; итог не опускается ниже нуля."""
+    date_value = date_value or date.today()
+    log = get_water_log(db, user_id, date_value)
+    if log is None:
+        log = models.WaterLog(user_id=user_id, date=date_value, total_ml=0)
+        db.add(log)
+
+    log.total_ml = max(0.0, float(log.total_ml or 0) + amount_ml)
+    db.commit()
+    db.refresh(log)
+    return log
 
 
 # ==================== MEALS ====================

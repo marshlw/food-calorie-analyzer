@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-PROMPT_VERSION = "v12"  # инвалидируем старый кеш
+PROMPT_VERSION = "v13"  # инвалидируем старый кеш (добавлен вес по ингредиентам)
 
 PROMPT = """
 Проанализируй фотографию еды.
@@ -53,7 +53,8 @@ PROMPT = """
   "ingredients":[
     {
       "name":"ингредиент",
-      "type":"protein|carb|fat|vegetable"
+      "type":"protein|carb|fat|vegetable",
+      "weight_g":120
     }
   ],
   "weight_g":250,
@@ -64,7 +65,10 @@ PROMPT = """
 
 - ingredients минимум 1 элемент
 - максимум 6 ингредиентов
-- weight_g от 50 до 1500
+- weight_g у каждого ингредиента — твоя реальная оценка веса именно этого
+  ингредиента в граммах (порции на фото отличаются по размеру, не дели поровну)
+- сумма weight_g всех ингредиентов должна примерно равняться общему weight_g блюда
+- общий weight_g от 50 до 1500
 - confidence от 0 до 1
 - если не уверен, сделай предположение
 - отвечай только JSON
@@ -525,12 +529,16 @@ class YandexProvider(BaseProvider):
   "ingredients":[
     {
       "name":"...",
-      "type":"protein|carb|fat|vegetable"
+      "type":"protein|carb|fat|vegetable",
+      "weight_g":120
     }
   ],
   "weight_g":250,
   "confidence":0.95
 }
+
+weight_g у ингредиента — оценка веса именно этого ингредиента в граммах,
+не дели общий вес поровну. Сумма весов ингредиентов ≈ общий weight_g.
 
 Никакого markdown.
 Только JSON.
@@ -908,10 +916,14 @@ def parse_model_response(raw_text: Optional[str]) -> Optional[dict]:
                     ing_type = str(ing.get("type", "unknown")).strip().lower()
                     if ing_type not in {"protein", "carb", "fat", "vegetable"}:
                         ing_type = "unknown"
+                    try:
+                        ing_weight = max(0, int(ing.get("weight_g") or 0))
+                    except (ValueError, TypeError):
+                        ing_weight = 0
                     ingredients.append({
                         "name": name,
                         "type": ing_type,
-                        "weight_g": 0   # будет перераспределён позже в analyze_image_sync
+                        "weight_g": ing_weight   # 0 → перераспределится позже в analyze_image_sync
                     })
 
         return {
@@ -1015,6 +1027,42 @@ def calc_kbju(session, ingredients: List[dict]) -> dict:
     return {key: round(value, 1) for key, value in total.items()}
 
 
+def _distribute_ingredient_weights(ingredients: List[dict], total_weight: int) -> None:
+    """Проставляет weight_g каждому ингредиенту (мутирует список на месте).
+
+    Приоритет — оценка веса от AI по каждому ингредиенту. Веса масштабируются
+    так, чтобы их сумма совпала с общим весом блюда, сохраняя пропорции от AI.
+    Ингредиенты без веса делят остаток. Если AI вообще не дал весов —
+    откатываемся на равномерное деление (старое поведение).
+    """
+    if not ingredients:
+        return
+
+    raw_weights = [max(0, int(ing.get("weight_g") or 0)) for ing in ingredients]
+    known_sum = sum(raw_weights)
+
+    if known_sum <= 0:
+        # AI не оценил веса ингредиентов — делим общий вес поровну.
+        per_item = max(20, total_weight // max(1, len(ingredients)))
+        for ing in ingredients:
+            ing["weight_g"] = per_item
+        return
+
+    # Масштабируем оценки AI так, чтобы их сумма ≈ общему весу блюда.
+    scale = total_weight / known_sum
+    for ing, w in zip(ingredients, raw_weights):
+        ing["weight_g"] = max(1, round(w * scale)) if w > 0 else 0
+
+    # Ингредиенты, для которых AI вес не указал, делят непокрытый остаток.
+    no_weight = [ing for ing, w in zip(ingredients, raw_weights) if w == 0]
+    if no_weight:
+        assigned = sum(int(i.get("weight_g") or 0) for i in ingredients)
+        remaining = max(0, total_weight - assigned)
+        per_item = max(1, remaining // len(no_weight)) if remaining else 1
+        for ing in no_weight:
+            ing["weight_g"] = per_item
+
+
 def analyze_image_sync(path: str) -> dict:
     """Synchronous image analysis with fallback routing."""
     start_time = time.perf_counter()
@@ -1056,9 +1104,7 @@ def analyze_image_sync(path: str) -> dict:
             ingredients = result.get("ingredients", [])
             total_weight = int(result.get("weight_g", 200))
             if ingredients:
-                per_item = max(20, total_weight // max(1, len(ingredients)))
-                for ing in ingredients:
-                    ing["weight_g"] = per_item
+                _distribute_ingredient_weights(ingredients, total_weight)
             try:
                 kbju = calc_kbju(session, ingredients)
             except Exception as exc:

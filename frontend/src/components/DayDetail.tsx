@@ -4,6 +4,7 @@ import { useApi } from '../hooks/useApi'
 import { mealsApi } from '../api/meals'
 import { DailyLog, MealEntry, MealType } from '../types'
 import { DailyStats } from './DailyStats'
+import { WaterCard } from './WaterCard'
 import { MealSection } from './MealSection'
 import { LoadingSpinner } from './LoadingSpinner'
 
@@ -52,6 +53,7 @@ export const DayDetail: React.FC<Props> = ({ onEdit, onDelete, busy }) => {
   return (
     <div>
       <DailyStats log={log} />
+      <WaterCard water={log.water} />
       {log.meals.length === 0 ? (
         <div className="text-center py-10 text-gray-500 dark:text-gray-400">
           Нет приёмов пищи за этот день

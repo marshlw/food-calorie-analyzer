@@ -1,7 +1,9 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios'
 import { Token } from '../types'
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// В проде фронт раздаётся тем же FastAPI → ходим на свой origin (относительный путь).
+// Локально (vite dev на :5173) задай VITE_API_URL=http://localhost:8000 в frontend/.env.local.
+export const API_BASE_URL = import.meta.env.VITE_API_URL ?? ''
 
 console.log('API Base URL:', API_BASE_URL)
 

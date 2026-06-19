@@ -70,6 +70,10 @@ class Settings(BaseSettings):
         "http://0.0.0.0:8000",
     ]
 
+    # Доп. origins через env (запятая-разделитель): прод-домен, capacitor://localhost и т.п.
+    # Пример: ALLOWED_ORIGINS_EXTRA="https://myapp.ru,capacitor://localhost"
+    ALLOWED_ORIGINS_EXTRA: str = ""
+
     # ===================== CACHE =====================
 
     CACHE_TTL: int = 60 * 60 * 24
@@ -107,6 +111,12 @@ class Settings(BaseSettings):
     # ===================== VALIDATION =====================
 
     def model_post_init(self, __context):
+        # Домены из env добавляем к дефолтному списку (прод-домен, мобилка)
+        extra = [o.strip() for o in self.ALLOWED_ORIGINS_EXTRA.split(",") if o.strip()]
+        for origin in extra:
+            if origin not in self.ALLOWED_ORIGINS:
+                self.ALLOWED_ORIGINS.append(origin)
+
         providers = {"gemini", "deepseek", "ollama", "yandex"}
         if self.MODEL_PROVIDER not in providers:
             logger.warning(

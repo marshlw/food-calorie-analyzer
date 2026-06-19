@@ -1,0 +1,1285 @@
+openapi: 3.0.3
+info:
+  title: AI Healthy API
+  description: >
+    REST API приложения AI Healthy — учёт питания с автоматическим распознаванием
+    КБЖУ по фотографии блюда. Аутентификация — JWT (access/refresh). Анализ изображений
+    выполняется асинхронно через очередь задач.
+  version: 1.0.0
+  contact:
+    name: AI Healthy
+servers:
+  - url: http://localhost:8000
+    description: Локальная разработка
+tags:
+  - name: System
+    description: Служебные эндпоинты
+  - name: Authentication
+    description: Регистрация, вход, токены
+  - name: Profile
+    description: Профиль пользователя и история веса
+  - name: Analysis
+    description: Анализ изображений блюд
+  - name: Diary
+    description: Дневник питания
+  - name: Water
+    description: Трекер выпитой воды
+  - name: Feedback
+    description: Обратная связь по результатам анализа
+  - name: Admin
+    description: Администрирование фидбеков
+
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Проверка работоспособности
+      security: []
+      responses:
+        '200':
+          description: Сервис работает
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /api/v1/register:
+    post:
+      tags: [Authentication]
+      summary: Регистрация пользователя
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: Пользователь создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Пользователь уже существует
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/login:
+    post:
+      tags: [Authentication]
+      summary: Вход (email + пароль)
+      description: Принимает application/json или application/x-www-form-urlencoded.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+            examples:
+              password:
+                value:
+                  email: user@example.com
+                  password: password123
+                  grant_type: password
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+      responses:
+        '200':
+          description: Пара токенов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+        '400':
+          description: Unsupported grant_type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Неверный email или пароль
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/token:
+    post:
+      tags: [Authentication]
+      summary: OAuth2-совместимый токен (password / refresh_token)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+            examples:
+              password:
+                value:
+                  email: user@example.com
+                  password: password123
+                  grant_type: password
+              refresh:
+                value:
+                  grant_type: refresh_token
+                  refresh_token: <refresh_token>
+      responses:
+        '200':
+          description: Пара токенов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+        '400':
+          description: Неверный grant_type или отсутствует refresh_token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Неверные учётные данные / невалидный refresh-токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/me:
+    get:
+      tags: [Authentication]
+      summary: Текущий пользователь
+      responses:
+        '200':
+          description: Данные пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/profile:
+    get:
+      tags: [Profile]
+      summary: Получить профиль
+      responses:
+        '200':
+          description: Профиль с нормами КБЖУ и историей веса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Profile]
+      summary: Обновить профиль (частично)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdate'
+      responses:
+        '200':
+          description: Обновлённый профиль
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/profile/weight:
+    post:
+      tags: [Profile]
+      summary: Добавить запись о взвешивании
+      description: Upsert по паре (пользователь, дата). Дата не может быть в будущем.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WeightRecordCreate'
+      responses:
+        '201':
+          description: Запись создана/обновлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeightRecordResponse'
+        '400':
+          description: Дата записи не может быть в будущем
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/profile/weight-history:
+    get:
+      tags: [Profile]
+      summary: История взвешиваний
+      parameters:
+        - name: start
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Начало диапазона (включительно)
+        - name: end
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Конец диапазона (включительно)
+      responses:
+        '200':
+          description: Список записей (по возрастанию даты)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WeightRecordResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/analyze:
+    post:
+      tags: [Analysis]
+      summary: Загрузить фото и поставить в очередь анализа
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Изображение блюда (jpg/jpeg/png/webp, ≤ 10 МБ)
+      responses:
+        '201':
+          description: Задача создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskCreatedResponse'
+        '400':
+          description: Неподдерживаемый тип файла / невалидное изображение
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: Файл слишком большой
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Не удалось поставить задачу в очередь
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/task/{task_id}:
+    get:
+      tags: [Analysis]
+      summary: Статус и результат задачи
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Состояние задачи
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/tasks:
+    get:
+      tags: [Analysis]
+      summary: История задач пользователя
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Список задач (по убыванию даты)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/meals:
+    post:
+      tags: [Diary]
+      summary: Добавить приём пищи вручную
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MealEntryCreate'
+      responses:
+        '201':
+          description: Запись создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealEntryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          description: Внутренняя ошибка
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/meals/from-analysis:
+    post:
+      tags: [Diary]
+      summary: Создать приём пищи из результата анализа
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalysisMealRequest'
+      responses:
+        '201':
+          description: Запись создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealEntryResponse'
+        '400':
+          description: Задача не в статусе success / результат отсутствует
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/daily-log:
+    get:
+      tags: [Diary]
+      summary: Дневник питания за дату
+      parameters:
+        - name: date_str
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Дата в формате YYYY-MM-DD (по умолчанию сегодня)
+      responses:
+        '200':
+          description: Суточный дневник с суммами и нормами
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyLogResponse'
+        '400':
+          description: Неверный формат даты
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/water:
+    get:
+      tags: [Water]
+      summary: Вода за дату
+      description: >
+        Сколько выпито за день и суточная норма. Норма (goal_ml) считается из
+        веса и активности профиля; если вес не задан — goal_ml = null.
+      parameters:
+        - name: date_str
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Дата в формате YYYY-MM-DD (по умолчанию сегодня)
+      responses:
+        '200':
+          description: Состояние воды за день
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterResponse'
+        '400':
+          description: Неверный формат даты
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Water]
+      summary: Изменить количество воды
+      description: >
+        Прибавляет или убавляет воду за день. Без amount_ml добавляется один
+        стакан (250 мл). Отрицательный amount_ml убирает воду; итог не опускается
+        ниже нуля. Возвращает обновлённое состояние дня.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WaterUpdate'
+            examples:
+              addGlass:
+                summary: Добавить стакан (по умолчанию)
+                value: {}
+              removeGlass:
+                summary: Убрать стакан
+                value:
+                  amount_ml: -250
+              customAmount:
+                summary: Произвольный объём за дату
+                value:
+                  amount_ml: 500
+                  date: '2026-06-17'
+      responses:
+        '200':
+          description: Обновлённое состояние воды за день
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterResponse'
+        '400':
+          description: Дата не может быть в будущем
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/meals/{meal_id}:
+    patch:
+      tags: [Diary]
+      summary: Редактировать запись приёма пищи
+      parameters:
+        - name: meal_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MealEntryCreate'
+      responses:
+        '200':
+          description: Обновлённая запись
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealEntryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Diary]
+      summary: Удалить запись приёма пищи
+      parameters:
+        - name: meal_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Удалено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  deleted_id:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/feedback:
+    post:
+      tags: [Feedback]
+      summary: Отправить исправление результата анализа
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+      responses:
+        '201':
+          description: Фидбек сохранён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/admin/feedback:
+    get:
+      tags: [Admin]
+      summary: Список фидбеков
+      security:
+        - AdminToken: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, used]
+      responses:
+        '200':
+          description: Список фидбеков
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FeedbackListItem'
+        '403':
+          description: Неверный admin-токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/admin/feedback/{feedback_id}:
+    get:
+      tags: [Admin]
+      summary: Получить фидбек по id
+      security:
+        - AdminToken: []
+      parameters:
+        - name: feedback_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Фидбек
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackListItem'
+        '403':
+          description: Неверный admin-токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/feedback/{feedback_id}/status:
+    patch:
+      tags: [Admin]
+      summary: Изменить статус фидбека
+      security:
+        - AdminToken: []
+      parameters:
+        - name: feedback_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: status
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [pending, used]
+      responses:
+        '200':
+          description: Статус обновлён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  id:
+                    type: integer
+                  new_status:
+                    type: string
+        '400':
+          description: Неверный статус
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Неверный admin-токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    AdminToken:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+
+  responses:
+    Unauthorized:
+      description: Не аутентифицирован / невалидный токен
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Ресурс не найден (или принадлежит другому пользователю)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ValidationError:
+      description: Ошибка валидации
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HTTPValidationError'
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+          example: Not found
+
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  type: string
+              msg:
+                type: string
+              type:
+                type: string
+
+    Token:
+      type: object
+      required: [access_token, token_type]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+          nullable: true
+        token_type:
+          type: string
+          enum: [bearer]
+          default: bearer
+
+    AuthRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          nullable: true
+        password:
+          type: string
+          nullable: true
+        grant_type:
+          type: string
+          default: password
+          enum: [password, refresh_token]
+        refresh_token:
+          type: string
+          nullable: true
+
+    UserCreate:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+          nullable: true
+        password:
+          type: string
+          minLength: 8
+        height_cm:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 300
+          nullable: true
+        weight_kg:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 300
+          nullable: true
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    WeightRecordCreate:
+      type: object
+      required: [weight_kg]
+      properties:
+        weight_kg:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 300
+        recorded_on:
+          type: string
+          format: date
+          nullable: true
+        note:
+          type: string
+          maxLength: 200
+          nullable: true
+
+    WeightRecordResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        weight_kg:
+          type: number
+          format: float
+        recorded_on:
+          type: string
+          format: date
+        note:
+          type: string
+          nullable: true
+        source:
+          type: string
+          example: manual
+
+    ProfileUpdate:
+      type: object
+      properties:
+        full_name:
+          type: string
+          nullable: true
+        height_cm:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 300
+          nullable: true
+        weight_kg:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 300
+          nullable: true
+        sex:
+          type: string
+          enum: [male, female]
+          nullable: true
+        birth_date:
+          type: string
+          format: date
+          nullable: true
+        activity_level:
+          type: string
+          enum: [sedentary, light, moderate, active, very_active]
+          nullable: true
+        save_weight_as_record:
+          type: boolean
+          default: true
+
+    NutritionTargets:
+      type: object
+      properties:
+        calories:
+          type: number
+          format: float
+          nullable: true
+        protein_g:
+          type: number
+          format: float
+          nullable: true
+        fat_g:
+          type: number
+          format: float
+          nullable: true
+        carbs_g:
+          type: number
+          format: float
+          nullable: true
+
+    ProfileResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+          nullable: true
+        height_cm:
+          type: number
+          format: float
+          nullable: true
+        current_weight_kg:
+          type: number
+          format: float
+          nullable: true
+        sex:
+          type: string
+          nullable: true
+        birth_date:
+          type: string
+          format: date
+          nullable: true
+        activity_level:
+          type: string
+          nullable: true
+        recent_weights:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeightRecordResponse'
+        bmr:
+          type: number
+          format: float
+          nullable: true
+        daily_calorie_target:
+          type: number
+          format: float
+          nullable: true
+        protein_target_g:
+          type: number
+          format: float
+          nullable: true
+        fat_target_g:
+          type: number
+          format: float
+          nullable: true
+        carbs_target_g:
+          type: number
+          format: float
+          nullable: true
+        water_target_ml:
+          type: number
+          format: float
+          nullable: true
+          description: Суточная норма воды в мл
+
+    IngredientResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [protein, carb, fat, vegetable, unknown]
+          default: unknown
+        weight_g:
+          type: number
+          format: float
+
+    NutritionResponse:
+      type: object
+      required: [food, weight_g, calories, protein_g, fat_g, carbs_g, confidence]
+      properties:
+        food:
+          type: string
+        weight_g:
+          type: number
+          format: float
+          minimum: 0.1
+          maximum: 5000
+        calories:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 10000
+        protein_g:
+          type: number
+          format: float
+          minimum: 0
+        fat_g:
+          type: number
+          format: float
+          minimum: 0
+        carbs_g:
+          type: number
+          format: float
+          minimum: 0
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        note:
+          type: string
+          nullable: true
+        ingredients:
+          type: array
+          items:
+            $ref: '#/components/schemas/IngredientResponse'
+
+    TaskCreatedResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          example: pending
+
+    TaskResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, success, failure]
+        result:
+          allOf:
+            - $ref: '#/components/schemas/NutritionResponse'
+          nullable: true
+        image_path:
+          type: string
+          nullable: true
+          description: URL вида /uploads/<filename>
+        error:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    MealEntryCreate:
+      type: object
+      required: [food_name, calories, protein_g, fat_g, carbs_g, weight_g]
+      properties:
+        food_name:
+          type: string
+        calories:
+          type: number
+          format: float
+          minimum: 0
+        protein_g:
+          type: number
+          format: float
+          minimum: 0
+        fat_g:
+          type: number
+          format: float
+          minimum: 0
+        carbs_g:
+          type: number
+          format: float
+          minimum: 0
+        weight_g:
+          type: number
+          format: float
+          exclusiveMinimum: true
+          minimum: 0
+        meal_type:
+          type: string
+          enum: [breakfast, lunch, dinner, snacks]
+          default: snacks
+        date:
+          type: string
+          format: date
+          nullable: true
+        task_id:
+          type: string
+          nullable: true
+
+    MealEntryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        food_name:
+          type: string
+        calories:
+          type: number
+          format: float
+        protein_g:
+          type: number
+          format: float
+        fat_g:
+          type: number
+          format: float
+        carbs_g:
+          type: number
+          format: float
+        weight_g:
+          type: number
+          format: float
+        meal_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        task_id:
+          type: string
+          nullable: true
+
+    AnalysisMealRequest:
+      type: object
+      required: [task_id]
+      properties:
+        task_id:
+          type: string
+        meal_type:
+          type: string
+          enum: [breakfast, lunch, dinner, snacks]
+          default: snacks
+
+    DailyLogResponse:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        total_calories:
+          type: number
+          format: float
+        total_protein:
+          type: number
+          format: float
+        total_fat:
+          type: number
+          format: float
+        total_carbs:
+          type: number
+          format: float
+        meals:
+          type: array
+          items:
+            $ref: '#/components/schemas/MealEntryResponse'
+        targets:
+          allOf:
+            - $ref: '#/components/schemas/NutritionTargets'
+          nullable: true
+        water:
+          allOf:
+            - $ref: '#/components/schemas/WaterResponse'
+          nullable: true
+
+    WaterResponse:
+      type: object
+      required: [date, total_ml, glass_ml]
+      properties:
+        date:
+          type: string
+          format: date
+        total_ml:
+          type: number
+          format: float
+          description: Сколько выпито за день, мл
+        goal_ml:
+          type: number
+          format: float
+          nullable: true
+          description: Суточная норма воды, мл (null, если в профиле нет веса)
+        glass_ml:
+          type: integer
+          description: Объём одного стакана, мл
+          example: 250
+
+    WaterUpdate:
+      type: object
+      properties:
+        amount_ml:
+          type: number
+          format: float
+          nullable: true
+          description: >
+            Изменение объёма, мл. Может быть отрицательным (убрать). Если не
+            задано — добавляется один стакан (250 мл).
+        date:
+          type: string
+          format: date
+          nullable: true
+          description: День записи (по умолчанию сегодня)
+
+    FeedbackRequest:
+      type: object
+      required: [task_id, correct_food, correct_weight]
+      properties:
+        task_id:
+          type: string
+        correct_food:
+          type: string
+          minLength: 1
+          maxLength: 200
+        correct_weight:
+          type: integer
+          minimum: 1
+          maximum: 10000
+
+    FeedbackResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        id:
+          type: integer
+
+    FeedbackListItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        task_id:
+          type: string
+        image_path:
+          type: string
+        predicted_result:
+          type: object
+          additionalProperties: true
+          nullable: true
+        corrected_food:
+          type: string
+        corrected_weight:
+          type: integer
+        user_id:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, used]
+
+security:
+  - BearerAuth: []

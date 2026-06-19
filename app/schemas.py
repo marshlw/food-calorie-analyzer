@@ -119,9 +119,29 @@ class ProfileResponse(BaseModel):
     protein_target_g: Optional[float] = None
     fat_target_g: Optional[float] = None
     carbs_target_g: Optional[float] = None
+    # Суточная норма воды (мл), считается из веса/активности.
+    water_target_ml: Optional[float] = None
 
     class Config:
         from_attributes = True
+
+
+# ==================== WATER ====================
+
+class WaterResponse(BaseModel):
+    """Состояние воды за конкретный день: сколько выпито и норма."""
+    date: _date
+    total_ml: float
+    goal_ml: Optional[float] = None   # суточная норма (None, если нет веса)
+    glass_ml: int                     # объём одного стакана
+
+
+class WaterUpdate(BaseModel):
+    """Изменение количества воды. amount_ml может быть отрицательным
+    (убрать стакан); итог не опускается ниже нуля. По умолчанию (None)
+    добавляется один стакан."""
+    amount_ml: Optional[float] = None
+    date: Optional[_date] = None
 
 
 class TokenData(BaseModel):
@@ -251,6 +271,8 @@ class DailyLogResponse(BaseModel):
     meals: List[MealEntryResponse]
     # Суточные нормы КБЖУ пользователя (для колец/сводки в дневнике).
     targets: Optional[NutritionTargets] = None
+    # Вода за этот день (для кольца-инфографики в дневнике).
+    water: Optional[WaterResponse] = None
 
 
 class AnalysisMealRequest(BaseModel):
