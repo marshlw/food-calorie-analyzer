@@ -1,0 +1,122 @@
+# ──────────────────────────────────────────────────────────────────────────
+# TEST — окружение для теста друзьями/женой. Шарится наружу через туннель.
+#
+#   docker compose -f docker-compose.test.yml up -d --build    # старт
+#   docker compose -f docker-compose.test.yml logs -f api      # логи
+#   docker compose -f docker-compose.test.yml down             # стоп
+#   docker compose -f docker-compose.test.yml up -d --build    # выкатить изменения
+#
+#   Локально проверить:  http://localhost:8001
+#   Наружу (туннель):    cloudflared tunnel --protocol http2 --url http://localhost:8001
+#
+# Фронт собран в образ и раздаётся самим FastAPI (один origin, HTTPS даёт туннель).
+# Кода-монтирования НЕТ → чтобы выкатить новый код, пересобери: up -d --build.
+# Своя изолированная БД: том ai-healthy-test_postgres_data + свои креды (.env.test).
+# Telegram-бот выключен (профиль bot): один токен нельзя использовать в двух стеках.
+# ──────────────────────────────────────────────────────────────────────────
+name: ai-healthy-test
+
+services:
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-testpass}
+      POSTGRES_DB: fooddb
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    ports:
+      - "127.0.0.1:5434:5432"          # доступ к test-БД только с этого ПК (DBeaver и т.п.)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - backend
+
+  api:
+    build: .
+    image: ai-healthy:test
+    working_dir: /app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    ports:
+      - "8001:8000"                    # наружу / в туннель (порт хоста 8001)
+    volumes:
+      - uploads_data:/app/app/uploads
+    env_file:
+      - .env.test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - backend
+
+  celery_worker:
+    build: .
+    image: ai-healthy:test
+    working_dir: /app
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=4
+    volumes:
+      - uploads_data:/app/app/uploads
+    env_file:
+      - .env.test
+    environment:
+      - C_FORCE_ROOT=true
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - backend
+
+  telegram_bot:
+    build: .
+    image: ai-healthy:test
+    profiles: ["bot"]                  # включить: добавь --profile bot к up
+    working_dir: /app
+    command: python -m app.telegram_bot
+    env_file:
+      - .env.test
+    environment:
+      - API_URL=http://api:8000
+      - PYTHONPATH=/app
+    depends_on:
+      api:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
+
+networks:
+  backend:
+    driver: bridge

@@ -1,0 +1,108 @@
+# ──────────────────────────────────────────────────────────────────────────
+# DEV — локальное окружение только для тебя (всё слушает 127.0.0.1, наружу не торчит).
+#
+#   docker compose -f docker-compose.dev.yml up -d --build     # старт
+#   docker compose -f docker-compose.dev.yml logs -f api       # логи
+#   docker compose -f docker-compose.dev.yml down              # стоп
+#
+#   Фронт (vite, hot-reload):  http://localhost:5173   ← открывай это для разработки
+#   API (uvicorn --reload):    http://localhost:8000
+#   Postgres (для DBeaver):    localhost:5433
+#
+# Код .py смонтирован внутрь (--reload) → правки применяются без пересборки.
+# Фронт — отдельный vite-контейнер с HMR → правки .tsx видны сразу.
+# Своя изолированная БД: том ai-healthy-dev_postgres_data (НЕ пересекается с test).
+# ──────────────────────────────────────────────────────────────────────────
+name: ai-healthy-dev
+
+services:
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: adminpass
+      POSTGRES_DB: fooddb
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    ports:
+      - "127.0.0.1:5433:5432"          # доступ к БД только с этого ПК
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  api:
+    build: .
+    image: ai-healthy:dev
+    working_dir: /app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "127.0.0.1:8000:8000"          # API только локально
+    volumes:
+      - ./:/app:delegated              # монтируем код → hot reload
+      - uploads_data:/app/app/uploads
+    env_file:
+      - .env.dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+
+  celery_worker:
+    build: .
+    image: ai-healthy:dev
+    working_dir: /app
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
+    volumes:
+      - ./:/app:delegated
+      - uploads_data:/app/app/uploads
+    env_file:
+      - .env.dev
+    environment:
+      - C_FORCE_ROOT=true
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - backend
+
+  frontend:
+    image: node:18-alpine
+    working_dir: /frontend
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+    ports:
+      - "127.0.0.1:5173:5173"          # дев-фронт с HMR, только локально
+    volumes:
+      - ./frontend:/frontend
+      - /frontend/node_modules         # node_modules контейнера, не с хоста
+    networks:
+      - backend
+
+volumes:
+  postgres_data:
+  uploads_data:
+
+networks:
+  backend:
+    driver: bridge

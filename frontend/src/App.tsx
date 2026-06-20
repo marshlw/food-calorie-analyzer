@@ -1,5 +1,5 @@
 import React from 'react'
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, useLocation, Link } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -38,9 +38,9 @@ const BottomNavigation: React.FC = () => {
     <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 z-40 max-w-md mx-auto">
       <div className="flex items-center justify-around h-16">
         {navItems.map(({ path, icon: Icon, label }) => (
-          <a
+          <Link
             key={path}
-            href={path}
+            to={path}
             className={`flex flex-col items-center justify-center w-1/4 h-full transition-colors ${
               isActive(path)
                 ? 'text-primary-600 dark:text-primary-400'
@@ -49,7 +49,7 @@ const BottomNavigation: React.FC = () => {
           >
             <Icon className="h-6 w-6 mb-1" />
             <span className="text-xs font-medium">{label}</span>
-          </a>
+          </Link>
         ))}
       </div>
     </nav>
