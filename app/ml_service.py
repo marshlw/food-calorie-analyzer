@@ -26,13 +26,25 @@ except Exception:  # словарь синонимов опционален
 # Ориентировочные нутриенты на 100 г по типу ингредиента.
 # Используются как запасной вариант, когда продукт не найден в таблице products,
 # чтобы КБЖУ не оставались нулевыми. AI стабильно возвращает поле type.
+# Значения намеренно консервативные (ближе к нижней границе типичных продуктов),
+# т.к. эта таблица применяется к полному весу ингредиента и любое завышение
+# линейно раздувает итоговую калорийность.
 TYPE_KBJU_PER_100G = {
-    "protein":   {"calories": 165, "protein_g": 23.0, "fat_g": 7.0,  "carbs_g": 1.0},
-    "carb":      {"calories": 180, "protein_g": 5.0,  "fat_g": 2.0,  "carbs_g": 35.0},
-    "fat":       {"calories": 380, "protein_g": 3.0,  "fat_g": 40.0, "carbs_g": 5.0},
-    "vegetable": {"calories": 35,  "protein_g": 2.0,  "fat_g": 0.3,  "carbs_g": 6.0},
-    "unknown":   {"calories": 120, "protein_g": 5.0,  "fat_g": 4.0,  "carbs_g": 15.0},
+    "protein":   {"calories": 150, "protein_g": 19.0, "fat_g": 7.0,  "carbs_g": 0.5},
+    "carb":      {"calories": 130, "protein_g": 4.0,  "fat_g": 1.5,  "carbs_g": 26.0},
+    "fat":       {"calories": 350, "protein_g": 2.0,  "fat_g": 37.0, "carbs_g": 3.0},
+    "vegetable": {"calories": 30,  "protein_g": 1.5,  "fat_g": 0.2,  "carbs_g": 5.0},
+    "broth":     {"calories": 20,  "protein_g": 1.0,  "fat_g": 0.8,  "carbs_g": 1.5},
+    "sauce":     {"calories": 90,  "protein_g": 1.5,  "fat_g": 6.0,  "carbs_g": 7.0},
+    "unknown":   {"calories": 90,  "protein_g": 4.0,  "fat_g": 3.0,  "carbs_g": 12.0},
 }
+
+# Допустимые типы ингредиентов (для нормализации ответа модели).
+ALLOWED_TYPES = {"protein", "carb", "fat", "vegetable", "broth", "sauce"}
+
+# Реальная еда почти никогда не превышает этот порог калорийности на 100 г
+# (исключения — чистые жиры/масло). Используется как страховка от завышения.
+MAX_CALORIE_DENSITY_PER_100G = 600.0
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +53,7 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-PROMPT_VERSION = "v13"  # инвалидируем старый кеш (добавлен вес по ингредиентам)
+PROMPT_VERSION = "v14"  # инвалидируем старый кеш (типы broth/sauce, реализм веса)
 
 PROMPT = """
 Проанализируй фотографию еды.
@@ -53,7 +65,7 @@ PROMPT = """
   "ingredients":[
     {
       "name":"ингредиент",
-      "type":"protein|carb|fat|vegetable",
+      "type":"protein|carb|fat|vegetable|broth|sauce",
       "weight_g":120
     }
   ],
@@ -65,11 +77,18 @@ PROMPT = """
 
 - ingredients минимум 1 элемент
 - максимум 6 ингредиентов
-- weight_g у каждого ингредиента — твоя реальная оценка веса именно этого
-  ингредиента в граммах (порции на фото отличаются по размеру, не дели поровну)
+- type выбирай точно: бульон/суп/жидкость → broth; соус/подлива/кетчуп/майонез
+  → sauce; мясо/рыба/яйца/творог → protein; крупы/хлеб/картофель/тесто → carb;
+  масло/сало/жирные продукты → fat; овощи/зелень/салат → vegetable
+- name пиши коротко и обобщённо: "картофель", "томатный соус", "свинина",
+  а не "картофель по-деревенски с розмарином" — это нужно для поиска в справочнике
+- weight_g у каждого ингредиента — вес съедобной готовой порции на тарелке.
+  НЕ ЗАВЫШАЙ вес: ориентируйся на типичные порции (гарнир 150–200 г,
+  мясная порция 120–250 г, соус 20–40 г, бульон по объёму миски).
+  Учитывай, что на фото виден объём, а не масса — еда легче, чем кажется.
 - сумма weight_g всех ингредиентов должна примерно равняться общему weight_g блюда
 - общий weight_g от 50 до 1500
-- confidence от 0 до 1
+- confidence от 0 до 1 — это уверенность в распознавании блюда
 - если не уверен, сделай предположение
 - отвечай только JSON
 """
@@ -202,7 +221,7 @@ class IngredientItem(BaseModel):
     @validator("type", pre=True)
     def normalize_type(cls, value: Any) -> str:
         value = str(value or "unknown").strip().lower()
-        return value if value in {"protein", "carb", "fat", "vegetable"} else "unknown"
+        return value if value in ALLOWED_TYPES else "unknown"
 
     @validator("weight_g", pre=True)
     def normalize_weight(cls, value: Any) -> int:
@@ -529,7 +548,7 @@ class YandexProvider(BaseProvider):
   "ingredients":[
     {
       "name":"...",
-      "type":"protein|carb|fat|vegetable",
+      "type":"protein|carb|fat|vegetable|broth|sauce",
       "weight_g":120
     }
   ],
@@ -537,8 +556,13 @@ class YandexProvider(BaseProvider):
   "confidence":0.95
 }
 
-weight_g у ингредиента — оценка веса именно этого ингредиента в граммах,
-не дели общий вес поровну. Сумма весов ингредиентов ≈ общий weight_g.
+type: бульон/суп → broth; соус/кетчуп/майонез → sauce; мясо/рыба/яйца → protein;
+крупы/хлеб/картофель → carb; масло/сало → fat; овощи/зелень → vegetable.
+name пиши коротко и обобщённо ("картофель", "томатный соус", "свинина").
+
+weight_g у ингредиента — вес съедобной готовой порции в граммах, НЕ ЗАВЫШАЙ
+(гарнир 150–200 г, мясо 120–250 г, соус 20–40 г). Не дели общий вес поровну.
+Сумма весов ингредиентов ≈ общий weight_g.
 
 Никакого markdown.
 Только JSON.
@@ -914,7 +938,7 @@ def parse_model_response(raw_text: Optional[str]) -> Optional[dict]:
                 if isinstance(ing, dict):
                     name = str(ing.get("name", "")).strip().lower()
                     ing_type = str(ing.get("type", "unknown")).strip().lower()
-                    if ing_type not in {"protein", "carb", "fat", "vegetable"}:
+                    if ing_type not in ALLOWED_TYPES:
                         ing_type = "unknown"
                     try:
                         ing_weight = max(0, int(ing.get("weight_g") or 0))
@@ -970,15 +994,51 @@ def normalize_product_name(name: str) -> str:
 
 
 def get_product(session, name: str):
-    """Get product by normalized name (с учётом синонимов)."""
+    """Подбор продукта по имени ингредиента.
+
+    AI возвращает описательные/составные имена ("картофель по-деревенски",
+    "соус томатный"), которые не совпадают точно с короткими ключами в БД.
+    Поэтому ищем в три прохода:
+      1) точное совпадение нормализованного имени;
+      2) совпадение по отдельному слову ("картофель по-деревенски" → "картофель");
+      3) продукт, чьё имя целиком входит в строку ингредиента (берём самое
+         длинное совпадение как самое специфичное).
+    """
     norm = normalize_product_name(name)
     if not norm:
         return None
-    return (
+
+    # 1) точное совпадение
+    product = (
         session.query(models.Product)
         .filter(models.Product.name == norm)
         .first()
     )
+    if product is not None:
+        return product
+
+    # 2) совпадение по отдельному слову (с учётом синонимов на каждое слово)
+    tokens = [t for t in re.split(r"[\s,()/]+", norm) if len(t) >= 3]
+    for token in tokens:
+        token_norm = normalize_product_name(token)
+        product = (
+            session.query(models.Product)
+            .filter(models.Product.name == token_norm)
+            .first()
+        )
+        if product is not None:
+            return product
+
+    # 3) частичное вхождение: имя продукта целиком содержится в строке ингредиента.
+    # Только для имён от 4 символов — короткие (рис, суп, лук) дают ложные срабатывания.
+    candidates = [
+        pr for pr in session.query(models.Product).all()
+        if len(pr.name) >= 4 and pr.name in norm
+    ]
+    if candidates:
+        return max(candidates, key=lambda pr: len(pr.name))
+
+    return None
 
 
 def _estimate_by_type(ing_type: str) -> dict:
@@ -1025,6 +1085,28 @@ def calc_kbju(session, ingredients: List[dict]) -> dict:
             continue
 
     return {key: round(value, 1) for key, value in total.items()}
+
+
+def _clamp_calorie_density(kbju: dict, total_weight: int) -> dict:
+    """Страховка от завышения: ограничивает калорийность на 100 г.
+
+    Если итоговая плотность (ккал/100 г) аномально высока, значит вес или
+    нутриенты переоценены — пропорционально масштабируем все КБЖУ вниз, чтобы
+    плотность не превышала реалистичный потолок. Реальная еда (кроме чистых
+    жиров) почти никогда не плотнее ~600 ккал/100 г.
+    """
+    if total_weight <= 0:
+        return kbju
+    calories = float(kbju.get("calories", 0.0))
+    density = calories / total_weight * 100.0
+    if density <= MAX_CALORIE_DENSITY_PER_100G:
+        return kbju
+    factor = MAX_CALORIE_DENSITY_PER_100G / density
+    logger.info(
+        "Calorie density too high, scaling down",
+        extra={"density": round(density, 1), "factor": round(factor, 3), "weight_g": total_weight},
+    )
+    return {key: round(value * factor, 1) for key, value in kbju.items()}
 
 
 def _distribute_ingredient_weights(ingredients: List[dict], total_weight: int) -> None:
@@ -1107,6 +1189,7 @@ def analyze_image_sync(path: str) -> dict:
                 _distribute_ingredient_weights(ingredients, total_weight)
             try:
                 kbju = calc_kbju(session, ingredients)
+                kbju = _clamp_calorie_density(kbju, total_weight)
             except Exception as exc:
                 logger.warning("KBJU lookup failed, using zeros", extra={"error": str(exc)})
                 kbju = {"calories": 0.0, "protein_g": 0.0, "fat_g": 0.0, "carbs_g": 0.0}
