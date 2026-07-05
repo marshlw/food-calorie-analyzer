@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     YANDEX_FOLDER_ID: Optional[str] = None
     YANDEX_VISION_MODEL: str = "qwen3.6-35b-a3b/latest"
     YANDEX_API_URL: str = "https://ai.api.cloud.yandex.net/v1"
+    # Глубина рассуждений модели: none|low|medium|high.
+    # low — баланс скорости и точности; medium точнее, но медленнее и может
+    # упираться в лимит токенов на многосоставных блюдах.
+    YANDEX_REASONING_EFFORT: str = "low"
+    # Бюджет выходных токенов (рассуждения + JSON). С reasoning часть уходит
+    # на «мысли», поэтому запас, иначе ответ обрывается до JSON.
+    YANDEX_MAX_OUTPUT_TOKENS: int = 4000
     # 👉 подтягивается из .env
     GEMINI_API_KEY: Optional[str] = None
 
