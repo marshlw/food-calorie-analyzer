@@ -393,6 +393,20 @@ async def get_weight_history(
     return crud.list_weight_history(db, current_user.id, start, end)
 
 
+# ===================== PRODUCTS (справочник КБЖУ) =====================
+
+@app.get("/api/v1/products", response_model=List[schemas.ProductResponse])
+async def search_products(
+    q: str = "",
+    limit: int = 20,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Поиск продукта по названию для автодополнения при добавлении ингредиента
+    (используется на всех вкладках с ручным/AI-вводом приёма пищи)."""
+    return crud.search_products(db, q, limit)
+
+
 # ===================== TASK STATUS =====================
 
 @app.get("/api/v1/task/{task_id}", response_model=schemas.TaskResponse)

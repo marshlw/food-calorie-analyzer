@@ -333,6 +333,37 @@ def adjust_water(
     return log
 
 
+# ==================== 🔥 PRODUCTS (справочник КБЖУ) ====================
+
+def search_products(db: Session, query: str, limit: int = 20) -> List[models.Product]:
+    """Поиск продуктов по (части) названия для автодополнения при добавлении
+    ингредиента. Совпадения с начала названия ранжируются выше совпадений
+    в середине слова; при пустом запросе возвращаем продукты по алфавиту."""
+    limit = max(1, min(limit, 50))
+    q = (query or "").strip().lower()
+
+    base = db.query(models.Product)
+
+    if not q:
+        return base.order_by(models.Product.name.asc()).limit(limit).all()
+
+    like = f"%{q}%"
+    matches = base.filter(models.Product.name.ilike(like)).all()
+
+    # Сортировка в Python: сначала совпадения с начала строки, потом остальные,
+    # внутри групп -- по длине названия и алфавиту (короче/точнее выше).
+    matches.sort(key=lambda p: (
+        0 if p.name.lower().startswith(q) else 1,
+        len(p.name),
+        p.name,
+    ))
+    return matches[:limit]
+
+
+def get_product_sync(db: Session, product_id: int) -> Optional[models.Product]:
+    return db.query(models.Product).filter(models.Product.id == product_id).first()
+
+
 # ==================== MEALS ====================
 
 # ==================== 🔥 SYNC FEEDBACK ====================

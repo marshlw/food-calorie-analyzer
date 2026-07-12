@@ -357,6 +357,21 @@ class FeedbackListItem(BaseModel):
         from_attributes = True
 
 
+# ==================== 🔥 PRODUCTS (справочник КБЖУ) ====================
+
+class ProductResponse(BaseModel):
+    """Продукт из справочника КБЖУ (нутриенты указаны на 100 г)."""
+    id: int
+    name: str
+    calories: float
+    protein: float
+    fat: float
+    carbs: float
+
+    class Config:
+        from_attributes = True
+
+
 class GenerateDatasetResponse(BaseModel):
     """Ответ на запрос генерации датасета."""
     message: str

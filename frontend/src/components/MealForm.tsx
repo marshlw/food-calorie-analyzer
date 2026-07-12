@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { MealEntryCreate, MealEntry, MealType } from '../types'
+import { ProductPicker } from './ProductPicker'
 
 interface MealFormProps {
   initialData?: MealEntry
@@ -75,8 +76,26 @@ export const MealForm: React.FC<MealFormProps> = ({
     }
   }
 
+  // Выбор продукта из базы КБЖУ подставляет название, вес и посчитанные
+  // калории/белки/жиры/углеводы — пользователь может поправить их дальше вручную.
+  const handleProductApply = (data: {
+    food_name: string
+    weight_g: number
+    calories: number
+    protein_g: number
+    fat_g: number
+    carbs_g: number
+  }) => {
+    setFormData((prev) => ({ ...prev, ...data }))
+    setErrors({})
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Поиск продукта в базе КБЖУ */}
+      <ProductPicker onApply={handleProductApply} />
+      <div className="border-t border-gray-200 dark:border-gray-800 pt-4" />
+
       {/* Meal Type */}
       <div>
         <label className="block text-sm font-medium mb-1">Тип приема</label>

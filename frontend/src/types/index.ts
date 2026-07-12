@@ -108,6 +108,18 @@ export interface DailyLog {
   water?: WaterStatus | null
 }
 
+// ==================== PRODUCTS (справочник КБЖУ) ====================
+
+// Нутриенты указаны на 100 г продукта.
+export interface Product {
+  id: number
+  name: string
+  calories: number
+  protein: number
+  fat: number
+  carbs: number
+}
+
 // ==================== PROFILE / WEIGHT ====================
 
 export type Sex = 'male' | 'female'
