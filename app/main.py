@@ -771,12 +771,18 @@ class SPAStaticFiles(StaticFiles):
 
     async def get_response(self, path: str, scope):
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             # API-маршруты должны и дальше отдавать честный 404 (JSON), не index.html
             if exc.status_code == 404 and not path.startswith("api"):
-                return await super().get_response("index.html", scope)
-            raise
+                response = await super().get_response("index.html", scope)
+            else:
+                raise
+        # index.html не кэшируем: иначе после деплоя браузеры показывают старый
+        # фронт. Бандлы Vite (assets/*.js|css) с хэшем в имени — их кэшировать можно.
+        if response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 # Serve static files (frontend)
