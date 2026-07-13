@@ -1,6 +1,7 @@
 # app/main.py
 
 import os
+import secrets
 import time
 import uuid
 import shutil
@@ -24,7 +25,12 @@ from app.database import SessionLocal, engine
 from app import models, schemas, crud, auth, ml_service, utils
 from app.tasks import analyze_image_task
 
-app = FastAPI()
+# В prod (ENABLE_DOCS=false) Swagger/OpenAPI выключены — не светим схему API
+app = FastAPI(
+    docs_url="/docs" if settings.ENABLE_DOCS else None,
+    redoc_url="/redoc" if settings.ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if settings.ENABLE_DOCS else None,
+)
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -184,12 +190,22 @@ async def _get_auth_request(request: Request) -> schemas.AuthRequest:
                 # If form parsing fails, try JSON anyway
                 body = await request.json()
         
-        logger.debug(f"Auth request body: {body}")
+        # Никогда не логируем пароль, даже на уровне DEBUG
+        if isinstance(body, dict):
+            safe_body = {
+                k: ("***" if "password" in k.lower() else v)
+                for k, v in body.items()
+            }
+        else:
+            safe_body = "<non-dict body>"
+        logger.debug(f"Auth request body: {safe_body}")
         auth_request = schemas.AuthRequest(**body)
         return auth_request
     except Exception as e:
-        logger.error(f"Error parsing auth request: {e}", exc_info=True)
-        raise HTTPException(status_code=400, detail=f"Invalid request format: {str(e)}")
+        logger.error(f"Error parsing auth request: {type(e).__name__}", exc_info=True)
+        # Не отдаём str(e) клиенту: текст ошибки валидации может содержать
+        # введённые значения (в т.ч. пароль)
+        raise HTTPException(status_code=400, detail="Invalid request format")
 
 
 # ===================== HEALTH =====================
@@ -648,7 +664,18 @@ async def delete_meal_entry(
 
 # ==================== ADMIN ====================
 
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "change-me-in-production")
+# Без fallback-значения: если ADMIN_TOKEN не задан (или оставлен дефолтным) —
+# админ-эндпоинты полностью выключены, а не «защищены» общеизвестным токеном.
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
+
+
+def _require_admin(x_admin_token: str) -> None:
+    if not ADMIN_TOKEN or ADMIN_TOKEN == "change-me-in-production":
+        logger.warning("Admin endpoint requested, but ADMIN_TOKEN is not configured")
+        raise HTTPException(status_code=404, detail="Not found")
+    # compare_digest — сравнение за константное время (защита от timing-атак)
+    if not secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
+        raise HTTPException(status_code=403, detail="Invalid admin token")
 
 
 @app.get("/api/v1/admin/feedback", response_model=List[schemas.FeedbackListItem])
@@ -658,8 +685,7 @@ async def list_feedback(
     status: Optional[str] = None,
     x_admin_token: str = Header(..., alias="X-Admin-Token")
 ):
-    if x_admin_token != ADMIN_TOKEN:
-        raise HTTPException(status_code=403, detail="Invalid admin token")
+    _require_admin(x_admin_token)
 
     db = SessionLocal()
     try:
@@ -688,8 +714,7 @@ async def get_feedback(
     feedback_id: int,
     x_admin_token: str = Header(..., alias="X-Admin-Token")
 ):
-    if x_admin_token != ADMIN_TOKEN:
-        raise HTTPException(status_code=403, detail="Invalid admin token")
+    _require_admin(x_admin_token)
 
     db = SessionLocal()
     try:
@@ -707,8 +732,7 @@ async def update_feedback_status(
     status: str,
     x_admin_token: str = Header(..., alias="X-Admin-Token")
 ):
-    if x_admin_token != ADMIN_TOKEN:
-        raise HTTPException(status_code=403, detail="Invalid admin token")
+    _require_admin(x_admin_token)
 
     try:
         fb_status = models.FeedbackStatus(status)

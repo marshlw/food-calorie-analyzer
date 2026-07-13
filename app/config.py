@@ -44,6 +44,10 @@ class Settings(BaseSettings):
 
     # ===================== SECURITY =====================
 
+    # В prod поставь ENABLE_DOCS=false в .env — /docs, /redoc и /openapi.json
+    # не будут раскрывать поверхность API (включая админ-эндпоинты)
+    ENABLE_DOCS: bool = False
+
     SECRET_KEY: str = "change-this-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
@@ -123,6 +127,18 @@ class Settings(BaseSettings):
         for origin in extra:
             if origin not in self.ALLOWED_ORIGINS:
                 self.ALLOWED_ORIGINS.append(origin)
+
+        # Не даём молча уехать в prod с дефолтным/коротким SECRET_KEY:
+        # им подписываются JWT — зная его, можно выпустить токен любого юзера
+        if self.SECRET_KEY == "change-this-in-production":
+            logger.critical(
+                "SECRET_KEY is set to the default placeholder! "
+                "Set a strong random value in .env before deploying."
+            )
+        elif len(self.SECRET_KEY) < 32:
+            logger.warning(
+                "SECRET_KEY is shorter than 32 chars — consider a longer random value."
+            )
 
         providers = {"gemini", "deepseek", "ollama", "yandex"}
         if self.MODEL_PROVIDER not in providers:

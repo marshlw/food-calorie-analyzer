@@ -1,17 +1,44 @@
-# Прод-конфигурация. Запуск:
+# ──────────────────────────────────────────────────────────────────────────
+# PROD — раскатка на арендованной ВМ. Запуск:
 #   docker compose -f docker-compose.prod.yml up -d --build
 #
-# Отличия от dev (docker-compose.yml):
-#  - нет ollama/ollama-pull/gradio (используется облачный Yandex API)
-#  - нет --reload и монтирования исходников (код берётся из образа)
-#  - порты postgres/redis НЕ выставлены наружу (доступ только внутри сети)
-#  - наружу смотрит только Caddy (80/443) с авто-HTTPS
-#  - uploads и данные БД — на именованных volume'ах
+# Безопасность / отличия от dev:
+#  - НАРУЖУ торчит только Caddy (80/443, авто-HTTPS). Больше ни одного ports:
+#    postgres/redis/api без published-портов из интернета недостижимы,
+#    при этом исходящий доступ (Yandex API, Telegram) у сервисов остаётся
+#  - caddy видит api через отдельную сеть web, к БД доступа не имеет
+#  - рекомендация на ВМ: firewall (ufw/облачный) — разрешить только 22/80/443
+#  - нет ollama/gradio (MODEL_PROVIDER=yandex, облачный API)
+#  - нет --reload и монтирования исходников — код только из образа
+#  - логи ограничены (json-file 10m x3), контейнеры без права эскалации
+#    привилегий (no-new-privileges)
+#  - у api healthcheck на /health; celery/bot/caddy стартуют только
+#    после здорового api
+#
+# Доступ к БД для администрирования (порт не публикуем):
+#   на ВМ:  docker compose -f docker-compose.prod.yml exec postgres psql -U postgres fooddb
+#   из DBeaver: временно добавь в postgres `ports: ["127.0.0.1:5433:5432"]`
+#   и подключайся через SSH-туннель: ssh -L 5433:127.0.0.1:5433 user@vm
+# ──────────────────────────────────────────────────────────────────────────
+name: ai-healthy-prod
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  logging: *default-logging
 
 services:
 
   postgres:
     image: postgres:15
+    <<: *hardening
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-adminpass}
@@ -21,16 +48,18 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fooddb"]
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
     networks:
       - backend
 
   redis:
     image: redis:7-alpine
+    <<: *hardening
+    # appendonly — чтобы очередь celery переживала рестарт контейнера
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     healthcheck:
@@ -38,30 +67,37 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
     networks:
       - backend
 
   api:
     build: .
-    image: ai-healthy:latest
+    image: ai-healthy:prod
+    <<: *hardening
     working_dir: /app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '*'
     volumes:
       - uploads_data:/app/app/uploads
     env_file:
       - .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: unless-stopped
     networks:
       - backend
+      - web
 
   celery_worker:
-    image: ai-healthy:latest
+    image: ai-healthy:prod
+    <<: *hardening
     working_dir: /app
     command: celery -A app.celery_app worker --loglevel=info --concurrency=4
     volumes:
@@ -74,14 +110,14 @@ services:
       redis:
         condition: service_healthy
       api:
-        condition: service_started
-    restart: unless-stopped
+        condition: service_healthy
     networks:
       - backend
 
-  # Опционально: Telegram-бот. Если не нужен — закомментируй блок.
+  # Telegram-бот. Если не нужен — закомментируй блок.
   telegram_bot:
-    image: ai-healthy:latest
+    image: ai-healthy:prod
+    <<: *hardening
     working_dir: /app
     command: python -m app.telegram_bot
     env_file:
@@ -91,15 +127,15 @@ services:
       - PYTHONPATH=/app
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_healthy
-    restart: unless-stopped
     networks:
       - backend
 
   caddy:
     image: caddy:2-alpine
+    <<: *hardening
     ports:
       - "80:80"
       - "443:443"
@@ -111,10 +147,9 @@ services:
       - caddy_config:/config
     depends_on:
       api:
-        condition: service_started
-    restart: unless-stopped
+        condition: service_healthy
     networks:
-      - backend
+      - web
 
 volumes:
   postgres_data:
@@ -124,5 +159,10 @@ volumes:
   caddy_config:
 
 networks:
+  # Порты backend-сервисов не публикуются → из интернета они недостижимы.
+  # internal: true здесь НЕ используем: celery и telegram_bot должны ходить
+  # наружу (Yandex API, api.telegram.org).
   backend:
+    driver: bridge
+  web:
     driver: bridge
