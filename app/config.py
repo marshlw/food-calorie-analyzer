@@ -53,6 +53,25 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # ===================== RATE LIMITING =====================
+
+    RATE_LIMIT_ENABLED: bool = True
+
+    # Брутфорс: попытки login/token с одного IP за окно
+    AUTH_RATE_LIMIT_ATTEMPTS: int = 10
+    AUTH_RATE_LIMIT_WINDOW: int = 60  # секунд
+
+    # Брутфорс: неудачные попытки входа по одному email
+    AUTH_FAILED_ATTEMPTS_LIMIT: int = 5
+    AUTH_FAILED_ATTEMPTS_WINDOW: int = 900  # 15 минут
+
+    # Регистрации с одного IP
+    REGISTER_RATE_LIMIT_ATTEMPTS: int = 5
+    REGISTER_RATE_LIMIT_WINDOW: int = 3600  # 1 час
+
+    # AI-анализ фото: запросов в сутки на одного пользователя
+    AI_DAILY_LIMIT: int = 5
+
     # ===================== FILES =====================
 
     UPLOAD_DIR: str = "/app/app/uploads"

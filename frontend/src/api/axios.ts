@@ -56,8 +56,21 @@ const createAxiosInstance = (): AxiosInstance => {
 
       const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
 
-      if (error.response?.status === 401 && !originalRequest._retry) {
+      // 401 от самих auth-эндпоинтов (неверный пароль и т.п.) — это не
+      // «протухший токен», refresh не нужен: отдаём ошибку форме логина.
+      const authEndpoints = ['/api/v1/login', '/api/v1/token', '/api/v1/register']
+      const isAuthRequest = authEndpoints.some((path) => originalRequest?.url?.includes(path))
+
+      if (error.response?.status === 401 && !originalRequest._retry && !isAuthRequest) {
         originalRequest._retry = true
+
+        // Нет refresh-токена (например, «хвост» запроса прилетел уже после
+        // logout) — рефрешить нечего. Просто отклоняем ошибку: нельзя чистить
+        // localStorage (там могут лежать токены НОВОГО логина) и нельзя делать
+        // hard-redirect — он перезагружает страницу логина и «съедает» вход.
+        if (!localStorage.getItem('refresh_token')) {
+          return Promise.reject(error)
+        }
 
         try {
           // If already refreshing token, wait for it
@@ -82,7 +95,11 @@ const createAxiosInstance = (): AxiosInstance => {
           // Clear auth data and let app redirect to login
           localStorage.removeItem('access_token')
           localStorage.removeItem('refresh_token')
-          window.location.href = '/login'
+          // Не перезагружаем страницу, если пользователь уже на /login —
+          // иначе форма и сообщение об ошибке сбрасываются «на мгновение»
+          if (!window.location.pathname.startsWith('/login')) {
+            window.location.href = '/login'
+          }
           return Promise.reject(refreshError)
         }
       }

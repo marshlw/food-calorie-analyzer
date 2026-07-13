@@ -7,7 +7,9 @@ import { Modal } from '../components/Modal'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { SuccessAlert } from '../components/SuccessAlert'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { AiLimitBadge } from '../components/AiLimitBadge'
 import { useApi } from '../hooks/useApi'
+import { useAiLimit } from '../hooks/useAiLimit'
 import { mealsApi } from '../api/meals'
 import { DailyLog, MealEntryCreate } from '../types'
 import { Plus, Camera, History } from 'lucide-react'
@@ -19,6 +21,7 @@ export const Dashboard: React.FC = () => {
   const [modal, setModal] = useState<ModalKind>('none')
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [successMessage, setSuccessMessage] = useState('')
+  const { aiLimit, aiExhausted, refreshAiLimit } = useAiLimit()
 
   // Load daily log
   const { data: dailyLog, isLoading: isLoadingLog, execute: loadDailyLog } = useApi<DailyLog>()
@@ -30,6 +33,7 @@ export const Dashboard: React.FC = () => {
       setModal('none')
       setPhotoFile(null)
       loadDailyLog(() => mealsApi.getDailyLog())
+      refreshAiLimit()
     },
   })
 
@@ -44,6 +48,8 @@ export const Dashboard: React.FC = () => {
   const close = () => {
     setModal('none')
     setPhotoFile(null)
+    // Загрузка фото расходует лимит даже без сохранения — обновляем счётчик
+    refreshAiLimit()
   }
 
   return (
@@ -81,7 +87,7 @@ export const Dashboard: React.FC = () => {
       ) : null}
 
       {/* Action Buttons */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className="grid grid-cols-2 gap-3 mb-2">
         <button
           onClick={() => setModal('manual')}
           className="btn btn-primary flex items-center justify-center gap-2"
@@ -89,13 +95,18 @@ export const Dashboard: React.FC = () => {
           <Plus className="h-5 w-5" />
           Добавить
         </button>
-        <label className="btn btn-secondary flex items-center justify-center gap-2 cursor-pointer">
+        <label
+          className={`btn btn-secondary flex items-center justify-center gap-2 ${
+            aiExhausted ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+          }`}
+        >
           <Camera className="h-5 w-5" />
           Анализ фото
           <input
             type="file"
             accept="image/*"
             className="hidden"
+            disabled={aiExhausted}
             onChange={(e) => {
               const f = e.target.files?.[0]
               if (f) {
@@ -107,6 +118,8 @@ export const Dashboard: React.FC = () => {
           />
         </label>
       </div>
+
+      <AiLimitBadge aiLimit={aiLimit} />
 
       <button
         onClick={() => navigate('/analysis-history')}

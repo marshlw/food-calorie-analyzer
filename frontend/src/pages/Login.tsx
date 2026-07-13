@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { ErrorAlert } from '../components/ErrorAlert'
+import { PasswordInput } from '../components/PasswordInput'
 import { LogIn } from 'lucide-react'
 
 export const Login: React.FC = () => {
@@ -67,13 +68,11 @@ export const Login: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium mb-1">Пароль</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="input"
+                onChange={setPassword}
                 disabled={isLoading}
+                autoComplete="current-password"
               />
             </div>
 

@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.celery_app import celery_app
 from app.database import SessionLocal, engine
-from app import models, schemas, crud, auth, ml_service, utils
+from app import models, schemas, crud, auth, ml_service, utils, rate_limit
 from app.tasks import analyze_image_task
 
 # В prod (ENABLE_DOCS=false) Swagger/OpenAPI выключены — не светим схему API
@@ -217,13 +217,27 @@ async def health():
 
 # ===================== ANALYZE (теперь требует аутентификации) =====================
 
+@app.get("/api/v1/analyze/limit", response_model=schemas.AiLimitResponse)
+async def get_analyze_limit(current_user: models.User = Depends(auth.get_current_user)):
+    """Сколько AI-анализов осталось у пользователя на сегодня (для UI)."""
+    return rate_limit.get_ai_daily_usage(current_user.id)
+
+
 @app.post("/api/v1/analyze", response_model=schemas.TaskCreatedResponse, status_code=status.HTTP_201_CREATED)
 async def analyze(
     file: UploadFile = File(...),
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    file_path = _save_upload_file_securely(file)
+    # Дневной лимит AI-анализа (по умолчанию 5 запросов/сутки на пользователя)
+    rate_limit.check_ai_daily_limit(current_user.id)
+
+    try:
+        file_path = _save_upload_file_securely(file)
+    except HTTPException:
+        # Невалидный файл не должен расходовать дневной лимит
+        rate_limit.refund_ai_daily(current_user.id)
+        raise
     logger.info("File uploaded securely", extra={"user_id": current_user.id, "path": str(file_path)})
 
     task = None
@@ -232,6 +246,8 @@ async def analyze(
         analyze_image_task.delay(task.id, str(file_path))
         return {"id": task.id, "status": task.status.value}
     except Exception as e:
+        # Ошибка на нашей стороне — возвращаем пользователю попытку из дневного лимита
+        rate_limit.refund_ai_daily(current_user.id)
         if task is not None:
             task.status = models.TaskStatus.FAILURE
             task.error = f"Enqueue failed: {e}"
@@ -248,7 +264,10 @@ async def analyze(
 # ===================== REGISTER =====================
 
 @app.post("/api/v1/register", response_model=schemas.User, status_code=status.HTTP_201_CREATED)
-async def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
+async def register(request: Request, user: schemas.UserCreate, db: Session = Depends(get_db)):
+    # Защита от массовой регистрации/перебора email с одного IP
+    rate_limit.check_register_ip_limit(request)
+
     db_user = crud.get_user_by_email_sync(db, user.email)
     if db_user:
         raise HTTPException(status_code=400, detail="Пользователь уже существует")
@@ -271,12 +290,17 @@ async def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
 # ===================== LOGIN =====================
 
 @app.post("/api/v1/login", response_model=schemas.Token)
-async def login(auth_data: schemas.AuthRequest = Depends(_get_auth_request), db: Session = Depends(get_db)):
+async def login(request: Request, auth_data: schemas.AuthRequest = Depends(_get_auth_request), db: Session = Depends(get_db)):
     if auth_data.grant_type != "password":
         raise HTTPException(status_code=400, detail="Unsupported grant_type")
 
+    # Брутфорс-защита: лимит по IP + блокировка email после серии неудач
+    rate_limit.check_auth_ip_limit(request)
+    rate_limit.check_failed_login_block(auth_data.email)
+
     user = auth.authenticate_user_sync(db, auth_data.email, auth_data.password)
     if not user:
+        rate_limit.register_failed_login(auth_data.email)
         logger.warning(f"Failed login attempt for email: {auth_data.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -284,6 +308,7 @@ async def login(auth_data: schemas.AuthRequest = Depends(_get_auth_request), db:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    rate_limit.reset_failed_login(auth_data.email)
     return {
         "access_token": auth.create_access_token(data={"sub": user.email}),
         "refresh_token": auth.create_refresh_token(data={"sub": user.email}),
@@ -294,7 +319,10 @@ async def login(auth_data: schemas.AuthRequest = Depends(_get_auth_request), db:
 # ===================== TOKEN (OAuth2 совместимость) =====================
 
 @app.post("/api/v1/token", response_model=schemas.Token)
-async def token(auth_data: schemas.AuthRequest = Depends(_get_auth_request), db: Session = Depends(get_db)):
+async def token(request: Request, auth_data: schemas.AuthRequest = Depends(_get_auth_request), db: Session = Depends(get_db)):
+    # Брутфорс-защита: общий лимит попыток с одного IP (password и refresh)
+    rate_limit.check_auth_ip_limit(request)
+
     if auth_data.grant_type == "refresh_token":
         if not auth_data.refresh_token:
             raise HTTPException(status_code=400, detail="refresh_token is required")
@@ -312,14 +340,18 @@ async def token(auth_data: schemas.AuthRequest = Depends(_get_auth_request), db:
     if auth_data.grant_type != "password":
         raise HTTPException(status_code=400, detail="Unsupported grant_type")
 
+    rate_limit.check_failed_login_block(auth_data.email)
+
     user = auth.authenticate_user_sync(db, auth_data.email, auth_data.password)
     if not user:
+        rate_limit.register_failed_login(auth_data.email)
         logger.warning(f"Failed token attempt for email: {auth_data.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    rate_limit.reset_failed_login(auth_data.email)
     return {
         "access_token": auth.create_access_token(data={"sub": user.email}),
         "refresh_token": auth.create_refresh_token(data={"sub": user.email}),
@@ -330,6 +362,32 @@ async def token(auth_data: schemas.AuthRequest = Depends(_get_auth_request), db:
 @app.get("/api/v1/me", response_model=schemas.User)
 async def get_me(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
+
+
+# ===================== CHANGE PASSWORD =====================
+
+@app.post("/api/v1/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: schemas.ChangePasswordRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Брутфорс-защита: перебор текущего пароля через смену пароля
+    rate_limit.check_failed_login_block(current_user.email)
+
+    if not auth.verify_password(payload.current_password, current_user.hashed_password):
+        rate_limit.register_failed_login(current_user.email)
+        raise HTTPException(status_code=400, detail="Неверный текущий пароль")
+
+    rate_limit.reset_failed_login(current_user.email)
+
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=400, detail="Новый пароль совпадает с текущим")
+
+    current_user.hashed_password = auth.get_password_hash(payload.new_password)
+    db.add(current_user)
+    db.commit()
+    logger.info(f"Password changed for user: {current_user.email}")
 
 
 # ===================== PROFILE =====================

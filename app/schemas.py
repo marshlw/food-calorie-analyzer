@@ -53,6 +53,11 @@ class UserUpdate(BaseModel):
     password: Optional[str] = Field(None, min_length=8)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=8)
+
+
 class User(UserBase):
     id: int
     is_active: bool
@@ -214,6 +219,13 @@ class TaskCreatedResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AiLimitResponse(BaseModel):
+    """Дневной лимит AI-анализа фото: всего / использовано / осталось."""
+    limit: int
+    used: int
+    remaining: int
 
 
 class MealItemBase(BaseModel):

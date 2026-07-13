@@ -31,6 +31,13 @@ export interface TaskResponse extends Task {
   result?: AnalysisResult
 }
 
+// Дневной лимит AI-анализов (GET /api/v1/analyze/limit)
+export interface AiAnalysisLimit {
+  limit: number
+  used: number
+  remaining: number
+}
+
 export type IngredientType = 'protein' | 'carb' | 'fat' | 'vegetable' | 'unknown'
 
 export interface Ingredient {

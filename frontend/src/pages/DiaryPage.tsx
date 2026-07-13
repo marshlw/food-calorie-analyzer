@@ -7,7 +7,9 @@ import { MealForm } from '../components/MealForm'
 import { Modal } from '../components/Modal'
 import { SuccessAlert } from '../components/SuccessAlert'
 import { ErrorAlert } from '../components/ErrorAlert'
+import { AiLimitBadge } from '../components/AiLimitBadge'
 import { useApi } from '../hooks/useApi'
+import { useAiLimit } from '../hooks/useAiLimit'
 import { mealsApi } from '../api/meals'
 import { MealEntry, MealEntryCreate } from '../types'
 import { Plus, Camera } from 'lucide-react'
@@ -20,11 +22,14 @@ const DiaryInner: React.FC = () => {
   const [editing, setEditing] = useState<MealEntry | null>(null)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [toast, setToast] = useState('')
+  const { aiLimit, aiExhausted, refreshAiLimit } = useAiLimit()
 
   const close = () => {
     setModal('none')
     setEditing(null)
     setPhotoFile(null)
+    // Загрузка фото расходует лимит даже без сохранения — обновляем счётчик
+    refreshAiLimit()
   }
 
   const afterWrite = async (msg: string) => {
@@ -74,19 +79,24 @@ const DiaryInner: React.FC = () => {
 
       <WeekCalendar />
 
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className="grid grid-cols-2 gap-3 mb-2">
         <button
           className="btn btn-primary flex items-center justify-center gap-2"
           onClick={() => setModal('manual')}
         >
           <Plus className="h-5 w-5" /> Вручную
         </button>
-        <label className="btn btn-secondary flex items-center justify-center gap-2 cursor-pointer">
+        <label
+          className={`btn btn-secondary flex items-center justify-center gap-2 ${
+            aiExhausted ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+          }`}
+        >
           <Camera className="h-5 w-5" /> Фото
           <input
             type="file"
             accept="image/*"
             className="hidden"
+            disabled={aiExhausted}
             onChange={(e) => {
               const f = e.target.files?.[0]
               if (f) {
@@ -98,6 +108,8 @@ const DiaryInner: React.FC = () => {
           />
         </label>
       </div>
+
+      <AiLimitBadge aiLimit={aiLimit} />
 
       <DayDetail
         onEdit={(m) => {

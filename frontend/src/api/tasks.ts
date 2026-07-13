@@ -1,5 +1,5 @@
 import { apiClient, API_BASE_URL } from './axios'
-import { Task, TaskResponse } from '../types'
+import { AiAnalysisLimit, Task, TaskResponse } from '../types'
 
 // Бэкенд отдаёт image_path как относительный URL вида /uploads/<file>.
 // Превращаем его в абсолютный, т.к. фронтенд может работать на другом origin.
@@ -20,6 +20,12 @@ export const tasksApi = {
         'Content-Type': 'multipart/form-data',
       },
     })
+    return response.data
+  },
+
+  // Сколько AI-анализов осталось на сегодня
+  getAnalysisLimit: async (): Promise<AiAnalysisLimit> => {
+    const response = await apiClient.get<AiAnalysisLimit>('/api/v1/analyze/limit')
     return response.data
   },
 

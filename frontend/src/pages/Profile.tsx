@@ -11,6 +11,7 @@ import { ProfileForm } from '../components/profile/ProfileForm'
 import { WeightChart } from '../components/profile/WeightChart'
 import { WeightHistoryList } from '../components/profile/WeightHistoryList'
 import { AddWeightModal } from '../components/profile/AddWeightModal'
+import { ChangePasswordForm } from '../components/profile/ChangePasswordForm'
 
 export const Profile: React.FC = () => {
   const { user, logout } = useAuth()
@@ -192,6 +193,9 @@ export const Profile: React.FC = () => {
 
           {/* Форма редактирования */}
           <ProfileForm profile={profile} onSave={handleSaveProfile} />
+
+          {/* Смена пароля */}
+          <ChangePasswordForm />
         </div>
       )}
 

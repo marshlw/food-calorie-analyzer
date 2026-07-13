@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { ErrorAlert } from '../components/ErrorAlert'
+import { PasswordInput } from '../components/PasswordInput'
 import { UserPlus } from 'lucide-react'
 
 export const Register: React.FC = () => {
@@ -104,25 +105,21 @@ export const Register: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium mb-1">Пароль</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="input"
+                onChange={setPassword}
                 disabled={isLoading}
+                autoComplete="new-password"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium mb-1">Подтвердите пароль</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-                className="input"
+                onChange={setConfirmPassword}
                 disabled={isLoading}
+                autoComplete="new-password"
               />
             </div>
 
