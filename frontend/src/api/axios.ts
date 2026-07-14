@@ -5,8 +5,6 @@ import { Token } from '../types'
 // Локально (vite dev на :5173) задай VITE_API_URL=http://localhost:8000 в frontend/.env.local.
 export const API_BASE_URL = import.meta.env.VITE_API_URL ?? ''
 
-console.log('API Base URL:', API_BASE_URL)
-
 let tokenRefreshPromise: Promise<Token> | null = null
 
 const createAxiosInstance = (): AxiosInstance => {
@@ -25,34 +23,24 @@ const createAxiosInstance = (): AxiosInstance => {
       if (token) {
         config.headers.Authorization = `Bearer ${token}`
       }
-      console.log('Request:', {
-        url: config.url,
-        method: config.method,
-        headers: config.headers,
-      })
+      // ВАЖНО: не логируем config.headers — там Bearer-токен.
       return config
     },
     (error) => {
-      console.error('Request error:', error)
       return Promise.reject(error)
     }
   )
 
   // Response interceptor to handle token refresh
   instance.interceptors.response.use(
-    (response) => {
-      console.log('Response success:', {
-        url: response.config.url,
-        status: response.status,
-      })
-      return response
-    },
+    (response) => response,
     async (error: AxiosError) => {
-      console.error('Response error:', {
-        url: error.config?.url,
-        status: error.response?.status,
-        data: error.response?.data,
-      })
+      if (import.meta.env.DEV) {
+        console.error('Response error:', {
+          url: error.config?.url,
+          status: error.response?.status,
+        })
+      }
 
       const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
 

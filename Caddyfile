@@ -9,6 +9,22 @@
 	}
 
 	encode gzip zstd
+
+	# Базовые security-заголовки
+	header {
+		# HTTPS-only на год (включается автоматически после первого захода)
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Браузер не должен «угадывать» MIME-типы ответов
+		X-Content-Type-Options "nosniff"
+		# Запрет встраивания сайта в iframe (кликджекинг)
+		X-Frame-Options "DENY"
+		# Не отдаём полный URL в Referer на чужие сайты
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Отключаем ненужные браузерные API
+		Permissions-Policy "camera=(self), geolocation=(), microphone=()"
+		# Не светим версию сервера
+		-Server
+	}
 }
 
 # --- Вариант без домена (тест по голому IP, HTTP, без HTTPS) ---

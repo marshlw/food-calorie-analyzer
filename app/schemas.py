@@ -37,7 +37,7 @@ class AuthRequest(BaseModel):
 
 class UserBase(BaseModel):
     email: EmailStr
-    full_name: Optional[str] = None
+    full_name: Optional[str] = Field(None, max_length=120)
 
 
 class UserCreate(UserBase):
@@ -87,7 +87,7 @@ class WeightRecordResponse(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    full_name: Optional[str] = None
+    full_name: Optional[str] = Field(None, max_length=120)
     height_cm: Optional[float] = Field(None, gt=0, lt=300)
     weight_kg: Optional[float] = Field(None, gt=0, lt=300)
     sex: Optional[Literal["male", "female"]] = None
@@ -276,7 +276,7 @@ class MealEntryItemResponse(MealEntryItemCreate):
 
 
 class MealEntryCreate(BaseModel):
-    food_name: str
+    food_name: str = Field(..., min_length=1, max_length=200)
     calories: float = Field(..., ge=0)
     protein_g: float = Field(..., ge=0)
     fat_g: float = Field(..., ge=0)

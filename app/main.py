@@ -274,8 +274,12 @@ async def analyze(
 
 # ===================== REGISTER =====================
 
+# ВАЖНО: auth-эндпоинты — обычные def (threadpool), НЕ async. Внутри bcrypt
+# (~0.2-0.4 c CPU на хеш) — в async он блокировал бы event loop воркера,
+# и на слабой ВМ любой логин подвешивал бы все остальные запросы.
+
 @app.post("/api/v1/register", response_model=schemas.User, status_code=status.HTTP_201_CREATED)
-async def register(request: Request, user: schemas.UserCreate, db: Session = Depends(get_db)):
+def register(request: Request, user: schemas.UserCreate, db: Session = Depends(get_db)):
     # Защита от массовой регистрации/перебора email с одного IP
     rate_limit.check_register_ip_limit(request)
 
@@ -301,7 +305,7 @@ async def register(request: Request, user: schemas.UserCreate, db: Session = Dep
 # ===================== LOGIN =====================
 
 @app.post("/api/v1/login", response_model=schemas.Token)
-async def login(request: Request, auth_data: schemas.AuthRequest = Depends(_get_auth_request), db: Session = Depends(get_db)):
+def login(request: Request, auth_data: schemas.AuthRequest = Depends(_get_auth_request), db: Session = Depends(get_db)):
     if auth_data.grant_type != "password":
         raise HTTPException(status_code=400, detail="Unsupported grant_type")
 
@@ -330,7 +334,7 @@ async def login(request: Request, auth_data: schemas.AuthRequest = Depends(_get_
 # ===================== TOKEN (OAuth2 совместимость) =====================
 
 @app.post("/api/v1/token", response_model=schemas.Token)
-async def token(request: Request, auth_data: schemas.AuthRequest = Depends(_get_auth_request), db: Session = Depends(get_db)):
+def token(request: Request, auth_data: schemas.AuthRequest = Depends(_get_auth_request), db: Session = Depends(get_db)):
     # Брутфорс-защита: общий лимит попыток с одного IP (password и refresh)
     rate_limit.check_auth_ip_limit(request)
 
@@ -378,7 +382,7 @@ async def get_me(current_user: models.User = Depends(auth.get_current_user)):
 # ===================== CHANGE PASSWORD =====================
 
 @app.post("/api/v1/change-password", status_code=status.HTTP_204_NO_CONTENT)
-async def change_password(
+def change_password(
     payload: schemas.ChangePasswordRequest,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
@@ -839,6 +843,14 @@ def ask_advisor(
     db: Session = Depends(get_db),
 ):
     """Свободный вопрос советчику (поле «Спросить...» на вкладке)."""
+    # Каждый вопрос = платный LLM-вызов и занятый поток на десятки секунд —
+    # ограничиваем, чтобы один пользователь не сжёг бюджет токенов.
+    rate_limit.enforce(
+        f"advisor:ask:{current_user.id}:{date.today().isoformat()}",
+        limit=30,
+        window=86400 + 3600,
+        detail="Дневной лимит вопросов советчику исчерпан. Попробуйте завтра.",
+    )
     return advisor.ask(db, current_user, payload.question)
 
 

@@ -148,11 +148,18 @@ class Settings(BaseSettings):
                 self.ALLOWED_ORIGINS.append(origin)
 
         # Не даём молча уехать в prod с дефолтным/коротким SECRET_KEY:
-        # им подписываются JWT — зная его, можно выпустить токен любого юзера
-        if self.SECRET_KEY == "change-this-in-production":
+        # им подписываются JWT — зная его, можно выпустить токен любого юзера.
+        # Ловим и типовые «человеческие» заглушки, а не только дефолт.
+        _placeholder_markers = (
+            "change-this", "changeme", "change-me", "your-super-secret",
+            "secret-key", "example", "placeholder", "12345",
+        )
+        key_lower = self.SECRET_KEY.lower()
+        if any(m in key_lower for m in _placeholder_markers):
             logger.critical(
-                "SECRET_KEY is set to the default placeholder! "
-                "Set a strong random value in .env before deploying."
+                "SECRET_KEY looks like a placeholder! Generate a strong value: "
+                "python3 -c \"import secrets; print(secrets.token_urlsafe(48))\" "
+                "and set it in .env before deploying."
             )
         elif len(self.SECRET_KEY) < 32:
             logger.warning(
