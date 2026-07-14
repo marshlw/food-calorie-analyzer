@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { KeyRound, Check } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { authApi } from '../../api/auth'
 import { extractErrorMessage } from '../../utils/errors'
 import { PasswordInput } from '../PasswordInput'
@@ -45,13 +45,9 @@ export const ChangePasswordForm: React.FC = () => {
     }
   }
 
+  // Встраивается в раскрывающийся раздел «Смена пароля» на экране Профиля
   return (
-    <div className="card p-6 rounded-xl">
-      <h3 className="font-semibold mb-4 flex items-center gap-2">
-        <KeyRound className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-        Смена пароля
-      </h3>
-
+    <div className="pt-1">
       {error && (
         <div className="mb-4">
           <ErrorAlert message={error} onClose={() => setError('')} />
@@ -59,9 +55,9 @@ export const ChangePasswordForm: React.FC = () => {
       )}
 
       {success && (
-        <div className="mb-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3 flex items-center gap-2">
-          <Check className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
-          <p className="text-sm text-green-700 dark:text-green-400">Пароль успешно изменён</p>
+        <div className="mb-4 rounded-xl bg-carbs-chip dark:bg-carbs-dark/15 border border-carbs/30 p-3 flex items-center gap-2">
+          <Check className="h-4 w-4 text-carbs-text dark:text-carbs-dark flex-shrink-0" />
+          <p className="text-sm text-carbs-text dark:text-carbs-dark">Пароль успешно изменён</p>
         </div>
       )}
 

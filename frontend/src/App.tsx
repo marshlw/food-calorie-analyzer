@@ -11,10 +11,14 @@ import { DiaryPage } from './pages/DiaryPage'
 import { AnalysisHistory } from './pages/AnalysisHistory'
 import { TaskDetail } from './pages/TaskDetail'
 import { Profile } from './pages/Profile'
+import { Workouts } from './pages/Workouts'
+import { Advisor } from './pages/Advisor'
 
 // Navigation
-import { Home, BookOpen, History, User } from 'lucide-react'
+import { Home, BookOpen, Dumbbell, User } from 'lucide-react'
 
+// Плавающая pill-навигация из дизайна Rasify:
+// Дневник · Приёмы · ✦ AI (по центру) · Тренировки · Профиль
 const BottomNavigation: React.FC = () => {
   const location = useLocation()
 
@@ -23,35 +27,56 @@ const BottomNavigation: React.FC = () => {
     return null
   }
 
-  const isActive = (path: string) => {
-    return location.pathname === path
-  }
+  const isActive = (path: string) => location.pathname === path
 
-  const navItems = [
-    { path: '/', icon: Home, label: 'Дневник' },
-    { path: '/meals', icon: BookOpen, label: 'Приемы' },
-    { path: '/analysis-history', icon: History, label: 'Анализы' },
-    { path: '/profile', icon: User, label: 'Профиль' },
-  ]
+  const linkClass = (path: string) =>
+    `flex flex-col items-center gap-[3px] w-1/5 transition-colors ${
+      isActive(path)
+        ? 'text-primary-500 dark:text-primary-400'
+        : 'text-faint dark:text-faint-dark hover:text-muted dark:hover:text-muted-dark'
+    }`
+
+  const labelClass = (path: string) =>
+    `text-[10px] ${isActive(path) ? 'font-semibold' : 'font-medium'}`
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 z-40 max-w-md mx-auto">
-      <div className="flex items-center justify-around h-16">
-        {navItems.map(({ path, icon: Icon, label }) => (
-          <Link
-            key={path}
-            to={path}
-            className={`flex flex-col items-center justify-center w-1/4 h-full transition-colors ${
-              isActive(path)
-                ? 'text-primary-600 dark:text-primary-400'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-            }`}
-          >
-            <Icon className="h-6 w-6 mb-1" />
-            <span className="text-xs font-medium">{label}</span>
-          </Link>
-        ))}
+    <nav
+      className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 h-16 w-[calc(100%-2rem)] max-w-[26rem]
+        bg-white dark:bg-card-dark border border-line dark:border-line-dark rounded-full
+        shadow-nav dark:shadow-nav-dark flex items-center justify-around"
+    >
+      <Link to="/" className={linkClass('/')}>
+        <Home className="h-[22px] w-[22px]" strokeWidth={2} />
+        <span className={labelClass('/')}>Дневник</span>
+      </Link>
+
+      <Link to="/meals" className={linkClass('/meals')}>
+        <BookOpen className="h-[22px] w-[22px]" strokeWidth={2} />
+        <span className={labelClass('/meals')}>Приёмы</span>
+      </Link>
+
+      {/* Центральная кнопка ✦ — AI-советчик */}
+      <div className="w-1/5 flex justify-center">
+        <Link
+          to="/advisor"
+          aria-label="AI-советчик"
+          className="w-[52px] h-[52px] -mt-[26px] rounded-full bg-gradient-to-br from-primary-500 to-primary-700
+            flex items-center justify-center shadow-cta border-4 border-surface dark:border-surface-dark
+            text-white text-xl leading-none"
+        >
+          ✦
+        </Link>
       </div>
+
+      <Link to="/workouts" className={linkClass('/workouts')}>
+        <Dumbbell className="h-[22px] w-[22px]" strokeWidth={2} />
+        <span className={labelClass('/workouts')}>Тренировки</span>
+      </Link>
+
+      <Link to="/profile" className={linkClass('/profile')}>
+        <User className="h-[22px] w-[22px]" strokeWidth={2} />
+        <span className={labelClass('/profile')}>Профиль</span>
+      </Link>
     </nav>
   )
 }
@@ -77,6 +102,22 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <DiaryPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/workouts"
+        element={
+          <ProtectedRoute>
+            <Workouts />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/advisor"
+        element={
+          <ProtectedRoute>
+            <Advisor />
           </ProtectedRoute>
         }
       />
@@ -112,7 +153,7 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
-        <div className="bg-white dark:bg-gray-950 min-h-screen">
+        <div className="bg-surface dark:bg-surface-dark min-h-screen">
           <div className="max-w-md mx-auto">
             <AppRoutes />
             <BottomNavigation />

@@ -389,3 +389,96 @@ class GenerateDatasetResponse(BaseModel):
     message: str
     count: int
     output_path: str
+
+
+# ==================== WORKOUTS (вкладка «Тренировки») ====================
+
+WorkoutType = Literal["strength", "cardio", "stretching", "sport", "other"]
+
+
+class WorkoutCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    workout_type: WorkoutType = "other"
+    duration_min: float = Field(..., gt=0, le=1440)
+    calories_burned: float = Field(0, ge=0, le=10000)
+    description: Optional[str] = Field(None, max_length=500)
+    started_at: Optional[str] = Field(None, max_length=5)  # "HH:MM"
+    date: Optional[_date] = None  # по умолчанию — сегодня
+
+    @validator("started_at")
+    def validate_time(cls, v):
+        if v in (None, ""):
+            return None
+        try:
+            datetime.strptime(v, "%H:%M")
+        except ValueError:
+            raise ValueError("Время должно быть в формате HH:MM")
+        return v
+
+
+class WorkoutResponse(BaseModel):
+    id: int
+    date: _date
+    workout_type: str
+    title: str
+    description: Optional[str] = None
+    started_at: Optional[str] = None
+    duration_min: float
+    calories_burned: float
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WorkoutDaySummary(BaseModel):
+    """Сводка активности за день: потрачено ккал, суммарное время, число
+    тренировок + скорректированная норма калорий (норма + потраченное)."""
+    date: _date
+    total_calories_burned: float
+    total_duration_min: float
+    count: int
+    base_calorie_target: Optional[float] = None
+    adjusted_calorie_target: Optional[float] = None
+
+
+class WorkoutWeekDay(BaseModel):
+    """День недельной полоски на вкладке «Тренировки»."""
+    date: _date
+    has_workout: bool
+
+
+class WorkoutsResponse(BaseModel):
+    date: _date
+    workouts: List[WorkoutResponse]
+    summary: WorkoutDaySummary
+    week: List[WorkoutWeekDay]
+
+
+# ==================== AI-СОВЕТЧИК ====================
+
+class AdvisorTip(BaseModel):
+    """Одна рекомендация: короткий заголовок + текст."""
+    title: str
+    text: str
+    # Цветовая метка для фронта: protein|water|training|carbs|calories|general
+    tag: str = "general"
+
+
+class AdvisorResponse(BaseModel):
+    """Ответ AI-советчика: «совет дня» + рекомендации по питанию и тренировкам."""
+    headline_title: str
+    headline_text: str
+    nutrition: List[AdvisorTip] = Field(default_factory=list)
+    training: List[AdvisorTip] = Field(default_factory=list)
+    # llm — сгенерировано языковой моделью, rules — правила-фолбэк
+    generated_by: Literal["llm", "rules"]
+
+
+class AdvisorAskRequest(BaseModel):
+    question: str = Field(..., min_length=3, max_length=500)
+
+
+class AdvisorAskResponse(BaseModel):
+    answer: str
+    generated_by: Literal["llm", "rules"]

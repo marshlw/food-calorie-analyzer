@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Settings, Plus, AlertCircle, Flame, Droplet } from 'lucide-react'
+import { Plus, AlertCircle, ChevronRight, ChevronDown } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { profileApi } from '../api/profile'
 import { Profile as ProfileType, ProfileUpdate, WeightRecordCreate } from '../types'
 import { extractErrorMessage } from '../utils/errors'
+import { AppHeader } from '../components/Brand'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { ProfileForm } from '../components/profile/ProfileForm'
@@ -12,6 +13,8 @@ import { WeightChart } from '../components/profile/WeightChart'
 import { WeightHistoryList } from '../components/profile/WeightHistoryList'
 import { AddWeightModal } from '../components/profile/AddWeightModal'
 import { ChangePasswordForm } from '../components/profile/ChangePasswordForm'
+
+type SettingsSection = 'personal' | 'password' | null
 
 export const Profile: React.FC = () => {
   const { user, logout } = useAuth()
@@ -21,6 +24,7 @@ export const Profile: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [openSection, setOpenSection] = useState<SettingsSection>(null)
 
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark')
 
@@ -65,24 +69,37 @@ export const Profile: React.FC = () => {
     navigate('/login')
   }
 
-  return (
-    <div className="max-w-md mx-auto px-4 py-6 pb-24">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold">Профиль</h1>
-      </div>
+  const toggleSection = (s: Exclude<SettingsSection, null>) =>
+    setOpenSection((cur) => (cur === s ? null : s))
 
-      {/* User Info */}
-      <div className="card p-6 mb-6 rounded-xl">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-600 rounded-full flex items-center justify-center text-white text-2xl font-bold">
-            {user?.email?.[0]?.toUpperCase()}
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold">{profile?.full_name || user?.full_name || 'User'}</h2>
-            <p className="text-gray-600 dark:text-gray-400">{user?.email}</p>
-          </div>
-        </div>
-      </div>
+  const name = profile?.full_name || user?.full_name || 'Пользователь'
+  const initial = (name || user?.email || '?').trim()[0]?.toUpperCase() || '?'
+
+  // Строка настроек (стрелка/шеврон) из дизайна
+  const SettingsRow: React.FC<{
+    label: string
+    onClick: () => void
+    expanded?: boolean
+    last?: boolean
+  }> = ({ label, onClick, expanded, last }) => (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center justify-between px-5 py-4 text-left ${
+        last ? '' : 'border-b border-divider dark:border-line-dark'
+      }`}
+    >
+      <span className="text-sm font-medium">{label}</span>
+      {expanded ? (
+        <ChevronDown className="h-4 w-4 text-faint dark:text-faint-dark" />
+      ) : (
+        <ChevronRight className="h-4 w-4 text-faint dark:text-faint-dark" />
+      )}
+    </button>
+  )
+
+  return (
+    <div className="max-w-md mx-auto px-5 pt-6 pb-32">
+      <AppHeader />
 
       {loading && <LoadingSpinner />}
 
@@ -96,144 +113,170 @@ export const Profile: React.FC = () => {
       )}
 
       {!loading && !error && profile && (
-        <div className="space-y-6">
+        <>
+          {/* Identity */}
+          <div className="flex flex-col items-center text-center mb-6">
+            <div className="w-[76px] h-[76px] rounded-full bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-display font-bold text-[28px] mb-3">
+              {initial}
+            </div>
+            <div className="font-display font-bold text-xl tracking-tight">{name}</div>
+            <div className="text-[13px] text-secondary mt-0.5">{user?.email}</div>
+          </div>
+
           {/* Напоминание о незаполненном профиле (не блокирует работу) */}
           {!profile.height_cm && (
-            <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 flex gap-3">
-              <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-amber-700 dark:text-amber-400">
-                Заполните рост и вес — это нужно для расчёта нормы калорий.
+            <div className="card-tile p-4 mb-3 flex gap-3">
+              <AlertCircle className="h-5 w-5 text-fat-text dark:text-fat-dark flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-secondary">
+                Заполните рост и вес в «Личных данных» — это нужно для расчёта нормы калорий.
               </p>
             </div>
           )}
 
-          {/* Сводка: текущий вес + норма калорий */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="card p-4 rounded-xl">
-              <p className="text-xs text-gray-500 mb-1">Текущий вес</p>
-              <p className="text-2xl font-bold">
-                {profile.current_weight_kg != null ? `${profile.current_weight_kg} кг` : '—'}
-              </p>
+          {/* Ключевые цифры */}
+          <div className="grid grid-cols-3 gap-2.5 mb-3">
+            <div className="card-tile p-3.5 text-center">
+              <div className="font-display font-bold text-xl">
+                {profile.current_weight_kg != null ? profile.current_weight_kg : '—'}
+              </div>
+              <div className="text-[11px] text-tertiary mt-0.5">кг · вес</div>
             </div>
-            <div className="card p-4 rounded-xl">
-              <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
-                <Flame className="h-3.5 w-3.5" /> Норма калорий
-              </p>
-              <p className="text-2xl font-bold">
+            <div className="card-tile p-3.5 text-center">
+              <div className="font-display font-bold text-xl">
                 {profile.daily_calorie_target != null
-                  ? `${profile.daily_calorie_target}`
+                  ? Math.round(profile.daily_calorie_target)
                   : '—'}
-              </p>
+              </div>
+              <div className="text-[11px] text-tertiary mt-0.5">ккал · норма</div>
+            </div>
+            <div className="card-tile p-3.5 text-center">
+              <div className="font-display font-bold text-xl">
+                {profile.water_target_ml != null
+                  ? (profile.water_target_ml / 1000).toFixed(1)
+                  : '—'}
+              </div>
+              <div className="text-[11px] text-tertiary mt-0.5">л · вода</div>
             </div>
           </div>
 
-          {/* Суточные нормы БЖУ */}
-          <div className="card p-4 rounded-xl">
-            <p className="text-xs text-gray-500 mb-3">Суточная норма КБЖУ</p>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
-                <p className="text-xs text-red-600 dark:text-red-400 mb-1">Белки</p>
-                <p className="text-lg font-bold">
-                  {profile.protein_target_g != null ? `${profile.protein_target_g} г` : '—'}
-                </p>
+          {/* Суточная норма КБЖУ */}
+          <div className="card px-5 py-[18px] mb-6">
+            <div className="text-[13px] font-semibold mb-3">Суточная норма КБЖУ</div>
+            <div className="grid grid-cols-3 gap-2.5">
+              <div>
+                <div className="flex items-center gap-1.5 text-xs text-secondary">
+                  <span className="w-2 h-2 rounded-full bg-protein dark:bg-protein-dark" />
+                  Белки
+                </div>
+                <div className="font-display font-bold text-base mt-1">
+                  {profile.protein_target_g != null ? `${Math.round(profile.protein_target_g)} г` : '—'}
+                </div>
               </div>
-              <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3">
-                <p className="text-xs text-yellow-600 dark:text-yellow-400 mb-1">Жиры</p>
-                <p className="text-lg font-bold">
-                  {profile.fat_target_g != null ? `${profile.fat_target_g} г` : '—'}
-                </p>
+              <div>
+                <div className="flex items-center gap-1.5 text-xs text-secondary">
+                  <span className="w-2 h-2 rounded-full bg-fat dark:bg-fat-dark" />
+                  Жиры
+                </div>
+                <div className="font-display font-bold text-base mt-1">
+                  {profile.fat_target_g != null ? `${Math.round(profile.fat_target_g)} г` : '—'}
+                </div>
               </div>
-              <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
-                <p className="text-xs text-green-600 dark:text-green-400 mb-1">Углеводы</p>
-                <p className="text-lg font-bold">
-                  {profile.carbs_target_g != null ? `${profile.carbs_target_g} г` : '—'}
-                </p>
+              <div>
+                <div className="flex items-center gap-1.5 text-xs text-secondary">
+                  <span className="w-2 h-2 rounded-full bg-carbs dark:bg-carbs-dark" />
+                  Углеводы
+                </div>
+                <div className="font-display font-bold text-base mt-1">
+                  {profile.carbs_target_g != null ? `${Math.round(profile.carbs_target_g)} г` : '—'}
+                </div>
               </div>
             </div>
             {profile.daily_calorie_target == null && (
-              <p className="text-xs text-gray-400 mt-3">
-                Заполните рост, вес, дату рождения и активность ниже — и нормы рассчитаются автоматически.
+              <p className="text-xs text-tertiary mt-3">
+                Заполните рост, вес, дату рождения и активность — и нормы рассчитаются автоматически.
               </p>
             )}
           </div>
 
-          {/* Суточная норма воды */}
-          <div className="card p-4 rounded-xl flex items-center justify-between">
-            <p className="text-xs text-gray-500 flex items-center gap-1.5">
-              <Droplet className="h-4 w-4 text-cyan-500" /> Норма воды в день
-            </p>
-            <p className="text-2xl font-bold">
-              {profile.water_target_ml != null
-                ? `${(profile.water_target_ml / 1000).toFixed(1)} л`
-                : '—'}
-            </p>
+          {/* Прогресс + Запись веса */}
+          <div className="flex items-center justify-between mb-3">
+            <span className="section-title">Прогресс</span>
+            <button
+              onClick={() => setAddOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold rounded-full bg-primary-50 text-primary-500 dark:bg-chip-dark dark:text-primary-400 hover:bg-primary-100 transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Запись веса
+            </button>
           </div>
 
-          {/* График + кнопка добавления */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold">Прогресс</h3>
-              <button
-                onClick={() => setAddOpen(true)}
-                className="btn-primary flex items-center gap-1.5 !w-auto px-3 py-1.5 text-sm"
-              >
-                <Plus className="h-4 w-4" />
-                Добавить запись
-              </button>
-            </div>
+          <div className="mb-3">
             <WeightChart data={profile.recent_weights} />
           </div>
 
           {profile.recent_weights.length > 0 && (
-            <div>
-              <h3 className="font-semibold mb-3">История</h3>
+            <div className="mb-6">
               <WeightHistoryList data={profile.recent_weights} />
             </div>
           )}
 
-          {/* Форма редактирования */}
-          <ProfileForm profile={profile} onSave={handleSaveProfile} />
+          {/* Настройки */}
+          <div className="card overflow-hidden mb-4">
+            <SettingsRow
+              label="Личные данные"
+              onClick={() => toggleSection('personal')}
+              expanded={openSection === 'personal'}
+            />
+            {openSection === 'personal' && (
+              <div className="px-5 pb-5 border-b border-divider dark:border-line-dark">
+                <ProfileForm profile={profile} onSave={handleSaveProfile} />
+              </div>
+            )}
 
-          {/* Смена пароля */}
-          <ChangePasswordForm />
-        </div>
+            <SettingsRow
+              label="Смена пароля"
+              onClick={() => toggleSection('password')}
+              expanded={openSection === 'password'}
+            />
+            {openSection === 'password' && (
+              <div className="px-5 pb-5 border-b border-divider dark:border-line-dark">
+                <ChangePasswordForm />
+              </div>
+            )}
+
+            <SettingsRow label="История анализов" onClick={() => navigate('/analysis-history')} />
+
+            {/* Тёмная тема */}
+            <div className="flex items-center justify-between px-5 py-4">
+              <span className="text-sm font-medium">Тёмная тема</span>
+              <button
+                onClick={() => setIsDarkMode(!isDarkMode)}
+                role="switch"
+                aria-checked={isDarkMode}
+                aria-label="Тёмная тема"
+                className={`relative inline-flex h-[26px] w-[46px] items-center rounded-full transition-colors ${
+                  isDarkMode ? 'bg-primary-500' : 'bg-[#d9dfeb]'
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                    isDarkMode ? 'translate-x-[23px]' : 'translate-x-[3px]'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          <button
+            onClick={handleLogout}
+            className="w-full text-center py-3 text-sm font-semibold text-danger hover:text-danger-600 transition-colors"
+          >
+            Выйти из аккаунта
+          </button>
+        </>
       )}
 
-      {/* Settings */}
-      <div className="card p-4 my-6 rounded-xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Settings className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            <span>Тёмная тема</span>
-          </div>
-          <button
-            onClick={() => setIsDarkMode(!isDarkMode)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              isDarkMode ? 'bg-primary-600' : 'bg-gray-300'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                isDarkMode ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
-        </div>
-      </div>
-
-      <button
-        onClick={handleLogout}
-        className="btn-danger w-full flex items-center justify-center gap-2"
-      >
-        <LogOut className="h-4 w-4" />
-        Выход
-      </button>
-
-      <AddWeightModal
-        isOpen={addOpen}
-        onClose={() => setAddOpen(false)}
-        onSubmit={handleAddWeight}
-      />
+      <AddWeightModal isOpen={addOpen} onClose={() => setAddOpen(false)} onSubmit={handleAddWeight} />
     </div>
   )
 }

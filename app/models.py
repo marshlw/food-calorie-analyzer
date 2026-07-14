@@ -59,6 +59,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    workouts = relationship(
+        "Workout",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 # ==================== WEIGHT HISTORY ====================
@@ -140,6 +145,31 @@ class WaterLog(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "date", name="uq_water_user_date"),
     )
+
+
+# ==================== WORKOUTS ====================
+
+class Workout(Base):
+    """Дневник тренировок (вкладка «Тренировки»). Одна строка = одна
+    тренировка: тип (силовая/кардио/...), длительность и потраченные
+    калории. Потраченные калории учитываются советчиком и в балансе дня."""
+
+    __tablename__ = "workouts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True, server_default=func.current_date())
+
+    workout_type = Column(String, default="other")  # strength|cardio|stretching|sport|other
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    started_at = Column(String, nullable=True)      # "HH:MM" (необязательно)
+    duration_min = Column(Float, nullable=False, default=0)
+    calories_burned = Column(Float, nullable=False, default=0)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="workouts")
 
 
 # ==================== MEALS ====================

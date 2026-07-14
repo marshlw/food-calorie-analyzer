@@ -5,7 +5,7 @@ import { weekDays, WEEKDAY_LABELS, formatMonthYear, toISODate } from '../utils/d
 import { DayCell } from './DayCell'
 import { ErrorAlert } from './ErrorAlert'
 
-// Недельный обзор: Пн–Вс, переключение недель, сумма ккал по дням. Smart.
+// Недельный обзор: Пн–Вс, переключение недель, прогресс калорий по дням. Smart.
 export const WeekCalendar: React.FC = () => {
   const {
     weekStart,
@@ -22,20 +22,21 @@ export const WeekCalendar: React.FC = () => {
   const today = toISODate(new Date())
 
   return (
-    <div className="card p-4 mb-6 rounded-xl">
+    <div className="mb-5">
+      {/* Месяц + переключение недель */}
       <div className="flex items-center justify-between mb-3">
         <button
           onClick={() => shiftWeek(-1)}
           aria-label="Предыдущая неделя"
-          className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+          className="p-1.5 rounded-full text-muted dark:text-muted-dark hover:bg-white dark:hover:bg-chip-dark transition-colors"
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <span className="text-sm font-semibold capitalize">{formatMonthYear(weekStart)}</span>
+        <span className="text-[13px] text-secondary capitalize">{formatMonthYear(weekStart)}</span>
         <button
           onClick={() => shiftWeek(1)}
           aria-label="Следующая неделя"
-          className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+          className="p-1.5 rounded-full text-muted dark:text-muted-dark hover:bg-white dark:hover:bg-chip-dark transition-colors"
         >
           <ChevronRight className="h-5 w-5" />
         </button>
@@ -47,7 +48,7 @@ export const WeekCalendar: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-1.5">
         {days.map((date, i) => {
           const log = weekLogs[date]
           // Скелетон, пока неделя грузится и данных по дню ещё нет
@@ -55,7 +56,7 @@ export const WeekCalendar: React.FC = () => {
             return (
               <div
                 key={date}
-                className="h-24 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse"
+                className="h-[74px] rounded-cell bg-white/60 dark:bg-card-dark animate-pulse border border-line dark:border-line-dark"
               />
             )
           }

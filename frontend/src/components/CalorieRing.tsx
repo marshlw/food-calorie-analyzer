@@ -16,7 +16,9 @@ export const CalorieRing = React.memo<Props>(
     const r = (size - strokeWidth - 2) / 2
     const c = 2 * Math.PI * r
     const pct = goal > 0 ? Math.min(value / goal, 1) : 0
-    const stroke = colorClass ?? (pct >= 1 ? 'stroke-red-500' : 'stroke-primary-500')
+    const stroke =
+      colorClass ??
+      (pct >= 1 ? 'stroke-danger' : 'stroke-primary-500 dark:stroke-primary-400')
 
     return (
       <svg width={size} height={size} className="-rotate-90">
@@ -26,7 +28,7 @@ export const CalorieRing = React.memo<Props>(
           r={r}
           strokeWidth={strokeWidth}
           fill="none"
-          className="stroke-gray-200 dark:stroke-gray-700"
+          className="stroke-track dark:stroke-track-dark"
         />
         <circle
           cx={size / 2}

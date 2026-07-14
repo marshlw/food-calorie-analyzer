@@ -13,8 +13,8 @@ export const SuccessAlert: React.FC<SuccessAlertProps> = ({ message, onClose }) 
   }, [onClose])
 
   return (
-    <div className="rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-4">
-      <p className="text-green-600 dark:text-green-400 text-sm">{message}</p>
+    <div className="rounded-tile bg-carbs-chip dark:bg-carbs-dark/15 border border-carbs/30 p-4">
+      <p className="text-carbs-text dark:text-carbs-dark text-sm">{message}</p>
     </div>
   )
 }

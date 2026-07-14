@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.celery_app import celery_app
 from app.database import SessionLocal, engine
-from app import models, schemas, crud, auth, ml_service, utils, rate_limit
+from app import models, schemas, crud, auth, ml_service, utils, rate_limit, advisor
 from app.tasks import analyze_image_task
 
 # В prod (ENABLE_DOCS=false) Swagger/OpenAPI выключены — не светим схему API
@@ -718,6 +718,102 @@ async def delete_meal_entry(
     db.delete(meal_entry)
     db.commit()
     return {"status": "ok", "deleted_id": meal_id}
+
+
+# ===================== WORKOUTS (вкладка «Тренировки») =====================
+
+def _parse_date_or_400(date_str: Optional[str]) -> date:
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else date.today()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
+
+
+def _build_workouts_payload(db: Session, user: models.User, date_value: date) -> dict:
+    """Список тренировок за день + сводка активности + недельная полоска."""
+    from datetime import timedelta
+
+    workouts = crud.list_workouts(db, user.id, date_value)
+    totals = crud.workouts_day_totals(db, user.id, date_value)
+
+    targets = crud.compute_nutrition_targets(db, user)
+    base_target = targets["calories"]
+    adjusted = (
+        round(base_target + totals["total_calories_burned"])
+        if base_target is not None
+        else None
+    )
+
+    # Неделя Пн–Вс, содержащая выбранный день (точки «была тренировка»)
+    week_start = date_value - timedelta(days=date_value.weekday())
+    week_dates = [week_start + timedelta(days=i) for i in range(7)]
+    workout_dates = crud.workout_dates_in_range(db, user.id, week_dates[0], week_dates[-1])
+
+    return {
+        "date": date_value,
+        "workouts": workouts,
+        "summary": {
+            "date": date_value,
+            "total_calories_burned": totals["total_calories_burned"],
+            "total_duration_min": totals["total_duration_min"],
+            "count": totals["count"],
+            "base_calorie_target": base_target,
+            "adjusted_calorie_target": adjusted,
+        },
+        "week": [{"date": d, "has_workout": d in workout_dates} for d in week_dates],
+    }
+
+
+@app.get("/api/v1/workouts", response_model=schemas.WorkoutsResponse)
+async def get_workouts(
+    date_str: Optional[str] = None,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    return _build_workouts_payload(db, current_user, _parse_date_or_400(date_str))
+
+
+@app.post("/api/v1/workouts", response_model=schemas.WorkoutResponse, status_code=status.HTTP_201_CREATED)
+async def add_workout(
+    payload: schemas.WorkoutCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    if payload.date and payload.date > date.today():
+        raise HTTPException(status_code=400, detail="Дата тренировки не может быть в будущем")
+    return crud.add_workout(db, current_user.id, payload)
+
+
+@app.delete("/api/v1/workouts/{workout_id}")
+async def delete_workout(
+    workout_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not crud.delete_workout(db, current_user.id, workout_id):
+        raise HTTPException(status_code=404, detail="Workout not found")
+    return {"status": "ok", "deleted_id": workout_id}
+
+
+# ===================== AI-СОВЕТЧИК (кнопка ✦ по центру) =====================
+
+@app.get("/api/v1/advisor", response_model=schemas.AdvisorResponse)
+async def get_advisor(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Советы дня: LLM (Yandex Cloud) с фолбэком на правила. Кэшируется."""
+    return advisor.get_advice(db, current_user)
+
+
+@app.post("/api/v1/advisor/ask", response_model=schemas.AdvisorAskResponse)
+async def ask_advisor(
+    payload: schemas.AdvisorAskRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Свободный вопрос советчику (поле «Спросить...» на вкладке)."""
+    return advisor.ask(db, current_user, payload.question)
 
 
 # ==================== ADMIN ====================

@@ -10,10 +10,10 @@ interface MealFormProps {
 }
 
 const MEAL_TYPES: { value: MealType; label: string }[] = [
-  { value: 'breakfast', label: '🌅 Завтрак' },
-  { value: 'lunch', label: '🍽️ Обед' },
-  { value: 'dinner', label: '🌙 Ужин' },
-  { value: 'snacks', label: '🍿 Закуска' },
+  { value: 'breakfast', label: 'Завтрак' },
+  { value: 'lunch', label: 'Обед' },
+  { value: 'dinner', label: 'Ужин' },
+  { value: 'snacks', label: 'Перекус' },
 ]
 
 export const MealForm: React.FC<MealFormProps> = ({
@@ -94,42 +94,48 @@ export const MealForm: React.FC<MealFormProps> = ({
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* Поиск продукта в базе КБЖУ */}
       <ProductPicker onApply={handleProductApply} />
-      <div className="border-t border-gray-200 dark:border-gray-800 pt-4" />
+      <div className="border-t border-divider dark:border-line-dark pt-4" />
 
-      {/* Meal Type */}
+      {/* Meal Type — сегментированный выбор приёма из дизайна */}
       <div>
-        <label className="block text-sm font-medium mb-1">Тип приема</label>
-        <select
-          name="meal_type"
-          value={formData.meal_type}
-          onChange={handleChange}
-          className="input"
-        >
+        <label className="block text-[13px] font-semibold mb-1.5">Приём пищи</label>
+        <div className="grid grid-cols-4 gap-2 bg-white dark:bg-card-dark border border-line dark:border-line-dark rounded-tile p-1.5">
           {MEAL_TYPES.map((type) => (
-            <option key={type.value} value={type.value}>
+            <button
+              key={type.value}
+              type="button"
+              onClick={() =>
+                setFormData((prev) => ({ ...prev, meal_type: type.value }))
+              }
+              className={`py-2 text-[13px] rounded-xl transition-colors ${
+                formData.meal_type === type.value
+                  ? 'bg-primary-500 text-white font-semibold'
+                  : 'text-muted dark:text-muted-dark font-medium hover:bg-surface dark:hover:bg-chip-dark'
+              }`}
+            >
               {type.label}
-            </option>
+            </button>
           ))}
-        </select>
+        </div>
       </div>
 
       {/* Food Name */}
       <div>
-        <label className="block text-sm font-medium mb-1">Название блюда</label>
+        <label className="block text-[13px] font-semibold mb-1.5">Название блюда</label>
         <input
           type="text"
           name="food_name"
           value={formData.food_name}
           onChange={handleChange}
           placeholder="Например: куриное филе с рисом"
-          className={`input ${errors.food_name ? 'border-red-500' : ''}`}
+          className={`input ${errors.food_name ? 'border-danger' : ''}`}
         />
-        {errors.food_name && <p className="text-red-500 text-xs mt-1">{errors.food_name}</p>}
+        {errors.food_name && <p className="text-danger text-xs mt-1">{errors.food_name}</p>}
       </div>
 
       {/* Weight */}
       <div>
-        <label className="block text-sm font-medium mb-1">Вес (г)</label>
+        <label className="block text-[13px] font-semibold mb-1.5">Вес (г)</label>
         <input
           type="number"
           name="weight_g"
@@ -138,14 +144,14 @@ export const MealForm: React.FC<MealFormProps> = ({
           placeholder="0"
           min="0"
           step="0.1"
-          className={`input ${errors.weight_g ? 'border-red-500' : ''}`}
+          className={`input ${errors.weight_g ? 'border-danger' : ''}`}
         />
-        {errors.weight_g && <p className="text-red-500 text-xs mt-1">{errors.weight_g}</p>}
+        {errors.weight_g && <p className="text-danger text-xs mt-1">{errors.weight_g}</p>}
       </div>
 
       {/* Calories */}
       <div>
-        <label className="block text-sm font-medium mb-1">Калории (ккал)</label>
+        <label className="block text-[13px] font-semibold mb-1.5">Калории (ккал)</label>
         <input
           type="number"
           name="calories"
@@ -154,14 +160,14 @@ export const MealForm: React.FC<MealFormProps> = ({
           placeholder="0"
           min="0"
           step="0.1"
-          className={`input ${errors.calories ? 'border-red-500' : ''}`}
+          className={`input ${errors.calories ? 'border-danger' : ''}`}
         />
-        {errors.calories && <p className="text-red-500 text-xs mt-1">{errors.calories}</p>}
+        {errors.calories && <p className="text-danger text-xs mt-1">{errors.calories}</p>}
       </div>
 
       {/* Protein */}
       <div>
-        <label className="block text-sm font-medium mb-1">Белки (г)</label>
+        <label className="block text-[13px] font-semibold mb-1.5">Белки (г)</label>
         <input
           type="number"
           name="protein_g"
@@ -176,7 +182,7 @@ export const MealForm: React.FC<MealFormProps> = ({
 
       {/* Fat */}
       <div>
-        <label className="block text-sm font-medium mb-1">Жиры (г)</label>
+        <label className="block text-[13px] font-semibold mb-1.5">Жиры (г)</label>
         <input
           type="number"
           name="fat_g"
@@ -191,7 +197,7 @@ export const MealForm: React.FC<MealFormProps> = ({
 
       {/* Carbs */}
       <div>
-        <label className="block text-sm font-medium mb-1">Углеводы (г)</label>
+        <label className="block text-[13px] font-semibold mb-1.5">Углеводы (г)</label>
         <input
           type="number"
           name="carbs_g"

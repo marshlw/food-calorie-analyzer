@@ -1,66 +1,65 @@
 import React from 'react'
 import { DailyLog } from '../types'
-import { TrendingUp } from 'lucide-react'
-import { NutritionRings } from './NutritionRings'
 
 interface DailyStatsProps {
   log: DailyLog
 }
 
+// Одна колонка сводки: крупное число, подпись «из N …», мини-бар
+const StatCol: React.FC<{
+  value: number
+  goal?: number | null
+  caption: string
+  barClass: string
+}> = ({ value, goal, caption, barClass }) => {
+  const pct = goal ? Math.min((value / goal) * 100, 100) : 0
+  return (
+    <div>
+      <div className="font-display font-bold text-lg leading-none">{Math.round(value)}</div>
+      <div className="text-[11px] text-tertiary mt-1 mb-2">{caption}</div>
+      <div className="h-1 rounded-full bg-track dark:bg-track-dark overflow-hidden">
+        <div className={`h-1 rounded-full ${barClass}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  )
+}
+
+// «Сводка» дня из дизайна Rasify: 4 колонки (ккал/белки/жиры/углеводы) с барами.
 export const DailyStats: React.FC<DailyStatsProps> = ({ log }) => {
-  const hasTargets = !!log.targets && log.targets.calories != null
-
-  const stats = [
-    { label: 'Калории', value: Math.round(log.total_calories), unit: 'ккал', color: 'blue' },
-    { label: 'Белки', value: log.total_protein.toFixed(1), unit: 'г', color: 'red' },
-    { label: 'Жиры', value: log.total_fat.toFixed(1), unit: 'г', color: 'yellow' },
-    { label: 'Углеводы', value: log.total_carbs.toFixed(1), unit: 'г', color: 'green' },
-  ]
-
-  const colorMap = {
-    blue: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400',
-    red: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400',
-    yellow: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400',
-    green: 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400',
-  }
+  const t = log.targets
 
   return (
-    <div className="card p-6 mb-6">
-      <div className="flex items-center gap-2 mb-4">
-        <TrendingUp className="h-5 w-5 text-primary-500" />
-        <h3 className="text-lg font-semibold">Сводка за день</h3>
-      </div>
-
-      {hasTargets ? (
-        <NutritionRings
-          totals={{
-            calories: log.total_calories,
-            protein: log.total_protein,
-            fat: log.total_fat,
-            carbs: log.total_carbs,
-          }}
-          targets={log.targets}
+    <div className="card p-5 mb-3">
+      <div className="grid grid-cols-4 gap-3">
+        <StatCol
+          value={log.total_calories}
+          goal={t?.calories}
+          caption={t?.calories ? `из ${Math.round(t.calories)} ккал` : 'ккал'}
+          barClass="bg-primary-500 dark:bg-primary-400"
         />
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-3">
-            {stats.map((stat) => (
-              <div
-                key={stat.label}
-                className={`${colorMap[stat.color as keyof typeof colorMap]} rounded-lg p-4`}
-              >
-                <p className="text-xs font-medium opacity-75 mb-1">{stat.label}</p>
-                <p className="text-2xl font-bold">
-                  {stat.value}
-                  <span className="text-sm ml-1">{stat.unit}</span>
-                </p>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-gray-400 mt-3">
-            Заполните профиль (рост, вес, возраст, активность), чтобы видеть нормы КБЖУ.
-          </p>
-        </>
+        <StatCol
+          value={log.total_protein}
+          goal={t?.protein_g}
+          caption={t?.protein_g ? `из ${Math.round(t.protein_g)} г белка` : 'г белка'}
+          barClass="bg-protein dark:bg-protein-dark"
+        />
+        <StatCol
+          value={log.total_fat}
+          goal={t?.fat_g}
+          caption={t?.fat_g ? `из ${Math.round(t.fat_g)} г жиров` : 'г жиров'}
+          barClass="bg-fat dark:bg-fat-dark"
+        />
+        <StatCol
+          value={log.total_carbs}
+          goal={t?.carbs_g}
+          caption={t?.carbs_g ? `из ${Math.round(t.carbs_g)} г углев.` : 'г углев.'}
+          barClass="bg-carbs dark:bg-carbs-dark"
+        />
+      </div>
+      {t?.calories == null && (
+        <p className="text-[11px] text-tertiary mt-3">
+          Заполните профиль (рост, вес, возраст, активность), чтобы видеть нормы КБЖУ.
+        </p>
       )}
     </div>
   )

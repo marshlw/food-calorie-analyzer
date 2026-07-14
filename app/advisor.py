@@ -1,0 +1,368 @@
+# app/advisor.py
+"""AI-советчик (кнопка ✦ в центре навигации).
+
+Собирает контекст пользователя (КБЖУ за день, вода, вес, тренировки),
+и формирует советы:
+  1. через языковую модель (тот же Yandex Cloud API, что и анализ фото);
+  2. при недоступности LLM — детерминированные правила (fallback).
+
+Ответ кэшируется в Redis на короткое время, чтобы не жечь токены при
+каждом открытии вкладки.
+"""
+
+import hashlib
+import json
+import logging
+from datetime import date, timedelta
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy.orm import Session
+
+from app import crud, models
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+ADVISOR_CACHE_TTL = 30 * 60  # 30 минут
+ADVISOR_LLM_TIMEOUT = 25     # сек: советы не должны «висеть» как анализ фото
+
+
+# ===================== КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ =====================
+
+def build_user_context(db: Session, user: models.User) -> Dict[str, Any]:
+    """Снимок дня пользователя — вход и для правил, и для LLM-промпта."""
+    today = date.today()
+    targets = crud.compute_nutrition_targets(db, user)
+
+    log = crud.get_daily_log(db, user.id, today)
+    totals = crud.calculate_daily_totals(log) if log else {
+        "total_calories": 0.0, "total_protein": 0.0,
+        "total_fat": 0.0, "total_carbs": 0.0,
+    }
+
+    water_ml = crud.get_water_total(db, user.id, today)
+
+    workouts = crud.list_workouts(db, user.id, today)
+    workout_totals = crud.workouts_day_totals(db, user.id, today)
+    week_workout_dates = crud.workout_dates_in_range(
+        db, user.id, today - timedelta(days=6), today
+    )
+
+    weights = crud.list_weight_history(db, user.id)[-5:]
+    weight_trend = None
+    if len(weights) >= 2:
+        weight_trend = round(weights[-1].weight_kg - weights[0].weight_kg, 1)
+
+    return {
+        "date": today.isoformat(),
+        "name": (user.full_name or "").split(" ")[0] or None,
+        "targets": {
+            "calories": targets["calories"],
+            "protein_g": targets["protein_g"],
+            "fat_g": targets["fat_g"],
+            "carbs_g": targets["carbs_g"],
+            "water_ml": targets["water_ml"],
+        },
+        "eaten": {
+            "calories": totals["total_calories"],
+            "protein_g": totals["total_protein"],
+            "fat_g": totals["total_fat"],
+            "carbs_g": totals["total_carbs"],
+        },
+        "water_ml": water_ml,
+        "workouts_today": [
+            {
+                "type": w.workout_type,
+                "title": w.title,
+                "duration_min": w.duration_min,
+                "calories_burned": w.calories_burned,
+            }
+            for w in workouts
+        ],
+        "workout_calories_today": workout_totals["total_calories_burned"],
+        "workout_days_last_week": len(week_workout_dates),
+        "current_weight_kg": targets["current_weight_kg"],
+        "weight_trend_kg": weight_trend,
+    }
+
+
+# ===================== ПРАВИЛА (FALLBACK) =====================
+
+def _pct(value: Optional[float], target: Optional[float]) -> Optional[int]:
+    if not target:
+        return None
+    return round(value / target * 100) if value is not None else None
+
+
+def rule_based_advice(ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Детерминированные советы из контекста. Без LLM, работает всегда."""
+    t = ctx["targets"]
+    e = ctx["eaten"]
+    nutrition: List[Dict[str, str]] = []
+    training: List[Dict[str, str]] = []
+
+    headline_title = "Держите темп"
+    headline_text = "Записывайте приёмы пищи и тренировки — так советы будут точнее."
+
+    # --- Белок ---
+    if t["protein_g"]:
+        gap = round(t["protein_g"] - e["protein_g"])
+        if gap > 15:
+            headline_title = "Не хватает белка"
+            headline_text = (
+                f"Сегодня {round(e['protein_g'])} г белка из {round(t['protein_g'])} г. "
+                f"Добавьте ~{gap} г: творог, рыба или яйца хорошо закроют разницу."
+            )
+            nutrition.append({
+                "title": f"Добавьте ~{gap} г белка до конца дня",
+                "text": "Запечённая рыба, индейка или творог впишутся в остаток нормы.",
+                "tag": "protein",
+            })
+
+    # --- Калории ---
+    if t["calories"]:
+        remaining = round(t["calories"] + ctx["workout_calories_today"] - e["calories"])
+        if remaining > 0:
+            nutrition.append({
+                "title": f"Осталось ~{remaining} ккал на сегодня",
+                "text": "С учётом активности сегодня можно спокойно поужинать в пределах нормы.",
+                "tag": "calories",
+            })
+        else:
+            nutrition.append({
+                "title": "Норма калорий на сегодня закрыта",
+                "text": "Если захочется есть — выбирайте лёгкие белковые перекусы и воду.",
+                "tag": "calories",
+            })
+
+    # --- Вода ---
+    if t["water_ml"]:
+        water_pct = _pct(ctx["water_ml"], t["water_ml"]) or 0
+        if water_pct < 75:
+            nutrition.append({
+                "title": "Вода отстаёт от нормы",
+                "text": (
+                    f"Выпито {round(ctx['water_ml'])} из {round(t['water_ml'])} мл. "
+                    "Добавьте 1–2 стакана в ближайший час."
+                ),
+                "tag": "water",
+            })
+
+    # --- Тренировки ---
+    days = ctx["workout_days_last_week"]
+    if ctx["workouts_today"]:
+        training.append({
+            "title": "Сегодня уже была активность — отлично",
+            "text": (
+                f"Потрачено ~{round(ctx['workout_calories_today'])} ккал. "
+                "После нагрузки помогают белковый приём пищи и вода."
+            ),
+            "tag": "training",
+        })
+    if days >= 3:
+        training.append({
+            "title": "Запланируйте день отдыха",
+            "text": (
+                f"{days} дней с тренировками за неделю: мышцам нужны 24–48 ч восстановления. "
+                "Лёгкая прогулка или растяжка — идеально."
+            ),
+            "tag": "training",
+        })
+    elif days == 0:
+        training.append({
+            "title": "Добавьте лёгкую активность",
+            "text": "На этой неделе тренировок ещё не было — начните с 20–30 минут ходьбы.",
+            "tag": "training",
+        })
+
+    # --- Вес ---
+    if ctx["weight_trend_kg"] is not None:
+        trend = ctx["weight_trend_kg"]
+        if trend < 0:
+            training.append({
+                "title": "Динамика веса работает на цель",
+                "text": f"За последние записи {trend} кг. Темп умеренный — так и планировали.",
+                "tag": "general",
+            })
+
+    return {
+        "headline_title": headline_title,
+        "headline_text": headline_text,
+        "nutrition": nutrition[:3],
+        "training": training[:3],
+        "generated_by": "rules",
+    }
+
+
+# ===================== LLM =====================
+
+def _get_llm_client():
+    """Текстовый клиент к Yandex Cloud (тот же API, что и анализ фото)."""
+    if not settings.YANDEX_API_KEY or not settings.YANDEX_FOLDER_ID:
+        return None
+    from openai import OpenAI
+    return OpenAI(
+        api_key=settings.YANDEX_API_KEY,
+        base_url=settings.YANDEX_API_URL,
+        project=settings.YANDEX_FOLDER_ID,
+        timeout=ADVISOR_LLM_TIMEOUT,
+    )
+
+
+def _llm_complete(instructions: str, prompt: str) -> Optional[str]:
+    client = _get_llm_client()
+    if client is None:
+        return None
+    try:
+        response = client.responses.create(
+            model=f"gpt://{settings.YANDEX_FOLDER_ID}/{settings.YANDEX_VISION_MODEL}",
+            temperature=0.3,
+            max_output_tokens=1200,
+            reasoning={"effort": "low"},
+            instructions=instructions,
+            input=[{
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            }],
+        )
+        text = getattr(response, "output_text", None)
+        if text:
+            return text
+        # fallback-извлечение текста из output-структуры
+        dump = response.model_dump()
+        for item in dump.get("output", []) or []:
+            for part in item.get("content", []) or []:
+                if part.get("text"):
+                    return part["text"]
+        return None
+    except Exception:
+        logger.warning("Advisor LLM call failed", exc_info=True)
+        return None
+
+
+_ADVICE_INSTRUCTIONS = """
+Ты — заботливый советчик по питанию и тренировкам в приложении-дневнике Rasify.
+Тебе дают JSON с данными пользователя за сегодня (нормы КБЖУ, съедено, вода,
+тренировки, динамика веса).
+
+Верни ТОЛЬКО JSON без markdown по схеме:
+{
+  "headline_title": "короткий заголовок главного совета (до 40 символов)",
+  "headline_text": "главный совет дня, 1-2 предложения, с конкретными цифрами",
+  "nutrition": [{"title": "...", "text": "...", "tag": "protein|water|calories|carbs|general"}],
+  "training": [{"title": "...", "text": "...", "tag": "training|general"}]
+}
+
+Правила: пиши по-русски, дружелюбно и конкретно (с цифрами из данных),
+не выдумывай данные, максимум 3 совета в каждом списке, без медицинских
+диагнозов и жёстких ограничений.
+"""
+
+
+def _parse_llm_advice(raw: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not raw:
+        return None
+    try:
+        from app.ml_service import extract_json
+        data = extract_json(raw)
+    except Exception:
+        data = None
+    if not isinstance(data, dict):
+        return None
+    if not data.get("headline_title") or not data.get("headline_text"):
+        return None
+
+    def _tips(items) -> List[Dict[str, str]]:
+        result = []
+        for item in (items or [])[:3]:
+            if isinstance(item, dict) and item.get("title") and item.get("text"):
+                result.append({
+                    "title": str(item["title"])[:120],
+                    "text": str(item["text"])[:400],
+                    "tag": str(item.get("tag") or "general"),
+                })
+        return result
+
+    return {
+        "headline_title": str(data["headline_title"])[:80],
+        "headline_text": str(data["headline_text"])[:500],
+        "nutrition": _tips(data.get("nutrition")),
+        "training": _tips(data.get("training")),
+        "generated_by": "llm",
+    }
+
+
+# ===================== КЭШ =====================
+
+def _cache_key(user_id: int, ctx: Dict[str, Any]) -> str:
+    fingerprint = hashlib.sha256(
+        json.dumps(ctx, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"advisor:v1:{user_id}:{ctx['date']}:{fingerprint}"
+
+
+def _cache_get(key: str) -> Optional[Dict[str, Any]]:
+    try:
+        from app.ml_service import get_redis_client
+        raw = get_redis_client().get(key)
+        return json.loads(raw) if raw else None
+    except Exception:
+        return None
+
+
+def _cache_set(key: str, payload: Dict[str, Any]) -> None:
+    try:
+        from app.ml_service import get_redis_client
+        get_redis_client().setex(key, ADVISOR_CACHE_TTL, json.dumps(payload, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+# ===================== ПУБЛИЧНОЕ API МОДУЛЯ =====================
+
+def get_advice(db: Session, user: models.User) -> Dict[str, Any]:
+    """Советы для вкладки AI-советчика: LLM → (при ошибке) правила."""
+    ctx = build_user_context(db, user)
+
+    key = _cache_key(user.id, ctx)
+    cached = _cache_get(key)
+    if cached:
+        return cached
+
+    prompt = "Данные пользователя за сегодня:\n" + json.dumps(ctx, ensure_ascii=False, indent=2)
+    advice = _parse_llm_advice(_llm_complete(_ADVICE_INSTRUCTIONS, prompt))
+    if advice is None:
+        advice = rule_based_advice(ctx)
+
+    _cache_set(key, advice)
+    return advice
+
+
+_ASK_INSTRUCTIONS = """
+Ты — советчик по питанию и тренировкам в приложении-дневнике Rasify.
+Пользователь задаёт вопрос; тебе также передают JSON с его данными за сегодня.
+Ответь по-русски, дружелюбно и коротко (до 120 слов), опираясь на данные.
+Не ставь диагнозы и не назначай лечение. Верни просто текст без markdown.
+"""
+
+
+def ask(db: Session, user: models.User, question: str) -> Dict[str, str]:
+    """Свободный вопрос советчику («что съесть перед тренировкой?»)."""
+    ctx = build_user_context(db, user)
+    prompt = (
+        f"Вопрос пользователя: {question}\n\n"
+        "Данные за сегодня:\n" + json.dumps(ctx, ensure_ascii=False, indent=2)
+    )
+    answer = _llm_complete(_ASK_INSTRUCTIONS, prompt)
+    if answer and answer.strip():
+        return {"answer": answer.strip()[:2000], "generated_by": "llm"}
+
+    # Fallback: краткая сводка по правилам
+    advice = rule_based_advice(ctx)
+    parts = [advice["headline_text"]]
+    for tip in (advice["nutrition"] + advice["training"])[:2]:
+        parts.append(f"{tip['title']}. {tip['text']}")
+    return {
+        "answer": "AI сейчас недоступен, вот сводка по вашим данным: " + " ".join(parts),
+        "generated_by": "rules",
+    }

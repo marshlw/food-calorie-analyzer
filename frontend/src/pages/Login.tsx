@@ -3,8 +3,9 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { PasswordInput } from '../components/PasswordInput'
-import { LogIn } from 'lucide-react'
+import { RingLogo } from '../components/Brand'
 
+// Экран входа из дизайна Rasify: кольцо-логотип, словомарка, белая карточка.
 export const Login: React.FC = () => {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -30,32 +31,29 @@ export const Login: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-blue-50 dark:from-gray-900 dark:to-gray-950 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-surface dark:bg-surface-dark px-6 py-10">
       <div className="w-full max-w-md">
-        <div className="card p-8 rounded-2xl">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-600 rounded-full mb-4">
-              <LogIn className="h-8 w-8 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold mb-2">AI Healthy</h1>
-            <p className="text-gray-600 dark:text-gray-400">Ваш персональный пищевой дневник</p>
+        {/* Логотип */}
+        <div className="text-center mb-9">
+          <RingLogo size={64} className="mb-4 inline-block" />
+          <h1 className="font-display font-extrabold text-[32px] leading-none tracking-tight mb-2.5">
+            Rasify
+          </h1>
+          <p className="text-sm text-secondary">Умный дневник питания</p>
+        </div>
+
+        {/* Errors */}
+        {(error || localError) && (
+          <div className="mb-4">
+            <ErrorAlert message={error || localError} onClose={clearError} />
           </div>
+        )}
 
-          {/* Errors */}
-          {(error || localError) && (
-            <div className="mb-4">
-              <ErrorAlert
-                message={error || localError}
-                onClose={clearError}
-              />
-            </div>
-          )}
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Карточка формы */}
+        <div className="card p-7">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Email</label>
+              <label className="block text-[13px] font-semibold mb-1.5">Email</label>
               <input
                 type="email"
                 value={email}
@@ -67,7 +65,7 @@ export const Login: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Пароль</label>
+              <label className="block text-[13px] font-semibold mb-1.5">Пароль</label>
               <PasswordInput
                 value={password}
                 onChange={setPassword}
@@ -79,21 +77,24 @@ export const Login: React.FC = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="btn-primary w-full disabled:opacity-50"
+              className="btn-primary w-full mt-1 disabled:opacity-50"
             >
               {isLoading ? 'Вход...' : 'Войти'}
             </button>
           </form>
+        </div>
 
-          {/* Registration Link */}
-          <div className="mt-6 text-center">
-            <p className="text-gray-600 dark:text-gray-400">
-              Нет аккаунта?{' '}
-              <Link to="/register" className="text-primary-600 dark:text-primary-400 font-medium hover:underline">
-                Зарегистрируйтесь
-              </Link>
-            </p>
-          </div>
+        {/* Registration Link */}
+        <div className="mt-6 text-center">
+          <p className="text-sm text-secondary">
+            Нет аккаунта?{' '}
+            <Link
+              to="/register"
+              className="font-semibold text-primary-500 dark:text-primary-400 hover:text-primary-700"
+            >
+              Зарегистрируйтесь
+            </Link>
+          </p>
         </div>
       </div>
     </div>

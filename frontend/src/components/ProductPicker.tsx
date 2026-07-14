@@ -100,11 +100,11 @@ export const ProductPicker: React.FC<ProductPickerProps> = ({ onApply }) => {
 
   return (
     <div className="space-y-2">
-      <label className="block text-sm font-medium mb-1">Найти продукт в базе</label>
+      <label className="block text-[13px] font-semibold mb-1.5">Найти продукт в базе</label>
 
       <div className="relative">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-faint dark:text-faint-dark" />
           <input
             type="text"
             value={query}
@@ -125,7 +125,7 @@ export const ProductPicker: React.FC<ProductPickerProps> = ({ onApply }) => {
             <button
               type="button"
               onClick={handleClearSelection}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-faint dark:text-faint-dark hover:text-muted dark:hover:text-muted-dark"
               aria-label="Очистить"
             >
               <X className="h-4 w-4" />
@@ -134,9 +134,9 @@ export const ProductPicker: React.FC<ProductPickerProps> = ({ onApply }) => {
         </div>
 
         {isOpen && (
-          <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto card shadow-lg">
+          <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto card shadow-nav rounded-tile">
             {isLoading ? (
-              <p className="p-3 text-sm text-gray-500 dark:text-gray-400">Поиск...</p>
+              <p className="p-3 text-sm text-tertiary">Поиск...</p>
             ) : results.length > 0 ? (
               results.map((product) => (
                 <button
@@ -144,36 +144,36 @@ export const ProductPicker: React.FC<ProductPickerProps> = ({ onApply }) => {
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => handleSelect(product)}
-                  className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-between gap-2"
+                  className="w-full text-left px-3.5 py-2.5 hover:bg-surface dark:hover:bg-chip-dark flex items-center justify-between gap-2"
                 >
                   <span className="text-sm">{product.name}</span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
+                  <span className="text-xs text-tertiary shrink-0">
                     {Math.round(product.calories)} ккал/100г
                   </span>
                 </button>
               ))
             ) : (
-              <p className="p-3 text-sm text-gray-500 dark:text-gray-400">Ничего не найдено</p>
+              <p className="p-3 text-sm text-tertiary">Ничего не найдено</p>
             )}
           </div>
         )}
       </div>
 
       {selected && preview && (
-        <div className="card p-3 space-y-3 bg-gray-50 dark:bg-gray-800/50">
+        <div className="rounded-tile border border-line dark:border-line-dark bg-surface dark:bg-chip-dark/50 p-3.5 space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-medium">{selected.name}</p>
+            <p className="text-sm font-semibold">{selected.name}</p>
             <button
               type="button"
               onClick={handleClearSelection}
-              className="text-xs text-gray-500 dark:text-gray-400 hover:underline"
+              className="text-xs text-tertiary hover:underline"
             >
               Сбросить
             </button>
           </div>
 
           <div>
-            <label className="block text-xs font-medium mb-1">Количество, г</label>
+            <label className="block text-xs font-semibold mb-1">Количество, г</label>
             <input
               type="number"
               value={weight || ''}
@@ -184,22 +184,22 @@ export const ProductPicker: React.FC<ProductPickerProps> = ({ onApply }) => {
             />
           </div>
 
-          <div className="grid grid-cols-4 gap-2 text-sm">
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded p-2 text-center">
-              <p className="text-gray-600 dark:text-gray-400 text-xs">ккал</p>
-              <p className="font-semibold text-blue-600 dark:text-blue-400">{preview.calories}</p>
+          <div className="grid grid-cols-4 gap-2.5 text-center">
+            <div>
+              <p className="font-display font-bold text-base">{preview.calories}</p>
+              <p className="text-[11px] text-tertiary">ккал</p>
             </div>
-            <div className="bg-red-50 dark:bg-red-900/20 rounded p-2 text-center">
-              <p className="text-gray-600 dark:text-gray-400 text-xs">Белки</p>
-              <p className="font-semibold text-red-600 dark:text-red-400">{preview.protein_g}</p>
+            <div>
+              <p className="font-display font-bold text-base text-protein dark:text-protein-dark">{preview.protein_g}</p>
+              <p className="text-[11px] text-tertiary">белки</p>
             </div>
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded p-2 text-center">
-              <p className="text-gray-600 dark:text-gray-400 text-xs">Жиры</p>
-              <p className="font-semibold text-yellow-600 dark:text-yellow-400">{preview.fat_g}</p>
+            <div>
+              <p className="font-display font-bold text-base text-fat dark:text-fat-dark">{preview.fat_g}</p>
+              <p className="text-[11px] text-tertiary">жиры</p>
             </div>
-            <div className="bg-green-50 dark:bg-green-900/20 rounded p-2 text-center">
-              <p className="text-gray-600 dark:text-gray-400 text-xs">Углев.</p>
-              <p className="font-semibold text-green-600 dark:text-green-400">{preview.carbs_g}</p>
+            <div>
+              <p className="font-display font-bold text-base text-carbs dark:text-carbs-dark">{preview.carbs_g}</p>
+              <p className="text-[11px] text-tertiary">углев.</p>
             </div>
           </div>
 

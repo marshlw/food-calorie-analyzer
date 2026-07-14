@@ -1,23 +1,35 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { DailyStats } from '../components/DailyStats'
+import { AppHeader } from '../components/Brand'
+import { HeroCard } from '../components/HeroCard'
 import { MealForm } from '../components/MealForm'
 import { AnalysisFlow } from '../components/AnalysisFlow'
 import { Modal } from '../components/Modal'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { SuccessAlert } from '../components/SuccessAlert'
 import { LoadingSpinner } from '../components/LoadingSpinner'
-import { AiLimitBadge } from '../components/AiLimitBadge'
 import { useApi } from '../hooks/useApi'
 import { useAiLimit } from '../hooks/useAiLimit'
+import { useAuth } from '../hooks/useAuth'
 import { mealsApi } from '../api/meals'
 import { DailyLog, MealEntryCreate } from '../types'
-import { Plus, Camera, History } from 'lucide-react'
+import { MEAL_TYPE_META, kbjuLine } from '../utils/mealTypes'
+import { Plus, Camera } from 'lucide-react'
 
 type ModalKind = 'none' | 'manual' | 'photo'
 
+// Приветствие по времени суток («Добрый день, Анна» из дизайна)
+const greeting = (): string => {
+  const h = new Date().getHours()
+  if (h < 5) return 'Доброй ночи'
+  if (h < 12) return 'Доброе утро'
+  if (h < 18) return 'Добрый день'
+  return 'Добрый вечер'
+}
+
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [modal, setModal] = useState<ModalKind>('none')
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [successMessage, setSuccessMessage] = useState('')
@@ -29,7 +41,7 @@ export const Dashboard: React.FC = () => {
   // Add meal (ручной ввод и подтверждение AI-анализа)
   const { isLoading: isAddingMeal, error: addMealError, execute: executeAddMeal } = useApi<any>({
     onSuccess: () => {
-      setSuccessMessage('Прием пищи добавлен!')
+      setSuccessMessage('Приём пищи добавлен!')
       setModal('none')
       setPhotoFile(null)
       loadDailyLog(() => mealsApi.getDailyLog())
@@ -52,17 +64,23 @@ export const Dashboard: React.FC = () => {
     refreshAiLimit()
   }
 
+  const firstName = (user?.full_name || '').trim().split(' ')[0]
+
   return (
-    <div className="max-w-md mx-auto px-4 py-6 pb-24">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold">Ваш дневник</h1>
-        <p className="text-gray-600 dark:text-gray-400">
+    <div className="max-w-md mx-auto px-5 pt-6 pb-32">
+      <AppHeader />
+
+      {/* Приветствие */}
+      <div className="mb-5">
+        <h1 className="font-display font-bold text-2xl tracking-tight">
+          {greeting()}
+          {firstName ? `, ${firstName}` : ''}
+        </h1>
+        <p className="text-[13px] text-secondary mt-1 first-letter:capitalize">
           {new Date().toLocaleDateString('ru-RU', {
             weekday: 'long',
-            year: 'numeric',
-            month: 'long',
             day: 'numeric',
+            month: 'long',
           })}
         </p>
       </div>
@@ -79,28 +97,28 @@ export const Dashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Daily Stats */}
+      {/* Hero: кольцо калорий + макронутриенты */}
       {isLoadingLog ? (
         <LoadingSpinner message="Загрузка..." />
       ) : dailyLog ? (
-        <DailyStats log={dailyLog} />
+        <HeroCard log={dailyLog} aiLimit={aiLimit} />
       ) : null}
 
-      {/* Action Buttons */}
-      <div className="grid grid-cols-2 gap-3 mb-2">
+      {/* Действия */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
         <button
           onClick={() => setModal('manual')}
-          className="btn btn-primary flex items-center justify-center gap-2"
+          className="btn-primary flex items-center justify-center gap-2"
         >
-          <Plus className="h-5 w-5" />
+          <Plus className="h-[18px] w-[18px]" />
           Добавить
         </button>
         <label
-          className={`btn btn-secondary flex items-center justify-center gap-2 ${
+          className={`btn-secondary flex items-center justify-center gap-2 ${
             aiExhausted ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
           }`}
         >
-          <Camera className="h-5 w-5" />
+          <Camera className="h-[18px] w-[18px]" />
           Анализ фото
           <input
             type="file"
@@ -119,34 +137,52 @@ export const Dashboard: React.FC = () => {
         </label>
       </div>
 
-      <AiLimitBadge aiLimit={aiLimit} />
+      {aiExhausted && (
+        <p className="text-xs text-tertiary text-center -mt-3 mb-6">
+          ✦ Дневной лимит AI-анализов исчерпан — будет доступно завтра
+        </p>
+      )}
 
-      <button
-        onClick={() => navigate('/analysis-history')}
-        className="btn btn-secondary w-full flex items-center justify-center gap-2 mb-6"
-      >
-        <History className="h-5 w-5" />
-        История анализов
-      </button>
+      {/* Сегодня */}
+      <div className="flex items-baseline justify-between mb-3">
+        <span className="section-title">Сегодня</span>
+        <button
+          onClick={() => navigate('/meals')}
+          className="text-[13px] font-medium text-primary-500 dark:text-primary-400 hover:text-primary-700"
+        >
+          Все приёмы
+        </button>
+      </div>
 
-      {/* Meals preview */}
-      {dailyLog && dailyLog.meals.length > 0 && (
-        <div>
-          <h2 className="text-lg font-semibold mb-3">Приемы пищи</h2>
-          <div className="text-center py-4 text-gray-600 dark:text-gray-400">
-            <p>Всего приемов пищи: {dailyLog.meals.length}</p>
-            <button
-              onClick={() => navigate('/meals')}
-              className="text-primary-600 dark:text-primary-400 hover:underline text-sm mt-2"
-            >
-              Посмотреть детали
-            </button>
-          </div>
+      {dailyLog && dailyLog.meals.length > 0 ? (
+        <div className="flex flex-col gap-2.5">
+          {dailyLog.meals.map((meal) => {
+            const meta = MEAL_TYPE_META[meal.meal_type]
+            return (
+              <div key={meal.id} className="card-tile px-4 py-3.5">
+                <div className="flex items-center justify-between gap-2.5 mb-2">
+                  <span className={`chip ${meta.chip}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                    {meta.label}
+                  </span>
+                  {meal.task_id && <span className="chip-ai">AI</span>}
+                </div>
+                <div className="text-[15px] font-semibold">{meal.food_name}</div>
+                <div className="text-xs text-secondary mt-0.5">{kbjuLine(meal)}</div>
+              </div>
+            )
+          })}
         </div>
+      ) : (
+        !isLoadingLog && (
+          <div className="text-center py-8 text-secondary text-sm">
+            Записей ещё нет — добавьте первый приём пищи или сделайте фото блюда.
+          </div>
+        )
       )}
 
       {/* Add Meal Modal (ручной) */}
-      <Modal isOpen={modal === 'manual'} onClose={close} title="Добавить прием пищи">
+      <Modal isOpen={modal === 'manual'} onClose={close} title="Добавить приём пищи">
         <MealForm onSubmit={handleAddMeal} isLoading={isAddingMeal} />
       </Modal>
 

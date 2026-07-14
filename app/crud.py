@@ -333,6 +333,77 @@ def adjust_water(
     return log
 
 
+# ==================== WORKOUTS ====================
+
+def add_workout(db: Session, user_id: int, payload: schemas.WorkoutCreate) -> models.Workout:
+    """Создание записи тренировки на выбранный день (по умолчанию — сегодня)."""
+    workout = models.Workout(
+        user_id=user_id,
+        date=payload.date or date.today(),
+        workout_type=payload.workout_type,
+        title=payload.title,
+        description=payload.description,
+        started_at=payload.started_at,
+        duration_min=payload.duration_min,
+        calories_burned=payload.calories_burned,
+    )
+    db.add(workout)
+    db.commit()
+    db.refresh(workout)
+    return workout
+
+
+def list_workouts(db: Session, user_id: int, date_value: date) -> List[models.Workout]:
+    return (
+        db.query(models.Workout)
+        .filter(models.Workout.user_id == user_id, models.Workout.date == date_value)
+        .order_by(models.Workout.started_at.asc().nullslast(), models.Workout.created_at.asc())
+        .all()
+    )
+
+
+def get_workout(db: Session, user_id: int, workout_id: int) -> Optional[models.Workout]:
+    return (
+        db.query(models.Workout)
+        .filter(models.Workout.id == workout_id, models.Workout.user_id == user_id)
+        .first()
+    )
+
+
+def workouts_day_totals(db: Session, user_id: int, date_value: date) -> Dict[str, float]:
+    """Сводка активности за день (для карточки на вкладке «Тренировки»)."""
+    workouts = list_workouts(db, user_id, date_value)
+    return {
+        "total_calories_burned": round(sum(w.calories_burned or 0 for w in workouts), 1),
+        "total_duration_min": round(sum(w.duration_min or 0 for w in workouts), 1),
+        "count": len(workouts),
+    }
+
+
+def workout_dates_in_range(db: Session, user_id: int, start: date, end: date) -> set:
+    """Даты, в которые были тренировки (для точек в недельной полоске)."""
+    rows = (
+        db.query(models.Workout.date)
+        .filter(
+            models.Workout.user_id == user_id,
+            models.Workout.date >= start,
+            models.Workout.date <= end,
+        )
+        .distinct()
+        .all()
+    )
+    return {r[0] for r in rows}
+
+
+def delete_workout(db: Session, user_id: int, workout_id: int) -> bool:
+    workout = get_workout(db, user_id, workout_id)
+    if not workout:
+        return False
+    db.delete(workout)
+    db.commit()
+    return True
+
+
 # ==================== 🔥 PRODUCTS (справочник КБЖУ) ====================
 
 def search_products(db: Session, query: str, limit: int = 20) -> List[models.Product]:

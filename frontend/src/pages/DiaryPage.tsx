@@ -12,6 +12,7 @@ import { useApi } from '../hooks/useApi'
 import { useAiLimit } from '../hooks/useAiLimit'
 import { mealsApi } from '../api/meals'
 import { MealEntry, MealEntryCreate } from '../types'
+import { AppHeader } from '../components/Brand'
 import { Plus, Camera } from 'lucide-react'
 
 type ModalKind = 'none' | 'manual' | 'edit' | 'photo'
@@ -63,8 +64,12 @@ const DiaryInner: React.FC = () => {
   const writeError = add.error || update.error || del.error
 
   return (
-    <div className="max-w-md mx-auto px-4 py-6 pb-24">
-      <h1 className="text-3xl font-bold mb-4">Дневник питания</h1>
+    <div className="max-w-md mx-auto px-5 pt-6 pb-32">
+      <AppHeader />
+
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="font-display font-bold text-2xl tracking-tight">Дневник питания</h1>
+      </div>
 
       {toast && (
         <div className="mb-4">
@@ -81,17 +86,17 @@ const DiaryInner: React.FC = () => {
 
       <div className="grid grid-cols-2 gap-3 mb-2">
         <button
-          className="btn btn-primary flex items-center justify-center gap-2"
+          className="btn-primary flex items-center justify-center gap-2"
           onClick={() => setModal('manual')}
         >
-          <Plus className="h-5 w-5" /> Вручную
+          <Plus className="h-[18px] w-[18px]" /> Вручную
         </button>
         <label
-          className={`btn btn-secondary flex items-center justify-center gap-2 ${
+          className={`btn-secondary flex items-center justify-center gap-2 ${
             aiExhausted ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
           }`}
         >
-          <Camera className="h-5 w-5" /> Фото
+          <Camera className="h-[18px] w-[18px]" /> Фото
           <input
             type="file"
             accept="image/*"

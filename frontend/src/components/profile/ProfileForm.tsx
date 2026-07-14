@@ -74,10 +74,9 @@ export const ProfileForm: React.FC<Props> = ({ profile, onSave }) => {
     }
   }
 
+  // Встраивается в раскрывающийся раздел «Личные данные» на экране Профиля
   return (
-    <form onSubmit={handleSubmit} className="card p-5 rounded-xl space-y-4">
-      <h3 className="font-semibold">Личные данные</h3>
-
+    <form onSubmit={handleSubmit} className="space-y-4 pt-1">
       {error && <ErrorAlert message={error} onClose={() => setError(null)} />}
       {success && <SuccessAlert message={success} onClose={() => setSuccess(null)} />}
 
@@ -136,7 +135,7 @@ export const ProfileForm: React.FC<Props> = ({ profile, onSave }) => {
 
       {/* UX из ТЗ: предлагаем сохранить изменённый вес как новую запись истории. */}
       {weightChanged && (
-        <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+        <label className="flex items-center gap-2 text-sm text-secondary">
           <input
             type="checkbox" checked={saveAsRecord}
             onChange={(e) => setSaveAsRecord(e.target.checked)}

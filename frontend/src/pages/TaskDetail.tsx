@@ -93,16 +93,17 @@ export const TaskDetail: React.FC = () => {
     : undefined
 
   return (
-    <div className="max-w-md mx-auto px-4 py-6 pb-24">
+    <div className="max-w-md mx-auto px-5 pt-6 pb-32">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-2.5 mb-6">
         <button
           onClick={() => navigate(-1)}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+          aria-label="Назад"
+          className="w-[38px] h-[38px] rounded-full bg-white dark:bg-chip-dark border border-line dark:border-line-dark flex items-center justify-center flex-shrink-0"
         >
-          <ArrowLeft className="h-5 w-5" />
+          <ArrowLeft className="h-[18px] w-[18px]" />
         </button>
-        <h1 className="text-2xl font-bold">Результат анализа</h1>
+        <h1 className="font-display font-bold text-2xl tracking-tight">Результат анализа</h1>
       </div>
 
       {/* Alerts */}
@@ -123,7 +124,7 @@ export const TaskDetail: React.FC = () => {
         <>
           {/* Image */}
           {task.image_path && (
-            <div className="card overflow-hidden mb-4 rounded-xl">
+            <div className="card overflow-hidden mb-4">
               <img
                 src={task.image_path}
                 alt="Анализируемое блюдо"
@@ -134,49 +135,56 @@ export const TaskDetail: React.FC = () => {
 
           {/* Status (для незавершённых) */}
           {task.status !== 'success' && (
-            <div className="card p-4 mb-4 rounded-xl">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Статус</p>
+            <div className="card p-4 mb-4">
+              <p className="text-sm text-secondary mb-1">Статус</p>
               <p className="text-lg font-semibold">{getStatusLabel(task.status)}</p>
-              {task.error && (
-                <p className="text-red-600 dark:text-red-400 text-sm mt-2">{task.error}</p>
-              )}
+              {task.error && <p className="text-danger text-sm mt-2">{task.error}</p>}
             </div>
           )}
 
           {/* Result */}
           {r && formInitial && (
-            <div className="card p-4 mb-4 rounded-xl space-y-4">
+            <div className="card p-5 mb-4 space-y-4">
               {/* Название + уверенность */}
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Определённое блюдо</p>
-                  <p className="text-lg font-semibold">{r.food || r.food_name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">≈ {Math.round(r.weight_g)} г</p>
+                  <p className="font-display font-bold text-[22px] tracking-tight leading-tight">
+                    {r.food || r.food_name}
+                  </p>
+                  <p className="text-[13px] text-secondary mt-0.5">
+                    ≈ {Math.round(r.weight_g)} г · распознано AI
+                  </p>
                 </div>
                 {confidencePct !== null && (
-                  <span className="shrink-0 text-xs px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400">
-                    Уверенность {confidencePct}%
+                  <span className="chip-ai flex-shrink-0 font-medium">
+                    ✦ Уверенность {confidencePct}%
                   </span>
                 )}
               </div>
 
-              {/* КБЖУ сводка (что посчитал AI) */}
-              <div className="grid grid-cols-4 gap-2 text-sm">
-                <div className="bg-blue-50 dark:bg-blue-900/20 rounded p-2">
-                  <p className="text-gray-600 dark:text-gray-400 text-xs">ккал</p>
-                  <p className="font-semibold text-blue-600 dark:text-blue-400">{Math.round(r.calories)}</p>
+              {/* КБЖУ сводка (что посчитал AI) — цветные цифры из дизайна */}
+              <div className="grid grid-cols-4 gap-2.5 text-center">
+                <div>
+                  <p className="font-display font-bold text-xl">{Math.round(r.calories)}</p>
+                  <p className="text-[11px] text-tertiary mt-0.5">ккал</p>
                 </div>
-                <div className="bg-red-50 dark:bg-red-900/20 rounded p-2">
-                  <p className="text-gray-600 dark:text-gray-400 text-xs">Белки</p>
-                  <p className="font-semibold text-red-600 dark:text-red-400">{r.protein_g.toFixed(1)}</p>
+                <div>
+                  <p className="font-display font-bold text-xl text-protein dark:text-protein-dark">
+                    {Math.round(r.protein_g)}
+                  </p>
+                  <p className="text-[11px] text-tertiary mt-0.5">белки, г</p>
                 </div>
-                <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded p-2">
-                  <p className="text-gray-600 dark:text-gray-400 text-xs">Жиры</p>
-                  <p className="font-semibold text-yellow-600 dark:text-yellow-400">{r.fat_g.toFixed(1)}</p>
+                <div>
+                  <p className="font-display font-bold text-xl text-fat dark:text-fat-dark">
+                    {Math.round(r.fat_g)}
+                  </p>
+                  <p className="text-[11px] text-tertiary mt-0.5">жиры, г</p>
                 </div>
-                <div className="bg-green-50 dark:bg-green-900/20 rounded p-2">
-                  <p className="text-gray-600 dark:text-gray-400 text-xs">Углев.</p>
-                  <p className="font-semibold text-green-600 dark:text-green-400">{r.carbs_g.toFixed(1)}</p>
+                <div>
+                  <p className="font-display font-bold text-xl text-carbs dark:text-carbs-dark">
+                    {Math.round(r.carbs_g)}
+                  </p>
+                  <p className="text-[11px] text-tertiary mt-0.5">углев., г</p>
                 </div>
               </div>
 
@@ -186,13 +194,13 @@ export const TaskDetail: React.FC = () => {
               )}
 
               {/* Сохранение в дневник: редактируемые КБЖУ + выбор приёма */}
-              <div className="border-t border-gray-200 dark:border-gray-800 pt-4">
-                <p className="text-sm font-medium mb-3">Добавить в дневник питания</p>
+              <div className="border-t border-divider dark:border-line-dark pt-4">
+                <p className="text-[13px] font-semibold mb-3">Добавить в дневник питания</p>
                 <MealForm
                   initialData={formInitial}
                   onSubmit={handleSaveToDiary}
                   isLoading={isSaving}
-                  submitLabel="Сохранить в дневник"
+                  submitLabel="Добавить в дневник"
                 />
               </div>
             </div>
@@ -202,7 +210,7 @@ export const TaskDetail: React.FC = () => {
           {task.status === 'success' && (
             <button
               onClick={() => setShowFeedbackModal(true)}
-              className="btn btn-secondary w-full flex items-center justify-center gap-2"
+              className="btn-outline w-full flex items-center justify-center gap-2"
             >
               <Send className="h-4 w-4" />
               Отправить исправление

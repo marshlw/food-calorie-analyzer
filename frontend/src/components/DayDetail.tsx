@@ -9,10 +9,10 @@ import { MealSection } from './MealSection'
 import { LoadingSpinner } from './LoadingSpinner'
 
 const ORDER: { type: MealType; title: string }[] = [
-  { type: 'breakfast', title: '🌅 Завтрак' },
-  { type: 'lunch', title: '🍽️ Обед' },
-  { type: 'dinner', title: '🌙 Ужин' },
-  { type: 'snacks', title: '🍿 Перекусы' },
+  { type: 'breakfast', title: 'Завтрак' },
+  { type: 'lunch', title: 'Обед' },
+  { type: 'dinner', title: 'Ужин' },
+  { type: 'snacks', title: 'Перекусы' },
 ]
 
 interface Props {
@@ -55,7 +55,7 @@ export const DayDetail: React.FC<Props> = ({ onEdit, onDelete, busy }) => {
       <DailyStats log={log} />
       <WaterCard water={log.water} />
       {log.meals.length === 0 ? (
-        <div className="text-center py-10 text-gray-500 dark:text-gray-400">
+        <div className="text-center py-10 text-secondary text-sm">
           Нет приёмов пищи за этот день
         </div>
       ) : (

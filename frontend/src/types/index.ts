@@ -175,6 +175,74 @@ export interface WeightRecordCreate {
   note?: string
 }
 
+// ==================== WORKOUTS (вкладка «Тренировки») ====================
+
+export type WorkoutType = 'strength' | 'cardio' | 'stretching' | 'sport' | 'other'
+
+export interface Workout {
+  id: number
+  date: string // YYYY-MM-DD
+  workout_type: WorkoutType
+  title: string
+  description?: string | null
+  started_at?: string | null // "HH:MM"
+  duration_min: number
+  calories_burned: number
+  created_at: string
+}
+
+export interface WorkoutCreate {
+  title: string
+  workout_type: WorkoutType
+  duration_min: number
+  calories_burned: number
+  description?: string
+  started_at?: string
+  date?: string
+}
+
+export interface WorkoutDaySummary {
+  date: string
+  total_calories_burned: number
+  total_duration_min: number
+  count: number
+  base_calorie_target?: number | null
+  adjusted_calorie_target?: number | null
+}
+
+export interface WorkoutWeekDay {
+  date: string
+  has_workout: boolean
+}
+
+export interface WorkoutsResponse {
+  date: string
+  workouts: Workout[]
+  summary: WorkoutDaySummary
+  week: WorkoutWeekDay[]
+}
+
+// ==================== AI-СОВЕТЧИК ====================
+
+export interface AdvisorTip {
+  title: string
+  text: string
+  tag: string // protein|water|calories|carbs|training|general
+}
+
+export interface AdvisorResponse {
+  headline_title: string
+  headline_text: string
+  nutrition: AdvisorTip[]
+  training: AdvisorTip[]
+  generated_by: 'llm' | 'rules'
+}
+
+export interface AdvisorAskResponse {
+  answer: string
+  generated_by: 'llm' | 'rules'
+}
+
 export interface AuthContextType {
   user: User | null
   token: Token | null

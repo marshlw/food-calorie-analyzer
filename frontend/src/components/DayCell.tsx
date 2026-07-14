@@ -1,5 +1,4 @@
 import React from 'react'
-import { CalorieRing } from './CalorieRing'
 
 interface Props {
   label: string
@@ -12,30 +11,45 @@ interface Props {
   onClick: () => void
 }
 
-// Один день в недельной сетке. Глупый, мемоизированный.
+// Ячейка недельной полоски из дизайна Rasify: белая плитка с подписью дня,
+// числом и мини-баром прогресса калорий. Выбранный день — синяя плитка.
+// Глупый, мемоизированный.
 export const DayCell = React.memo<Props>(
-  ({ label, dayNum, calories, goal, hasMeals, isSelected, isToday, onClick }) => (
-    <button
-      onClick={onClick}
-      className={`flex flex-col items-center gap-1 py-2 rounded-xl transition-colors ${
-        isSelected
-          ? 'bg-primary-50 dark:bg-primary-900/30 ring-2 ring-primary-500'
-          : 'hover:bg-gray-50 dark:hover:bg-gray-800'
-      }`}
-    >
-      <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>
-      <span className={`text-sm font-semibold ${isToday ? 'text-primary-600 dark:text-primary-400' : ''}`}>
-        {dayNum}
-      </span>
-      <div className="relative grid place-items-center">
-        <CalorieRing value={calories} goal={goal} />
-        <span className="absolute text-[10px] font-medium">
-          {calories ? Math.round(calories) : '·'}
+  ({ label, dayNum, calories, goal, hasMeals, isSelected, isToday, onClick }) => {
+    const pct = goal ? Math.min((calories / goal) * 100, 100) : hasMeals ? 100 : 0
+
+    return (
+      <button
+        onClick={onClick}
+        className={`flex flex-col items-center gap-1 py-2.5 pb-2 rounded-cell border transition-colors ${
+          isSelected
+            ? 'bg-primary-500 border-primary-500 shadow-day text-white'
+            : 'bg-white dark:bg-card-dark border-line dark:border-line-dark hover:border-primary-300'
+        }`}
+      >
+        <span className={`text-[10px] ${isSelected ? 'text-white/70' : 'text-tertiary'}`}>
+          {label}
         </span>
-      </div>
-      <span className={`h-1 w-1 rounded-full ${hasMeals ? 'bg-primary-500' : 'bg-transparent'}`} />
-    </button>
-  )
+        <span
+          className={`text-[15px] font-semibold ${
+            !isSelected && isToday ? 'text-primary-500 dark:text-primary-400' : ''
+          }`}
+        >
+          {dayNum}
+        </span>
+        <div
+          className={`w-[22px] h-1 rounded-full overflow-hidden ${
+            isSelected ? 'bg-white/30' : 'bg-track dark:bg-track-dark'
+          }`}
+        >
+          <div
+            className={`h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-primary-500 dark:bg-primary-400'}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </button>
+    )
+  }
 )
 
 DayCell.displayName = 'DayCell'

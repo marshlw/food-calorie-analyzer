@@ -3,8 +3,9 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { PasswordInput } from '../components/PasswordInput'
-import { UserPlus } from 'lucide-react'
+import { RingLogo } from '../components/Brand'
 
+// Экран регистрации в стиле экрана входа Rasify.
 export const Register: React.FC = () => {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -55,32 +56,29 @@ export const Register: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-blue-50 dark:from-gray-900 dark:to-gray-950 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-surface dark:bg-surface-dark px-6 py-10">
       <div className="w-full max-w-md">
-        <div className="card p-8 rounded-2xl">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-600 rounded-full mb-4">
-              <UserPlus className="h-8 w-8 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold mb-2">Создать аккаунт</h1>
-            <p className="text-gray-600 dark:text-gray-400">Присоединитесь к AI Healthy</p>
+        {/* Логотип */}
+        <div className="text-center mb-8">
+          <RingLogo size={56} className="mb-4 inline-block" />
+          <h1 className="font-display font-extrabold text-2xl tracking-tight mb-2">
+            Создать аккаунт
+          </h1>
+          <p className="text-sm text-secondary">Присоединяйтесь к Rasify</p>
+        </div>
+
+        {/* Errors */}
+        {(error || localError) && (
+          <div className="mb-4">
+            <ErrorAlert message={error || localError} onClose={clearError} />
           </div>
+        )}
 
-          {/* Errors */}
-          {(error || localError) && (
-            <div className="mb-4">
-              <ErrorAlert
-                message={error || localError}
-                onClose={clearError}
-              />
-            </div>
-          )}
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Карточка формы */}
+        <div className="card p-7">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Email</label>
+              <label className="block text-[13px] font-semibold mb-1.5">Email</label>
               <input
                 type="email"
                 value={email}
@@ -92,19 +90,21 @@ export const Register: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Полное имя (опционально)</label>
+              <label className="block text-[13px] font-semibold mb-1.5">
+                Полное имя (опционально)
+              </label>
               <input
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="Иван Иванов"
+                placeholder="Анна Смирнова"
                 className="input"
                 disabled={isLoading}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Пароль</label>
+              <label className="block text-[13px] font-semibold mb-1.5">Пароль</label>
               <PasswordInput
                 value={password}
                 onChange={setPassword}
@@ -114,7 +114,7 @@ export const Register: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Подтвердите пароль</label>
+              <label className="block text-[13px] font-semibold mb-1.5">Подтвердите пароль</label>
               <PasswordInput
                 value={confirmPassword}
                 onChange={setConfirmPassword}
@@ -125,7 +125,7 @@ export const Register: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium mb-1">Рост, см (опц.)</label>
+                <label className="block text-[13px] font-semibold mb-1.5">Рост, см (опц.)</label>
                 <input
                   type="number"
                   step="0.1"
@@ -133,13 +133,13 @@ export const Register: React.FC = () => {
                   max="300"
                   value={height}
                   onChange={(e) => setHeight(e.target.value)}
-                  placeholder="180"
+                  placeholder="170"
                   className="input"
                   disabled={isLoading}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Вес, кг (опц.)</label>
+                <label className="block text-[13px] font-semibold mb-1.5">Вес, кг (опц.)</label>
                 <input
                   type="number"
                   step="0.1"
@@ -147,7 +147,7 @@ export const Register: React.FC = () => {
                   max="300"
                   value={weight}
                   onChange={(e) => setWeight(e.target.value)}
-                  placeholder="75"
+                  placeholder="62"
                   className="input"
                   disabled={isLoading}
                 />
@@ -157,21 +157,24 @@ export const Register: React.FC = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="btn-primary w-full disabled:opacity-50"
+              className="btn-primary w-full mt-1 disabled:opacity-50"
             >
               {isLoading ? 'Создание...' : 'Создать аккаунт'}
             </button>
           </form>
+        </div>
 
-          {/* Login Link */}
-          <div className="mt-6 text-center">
-            <p className="text-gray-600 dark:text-gray-400">
-              Уже есть аккаунт?{' '}
-              <Link to="/login" className="text-primary-600 dark:text-primary-400 font-medium hover:underline">
-                Войдите
-              </Link>
-            </p>
-          </div>
+        {/* Login Link */}
+        <div className="mt-6 text-center">
+          <p className="text-sm text-secondary">
+            Уже есть аккаунт?{' '}
+            <Link
+              to="/login"
+              className="font-semibold text-primary-500 dark:text-primary-400 hover:text-primary-700"
+            >
+              Войдите
+            </Link>
+          </p>
         </div>
       </div>
     </div>

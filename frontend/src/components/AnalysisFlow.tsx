@@ -36,14 +36,14 @@ export const AnalysisFlow: React.FC<Props> = ({ file, onConfirm, onCancel, savin
     return (
       <div className="space-y-3">
         {previewUrl && (
-          <img src={previewUrl} alt="Фото блюда" className="w-full h-48 object-cover rounded-lg" />
+          <img src={previewUrl} alt="Фото блюда" className="w-full h-48 object-cover rounded-tile" />
         )}
         <ErrorAlert message={error || 'Ошибка анализа'} onClose={() => {}} />
-        <button className="btn btn-secondary w-full" onClick={() => analyze(file)}>
+        <button className="btn-secondary w-full" onClick={() => analyze(file)}>
           Повторить
         </button>
         <button
-          className="btn w-full"
+          className="w-full py-3 text-sm font-medium text-muted dark:text-muted-dark hover:text-ink dark:hover:text-ink-dark transition-colors"
           onClick={() => {
             reset()
             onCancel()
@@ -83,29 +83,29 @@ export const AnalysisFlow: React.FC<Props> = ({ file, onConfirm, onCancel, savin
           <img
             src={previewUrl || task.image_path}
             alt="Фото блюда"
-            className="w-full h-48 object-cover rounded-lg"
+            className="w-full h-48 object-cover rounded-tile"
           />
         )}
 
         {/* Шапка результата: название + уверенность */}
         <div className="flex items-start justify-between gap-2">
           <div>
-            <p className="text-lg font-semibold leading-tight">{initial.food_name || 'Блюдо'}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">≈ {Math.round(r.weight_g)} г</p>
+            <p className="font-display font-bold text-lg tracking-tight leading-tight">
+              {initial.food_name || 'Блюдо'}
+            </p>
+            <p className="text-xs text-secondary mt-0.5">≈ {Math.round(r.weight_g)} г · распознано AI</p>
           </div>
           {confidencePct !== null && (
-            <span className="shrink-0 text-xs px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400">
-              Уверенность {confidencePct}%
-            </span>
+            <span className="chip-ai shrink-0 font-medium">✦ Уверенность {confidencePct}%</span>
           )}
         </div>
 
         {/* Состав от AI */}
         {r.ingredients && r.ingredients.length > 0 && <IngredientList ingredients={r.ingredients} />}
 
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className="text-xs text-tertiary">
           Проверьте название, выберите приём пищи и при необходимости поправьте КБЖУ перед добавлением
-          в календарь.
+          в дневник.
         </p>
 
         {/* Редактируемые поля (название/КБЖУ/тип приёма) */}
@@ -113,10 +113,10 @@ export const AnalysisFlow: React.FC<Props> = ({ file, onConfirm, onCancel, savin
           initialData={initial}
           onSubmit={handleSubmit}
           isLoading={saving}
-          submitLabel="Добавить в календарь"
+          submitLabel="Добавить в дневник"
         />
         <button
-          className="btn w-full"
+          className="w-full py-3 text-sm font-medium text-muted dark:text-muted-dark hover:text-ink dark:hover:text-ink-dark transition-colors"
           onClick={() => {
             reset()
             onCancel()
