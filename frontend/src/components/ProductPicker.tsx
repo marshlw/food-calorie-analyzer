@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import { productsApi } from '../api/products'
 import { Product } from '../types'
+import { capitalize as cap } from '../utils/text'
 
 interface AppliedProduct {
   food_name: string
@@ -95,7 +96,7 @@ export const ProductPicker: React.FC<ProductPickerProps> = ({
     if (!selected) return
     const nutrition = scaleToWeight(selected, weight)
     onApply({
-      food_name: selected.name,
+      food_name: cap(selected.name),
       weight_g: weight,
       ...nutrition,
     })
@@ -153,7 +154,7 @@ export const ProductPicker: React.FC<ProductPickerProps> = ({
                   onClick={() => handleSelect(product)}
                   className="w-full text-left px-3.5 py-2.5 hover:bg-surface dark:hover:bg-chip-dark flex items-center justify-between gap-2"
                 >
-                  <span className="text-sm">{product.name}</span>
+                  <span className="text-sm">{cap(product.name)}</span>
                   <span className="text-xs text-tertiary shrink-0">
                     {Math.round(product.calories)} ккал/100г
                   </span>
@@ -169,7 +170,7 @@ export const ProductPicker: React.FC<ProductPickerProps> = ({
       {selected && preview && (
         <div className="rounded-tile border border-line dark:border-line-dark bg-surface dark:bg-chip-dark/50 p-3.5 space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold">{selected.name}</p>
+            <p className="text-sm font-semibold">{cap(selected.name)}</p>
             <button
               type="button"
               onClick={handleClearSelection}

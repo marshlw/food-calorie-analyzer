@@ -10,6 +10,7 @@ import { SuccessAlert } from '../components/SuccessAlert'
 import { Modal } from '../components/Modal'
 import { MealForm } from '../components/MealForm'
 import { ingredientsToItems } from '../components/AnalysisFlow'
+import { capitalize as cap } from '../utils/text'
 import { ArrowLeft, Send } from 'lucide-react'
 
 export const TaskDetail: React.FC = () => {
@@ -81,7 +82,7 @@ export const TaskDetail: React.FC = () => {
   const formInitial: MealEntry | undefined = r
     ? {
         id: 0,
-        food_name: r.food || r.food_name || '',
+        food_name: cap(r.food || r.food_name || ''),
         calories: r.calories,
         protein_g: r.protein_g,
         fat_g: r.fat_g,
@@ -150,7 +151,7 @@ export const TaskDetail: React.FC = () => {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="font-display font-bold text-[22px] tracking-tight leading-tight">
-                    {r.food || r.food_name}
+                    {cap(r.food || r.food_name)}
                   </p>
                   <p className="text-[13px] text-secondary mt-0.5">
                     ≈ {Math.round(r.weight_g)} г · распознано AI

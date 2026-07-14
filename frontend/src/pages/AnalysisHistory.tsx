@@ -6,6 +6,7 @@ import { useApi } from '../hooks/useApi'
 import { AppHeader } from '../components/Brand'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorAlert } from '../components/ErrorAlert'
+import { capitalize as cap } from '../utils/text'
 import { ArrowLeft } from 'lucide-react'
 
 // Точка-статус анализа (из дизайна: зелёная — успех, жёлтая — в работе, красная — ошибка)
@@ -24,7 +25,7 @@ const statusTitle = (task: TaskResponse): string => {
     case 'failure':
       return 'Не удалось распознать'
     default:
-      return task.result?.food || task.result?.food_name || 'Блюдо'
+      return cap(task.result?.food || task.result?.food_name || 'Блюдо')
   }
 }
 

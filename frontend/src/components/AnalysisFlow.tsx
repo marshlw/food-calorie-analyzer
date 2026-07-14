@@ -4,9 +4,9 @@ import { MealForm } from './MealForm'
 import { LoadingSpinner } from './LoadingSpinner'
 import { ErrorAlert } from './ErrorAlert'
 import { AnalysisResult, MealEntry, MealEntryItem, MealEntryCreate } from '../types'
+import { capitalize as cap } from '../utils/text'
 
 const round1 = (v: number) => Math.round(v * 10) / 10
-const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
 
 // Превращает состав от AI в редактируемые позиции конструктора:
 // КБЖУ блюда распределяется по ингредиентам пропорционально их весу,
@@ -87,7 +87,7 @@ export const AnalysisFlow: React.FC<Props> = ({ file, onConfirm, onCancel, savin
     // поменять вес — КБЖУ пересчитается).
     const initial: MealEntry = {
       id: 0,
-      food_name: r.food || r.food_name || '',
+      food_name: cap(r.food || r.food_name || ''),
       calories: r.calories,
       protein_g: r.protein_g,
       fat_g: r.fat_g,

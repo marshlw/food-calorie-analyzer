@@ -1,6 +1,7 @@
 import React from 'react'
 import { MealEntry } from '../types'
 import { MEAL_TYPE_META, kbjuLine } from '../utils/mealTypes'
+import { capitalize as cap } from '../utils/text'
 import { Trash2, Edit2 } from 'lucide-react'
 
 interface MealCardProps {
@@ -34,14 +35,14 @@ export const MealCard: React.FC<MealCardProps> = ({
             {meta.label}
           </span>
         )}
-        <div className="text-[15px] font-semibold truncate">{meal.food_name}</div>
+        <div className="text-[15px] font-semibold truncate">{cap(meal.food_name)}</div>
         <div className="text-xs text-secondary mt-0.5">{kbjuLine(meal)}</div>
         {/* Блюда составного приёма */}
         {meal.items && meal.items.length > 1 && (
           <div className="mt-1.5 flex flex-col gap-0.5">
             {meal.items.map((item, idx) => (
               <div key={item.id ?? idx} className="flex justify-between items-baseline text-[11px]">
-                <span className="text-tertiary truncate pr-2">{item.food_name}</span>
+                <span className="text-tertiary truncate pr-2">{cap(item.food_name)}</span>
                 <span className="text-tertiary flex-shrink-0">
                   {Math.round(item.weight_g)} г · {Math.round(item.calories)} ккал
                 </span>

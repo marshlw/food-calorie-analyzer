@@ -1,5 +1,6 @@
 import React from 'react'
 import { Ingredient, IngredientType } from '../types'
+import { capitalize as cap } from '../utils/text'
 
 interface Props {
   ingredients: Ingredient[]
@@ -28,8 +29,6 @@ const TYPE_META: Record<IngredientType, { label: string; cls: string }> = {
     cls: 'bg-surface text-muted dark:bg-chip-dark dark:text-muted-dark',
   },
 }
-
-const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
 
 // Состав блюда от AI. Глупый, мемоизированный.
 export const IngredientList = React.memo<Props>(({ ingredients }) => {

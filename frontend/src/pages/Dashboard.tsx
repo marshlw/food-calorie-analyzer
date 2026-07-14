@@ -14,6 +14,7 @@ import { useAuth } from '../hooks/useAuth'
 import { mealsApi } from '../api/meals'
 import { DailyLog, MealEntryCreate } from '../types'
 import { MEAL_TYPE_META, kbjuLine } from '../utils/mealTypes'
+import { capitalize as cap } from '../utils/text'
 import { Plus, Camera } from 'lucide-react'
 
 type ModalKind = 'none' | 'manual' | 'photo'
@@ -167,7 +168,7 @@ export const Dashboard: React.FC = () => {
                   </span>
                   {meal.task_id && <span className="chip-ai">AI</span>}
                 </div>
-                <div className="text-[15px] font-semibold">{meal.food_name}</div>
+                <div className="text-[15px] font-semibold">{cap(meal.food_name)}</div>
                 <div className="text-xs text-secondary mt-0.5">{kbjuLine(meal)}</div>
                 {/* Блюда составного приёма */}
                 {meal.items && meal.items.length > 1 && (
@@ -177,7 +178,7 @@ export const Dashboard: React.FC = () => {
                         key={item.id ?? idx}
                         className="flex justify-between items-baseline text-[11px]"
                       >
-                        <span className="text-tertiary truncate pr-2">{item.food_name}</span>
+                        <span className="text-tertiary truncate pr-2">{cap(item.food_name)}</span>
                         <span className="text-tertiary flex-shrink-0">
                           {Math.round(item.weight_g)} г · {Math.round(item.calories)} ккал
                         </span>
