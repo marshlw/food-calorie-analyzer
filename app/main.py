@@ -818,8 +818,13 @@ async def search_exercises(
 
 # ===================== AI-СОВЕТЧИК (кнопка ✦ по центру) =====================
 
+# ВАЖНО: эндпоинты советчика — обычные def, НЕ async. Внутри — синхронный
+# вызов LLM на десятки секунд; в async он блокировал бы event loop целого
+# uvicorn-воркера (все запросы, включая /login, висели бы). Обычный def
+# FastAPI выполняет в threadpool — API остаётся отзывчивым.
+
 @app.get("/api/v1/advisor", response_model=schemas.AdvisorResponse)
-async def get_advisor(
+def get_advisor(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -828,7 +833,7 @@ async def get_advisor(
 
 
 @app.post("/api/v1/advisor/ask", response_model=schemas.AdvisorAskResponse)
-async def ask_advisor(
+def ask_advisor(
     payload: schemas.AdvisorAskRequest,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),

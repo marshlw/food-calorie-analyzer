@@ -101,7 +101,7 @@ services:
     image: ai-healthy:prod
     <<: *hardening
     working_dir: /app
-    command: celery -A app.celery_app worker --loglevel=info --concurrency=4
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=4 --max-tasks-per-child=50
     volumes:
       - uploads_data:/app/app/uploads
     env_file:
@@ -116,24 +116,25 @@ services:
     networks:
       - backend
 
-  # Telegram-бот. Если не нужен — закомментируй блок.
-  telegram_bot:
-    image: ai-healthy:prod
-    <<: *hardening
-    working_dir: /app
-    command: python -m app.telegram_bot
-    env_file:
-      - .env
-    environment:
-      - API_URL=http://api:8000
-      - PYTHONPATH=/app
-    depends_on:
-      api:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - backend
+  # Telegram-бот временно выключен (экономия ~150 МБ RAM на ВМ 2 ГБ).
+  # Чтобы вернуть — раскомментируй блок ниже.
+  # telegram_bot:
+  #   image: ai-healthy:prod
+  #   <<: *hardening
+  #   working_dir: /app
+  #   command: python -m app.telegram_bot
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - API_URL=http://api:8000
+  #     - PYTHONPATH=/app
+  #   depends_on:
+  #     api:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   networks:
+  #     - backend
 
   caddy:
     image: caddy:2-alpine
