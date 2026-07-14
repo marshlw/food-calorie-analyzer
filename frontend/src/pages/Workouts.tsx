@@ -235,6 +235,23 @@ export const Workouts: React.FC = () => {
                     {w.description && (
                       <div className="text-xs text-secondary mt-0.5">{w.description}</div>
                     )}
+                    {/* Упражнения составной тренировки */}
+                    {w.items && w.items.length > 0 && (
+                      <div className="mt-2 flex flex-col gap-1">
+                        {w.items.map((item, idx) => (
+                          <div
+                            key={item.id ?? idx}
+                            className="flex justify-between items-baseline text-xs"
+                          >
+                            <span className="text-secondary truncate pr-2">{item.name}</span>
+                            <span className="text-tertiary flex-shrink-0">
+                              {Math.round(item.duration_min)} мин ·{' '}
+                              {Math.round(item.calories_burned)} ккал
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="flex justify-between items-center mt-2.5 pt-2.5 border-t border-divider dark:border-line-dark">
                       <span className="text-xs text-secondary">Потрачено</span>
                       <span className="text-[13px] font-bold">

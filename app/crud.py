@@ -43,9 +43,13 @@ def create_user_sync(db: Session, user: schemas.UserCreate, hashed_password: str
 # ==================== PROFILE / WEIGHT ====================
 
 def compute_nutrition_targets(db: Session, user: models.User) -> Dict[str, Any]:
-    """Единый расчёт суточных норм (BMR, калории, БЖУ) из веса/роста/возраста/
-    активности. Используется и профилем, и дневником, чтобы цифры совпадали.
-    Текущий вес берётся из последней записи истории."""
+    """Единый расчёт суточных норм (BMR, калории, БЖУ, вода). Используется
+    профилем, дневником, водой, советчиком и тренировками — цифры везде
+    совпадают. Текущий вес берётся из последней записи истории.
+
+    Ручные нормы пользователя (custom_* в профиле, важно для атлетов)
+    имеют приоритет над авторасчётом — поэтому, заданные один раз,
+    они автоматически подхватываются во всех формах."""
     from app import utils
 
     latest = get_latest_weight(db, user.id)
@@ -55,12 +59,25 @@ def compute_nutrition_targets(db: Session, user: models.User) -> Dict[str, Any]:
     calories = utils.calc_daily_calorie_target(bmr, user.activity_level)
     macros = utils.calc_macro_targets(calories)
     water_ml = utils.calc_water_target(weight, user.activity_level)
+
+    # Переопределения из профиля (NULL/0 = использовать авторасчёт)
+    if getattr(user, "custom_calorie_target", None):
+        calories = user.custom_calorie_target
+        # БЖУ по умолчанию следуют за ручной калорийностью…
+        macros = utils.calc_macro_targets(calories)
+    # …но каждое из них тоже можно задать вручную по отдельности
+    protein_g = getattr(user, "custom_protein_g", None) or macros["protein_g"]
+    fat_g = getattr(user, "custom_fat_g", None) or macros["fat_g"]
+    carbs_g = getattr(user, "custom_carbs_g", None) or macros["carbs_g"]
+    if getattr(user, "custom_water_ml", None):
+        water_ml = user.custom_water_ml
+
     return {
         "bmr": bmr,
         "calories": calories,
-        "protein_g": macros["protein_g"],
-        "fat_g": macros["fat_g"],
-        "carbs_g": macros["carbs_g"],
+        "protein_g": protein_g,
+        "fat_g": fat_g,
+        "carbs_g": carbs_g,
         "water_ml": water_ml,
         "current_weight_kg": weight,
     }
@@ -151,6 +168,20 @@ def update_profile(db: Session, user: models.User, payload: schemas.ProfileUpdat
         db_user.birth_date = payload.birth_date
     if payload.activity_level is not None:
         db_user.activity_level = payload.activity_level
+
+    # Ручные нормы КБЖУ/воды: None = не менять, 0 = сбросить на авторасчёт,
+    # положительное значение = установить вручную.
+    for field in (
+        "custom_calorie_target",
+        "custom_protein_g",
+        "custom_fat_g",
+        "custom_carbs_g",
+        "custom_water_ml",
+    ):
+        value = getattr(payload, field, None)
+        if value is not None:
+            setattr(db_user, field, value if value > 0 else None)
+
     db.commit()
 
     # Вес из профиля -> в историю, только если изменился относительно
@@ -242,29 +273,100 @@ def get_or_create_daily_log(db: Session, user_id: int, date_value: date) -> mode
     return daily_log
 
 
+def _meal_totals_from_items(items: List[schemas.MealEntryItemCreate]) -> Dict[str, float]:
+    """Итоги составного приёма: суммы КБЖУ/веса по блюдам."""
+    return {
+        "calories": round(sum(i.calories for i in items), 1),
+        "protein_g": round(sum(i.protein_g for i in items), 1),
+        "fat_g": round(sum(i.fat_g for i in items), 1),
+        "carbs_g": round(sum(i.carbs_g for i in items), 1),
+        "weight_g": round(sum(i.weight_g for i in items), 1),
+    }
+
+
 def add_meal_entry(db: Session, user_id: int, meal_data: schemas.MealEntryCreate, target_date: Optional[date] = None, task_id: Optional[str] = None) -> models.MealEntry:
     target_date = target_date or date.today()
     daily_log = get_or_create_daily_log(db, user_id, target_date)
 
+    items = getattr(meal_data, "items", None) or []
+    # У составного приёма итоги считаем на бэкенде — фронту не доверяем суммы.
+    totals = _meal_totals_from_items(items) if items else {
+        "calories": meal_data.calories,
+        "protein_g": meal_data.protein_g,
+        "fat_g": meal_data.fat_g,
+        "carbs_g": meal_data.carbs_g,
+        "weight_g": meal_data.weight_g,
+    }
+
     meal_entry = models.MealEntry(
         daily_log_id=daily_log.id,
         food_name=meal_data.food_name,
-        calories=meal_data.calories,
-        protein_g=meal_data.protein_g,
-        fat_g=meal_data.fat_g,
-        carbs_g=meal_data.carbs_g,
-        weight_g=meal_data.weight_g,
+        calories=totals["calories"],
+        protein_g=totals["protein_g"],
+        fat_g=totals["fat_g"],
+        carbs_g=totals["carbs_g"],
+        weight_g=totals["weight_g"],
         meal_type=getattr(meal_data, 'meal_type', 'snacks'),
         task_id=task_id
     )
+    for item in items:
+        meal_entry.items.append(models.MealEntryItem(
+            food_name=item.food_name,
+            weight_g=item.weight_g,
+            calories=item.calories,
+            protein_g=item.protein_g,
+            fat_g=item.fat_g,
+            carbs_g=item.carbs_g,
+        ))
     db.add(meal_entry)
     db.commit()
     db.refresh(meal_entry)
     return meal_entry
 
 
+def update_meal_entry(db: Session, meal_entry: models.MealEntry, update: schemas.MealEntryCreate) -> models.MealEntry:
+    """Обновление записи приёма. Если переданы items — полная замена блюд
+    с пересчётом итогов; иначе обновляются только поля записи."""
+    items = getattr(update, "items", None) or []
+    if items:
+        totals = _meal_totals_from_items(items)
+        meal_entry.items.clear()
+        for item in items:
+            meal_entry.items.append(models.MealEntryItem(
+                food_name=item.food_name,
+                weight_g=item.weight_g,
+                calories=item.calories,
+                protein_g=item.protein_g,
+                fat_g=item.fat_g,
+                carbs_g=item.carbs_g,
+            ))
+        meal_entry.calories = totals["calories"]
+        meal_entry.protein_g = totals["protein_g"]
+        meal_entry.fat_g = totals["fat_g"]
+        meal_entry.carbs_g = totals["carbs_g"]
+        meal_entry.weight_g = totals["weight_g"]
+    else:
+        # Простая запись: если раньше была составной — блюда убираем,
+        # запись становится обычной с введёнными вручную итогами.
+        meal_entry.items.clear()
+        meal_entry.calories = update.calories
+        meal_entry.protein_g = update.protein_g
+        meal_entry.fat_g = update.fat_g
+        meal_entry.carbs_g = update.carbs_g
+        meal_entry.weight_g = update.weight_g
+
+    meal_entry.food_name = update.food_name
+    meal_entry.meal_type = getattr(update, 'meal_type', meal_entry.meal_type)
+
+    db.commit()
+    db.refresh(meal_entry)
+    return meal_entry
+
+
 def get_daily_log(db: Session, user_id: int, date_value: date) -> Optional[models.DailyLog]:
-    return db.query(models.DailyLog).options(selectinload(models.DailyLog.entries)).filter(
+    return db.query(models.DailyLog).options(
+        selectinload(models.DailyLog.entries).selectinload(models.MealEntry.items)
+    ).filter(
         models.DailyLog.user_id == user_id,
         models.DailyLog.date == date_value
     ).first()
@@ -336,7 +438,17 @@ def adjust_water(
 # ==================== WORKOUTS ====================
 
 def add_workout(db: Session, user_id: int, payload: schemas.WorkoutCreate) -> models.Workout:
-    """Создание записи тренировки на выбранный день (по умолчанию — сегодня)."""
+    """Создание записи тренировки на выбранный день (по умолчанию — сегодня).
+    Для составной тренировки (items) итоги по времени/калориям суммируются
+    из упражнений на бэкенде."""
+    items = payload.items or []
+    if items:
+        duration = round(sum(i.duration_min for i in items), 1)
+        calories = round(sum(i.calories_burned for i in items), 1)
+    else:
+        duration = payload.duration_min
+        calories = payload.calories_burned
+
     workout = models.Workout(
         user_id=user_id,
         date=payload.date or date.today(),
@@ -344,9 +456,15 @@ def add_workout(db: Session, user_id: int, payload: schemas.WorkoutCreate) -> mo
         title=payload.title,
         description=payload.description,
         started_at=payload.started_at,
-        duration_min=payload.duration_min,
-        calories_burned=payload.calories_burned,
+        duration_min=duration,
+        calories_burned=calories,
     )
+    for item in items:
+        workout.items.append(models.WorkoutItem(
+            name=item.name,
+            duration_min=item.duration_min,
+            calories_burned=item.calories_burned,
+        ))
     db.add(workout)
     db.commit()
     db.refresh(workout)
@@ -356,6 +474,7 @@ def add_workout(db: Session, user_id: int, payload: schemas.WorkoutCreate) -> mo
 def list_workouts(db: Session, user_id: int, date_value: date) -> List[models.Workout]:
     return (
         db.query(models.Workout)
+        .options(selectinload(models.Workout.items))
         .filter(models.Workout.user_id == user_id, models.Workout.date == date_value)
         .order_by(models.Workout.started_at.asc().nullslast(), models.Workout.created_at.asc())
         .all()
@@ -393,6 +512,16 @@ def workout_dates_in_range(db: Session, user_id: int, start: date, end: date) ->
         .all()
     )
     return {r[0] for r in rows}
+
+
+def search_exercises(db: Session, query: str = "", limit: int = 60) -> List[models.Exercise]:
+    """Поиск по справочнику упражнений (для формы записи тренировки).
+    Пустой запрос — весь список по алфавиту."""
+    q = db.query(models.Exercise)
+    query = (query or "").strip().lower()
+    if query:
+        q = q.filter(models.Exercise.name.ilike(f"%{query}%"))
+    return q.order_by(models.Exercise.name.asc()).limit(limit).all()
 
 
 def delete_workout(db: Session, user_id: int, workout_id: int) -> bool:

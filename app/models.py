@@ -45,6 +45,15 @@ class User(Base):
     birth_date = Column(Date, nullable=True)
     activity_level = Column(String, nullable=True)  # sedentary|light|moderate|active|very_active
 
+    # ---- Ручные нормы (для атлетов и особых рационов) ----
+    # NULL = авторасчёт из веса/роста/возраста/активности; значение —
+    # переопределяет расчёт везде (дневник, вода, советчик, тренировки).
+    custom_calorie_target = Column(Float, nullable=True)
+    custom_protein_g = Column(Float, nullable=True)
+    custom_fat_g = Column(Float, nullable=True)
+    custom_carbs_g = Column(Float, nullable=True)
+    custom_water_ml = Column(Float, nullable=True)
+
     meals = relationship("Meal", back_populates="user", cascade="all, delete-orphan")
     tasks = relationship("Task", back_populates="user")
     daily_logs = relationship("DailyLog", back_populates="user", cascade="all, delete-orphan")
@@ -110,6 +119,9 @@ class MealEntry(Base):
     id = Column(Integer, primary_key=True, index=True)
     daily_log_id = Column(Integer, ForeignKey("daily_logs.id"), nullable=False)
     food_name = Column(String, nullable=False)
+    # КБЖУ/вес записи. Если запись составная (items), это СУММЫ по блюдам —
+    # так вся существующая аналитика (calculate_daily_totals и т.п.) работает
+    # без изменений.
     calories = Column(Float, nullable=False)
     protein_g = Column(Float, nullable=False)
     fat_g = Column(Float, nullable=False)
@@ -121,6 +133,33 @@ class MealEntry(Base):
 
     daily_log = relationship("DailyLog", back_populates="entries")
     task = relationship("Task")
+    items = relationship(
+        "MealEntryItem",
+        back_populates="meal_entry",
+        cascade="all, delete-orphan",
+        order_by="MealEntryItem.id",
+    )
+
+
+class MealEntryItem(Base):
+    """Блюдо внутри составного приёма пищи («гарнир + основное блюдо»).
+    Итоги по приёму хранятся на MealEntry (суммируются в crud)."""
+
+    __tablename__ = "meal_entry_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    meal_entry_id = Column(Integer, ForeignKey("meal_entries.id"), nullable=False, index=True)
+
+    food_name = Column(String, nullable=False)
+    weight_g = Column(Float, nullable=False, default=0)
+    calories = Column(Float, nullable=False, default=0)
+    protein_g = Column(Float, nullable=False, default=0)
+    fat_g = Column(Float, nullable=False, default=0)
+    carbs_g = Column(Float, nullable=False, default=0)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    meal_entry = relationship("MealEntry", back_populates="items")
 
 
 # ==================== WATER LOG ====================
@@ -170,6 +209,54 @@ class Workout(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="workouts")
+    items = relationship(
+        "WorkoutItem",
+        back_populates="workout",
+        cascade="all, delete-orphan",
+        order_by="WorkoutItem.id",
+    )
+
+
+class WorkoutItem(Base):
+    """Упражнение внутри составной тренировки («жим лёжа 25 мин + становая
+    25 мин»). Итоги по тренировке (duration_min, calories_burned) хранятся
+    на Workout и пересчитываются в crud."""
+
+    __tablename__ = "workout_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workout_id = Column(Integer, ForeignKey("workouts.id"), nullable=False, index=True)
+
+    name = Column(String, nullable=False)
+    duration_min = Column(Float, nullable=False, default=0)
+    calories_burned = Column(Float, nullable=False, default=0)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    workout = relationship("Workout", back_populates="items")
+
+
+# ==================== EXERCISES (справочник упражнений) ====================
+
+class Exercise(Base):
+    """Справочник упражнений с примерным расходом калорий.
+    kcal_per_min — ккал в минуту для человека ~70 кг (оценка по MET).
+    Используется формой записи тренировки для авторасчёта калорий."""
+
+    __tablename__ = "exercises"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    # Категория соответствует типам тренировок: strength|cardio|stretching|sport|other
+    category = Column(String, nullable=False, default="other")
+    kcal_per_min = Column(Float, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    @property
+    def kcal_per_30min(self) -> int:
+        # Удобная цифра для UI: «Жим лёжа · 30 мин ≈ 180 ккал»
+        return round((self.kcal_per_min or 0) * 30)
 
 
 # ==================== MEALS ====================

@@ -9,7 +9,7 @@ import { ErrorAlert } from '../components/ErrorAlert'
 import { SuccessAlert } from '../components/SuccessAlert'
 import { Modal } from '../components/Modal'
 import { MealForm } from '../components/MealForm'
-import { IngredientList } from '../components/IngredientList'
+import { ingredientsToItems } from '../components/AnalysisFlow'
 import { ArrowLeft, Send } from 'lucide-react'
 
 export const TaskDetail: React.FC = () => {
@@ -77,7 +77,7 @@ export const TaskDetail: React.FC = () => {
   const r = task?.result
   const confidencePct = typeof r?.confidence === 'number' ? Math.round(r.confidence * 100) : null
 
-  // Префилл формы значениями анализа
+  // Префилл формы значениями анализа: ингредиенты — редактируемые позиции
   const formInitial: MealEntry | undefined = r
     ? {
         id: 0,
@@ -89,6 +89,7 @@ export const TaskDetail: React.FC = () => {
         weight_g: r.weight_g,
         meal_type: 'lunch',
         created_at: '',
+        items: ingredientsToItems(r),
       }
     : undefined
 
@@ -188,12 +189,7 @@ export const TaskDetail: React.FC = () => {
                 </div>
               </div>
 
-              {/* Состав */}
-              {r.ingredients && r.ingredients.length > 0 && (
-                <IngredientList ingredients={r.ingredients} />
-              )}
-
-              {/* Сохранение в дневник: редактируемые КБЖУ + выбор приёма */}
+              {/* Сохранение в дневник: состав разобран на редактируемые блюда */}
               <div className="border-t border-divider dark:border-line-dark pt-4">
                 <p className="text-[13px] font-semibold mb-3">Добавить в дневник питания</p>
                 <MealForm

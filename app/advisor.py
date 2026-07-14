@@ -13,6 +13,7 @@
 import hashlib
 import json
 import logging
+import re
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -23,8 +24,9 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-ADVISOR_CACHE_TTL = 30 * 60  # 30 минут
-ADVISOR_LLM_TIMEOUT = 25     # сек: советы не должны «висеть» как анализ фото
+ADVISOR_CACHE_TTL = 30 * 60        # 30 минут — для ответов LLM
+ADVISOR_RULES_CACHE_TTL = 2 * 60   # 2 минуты — для rules-фолбэка (чтобы ошибка не «залипала»)
+ADVISOR_LLM_TIMEOUT = 40           # сек: qwen с reasoning может думать долго
 
 
 # ===================== КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ =====================
@@ -209,35 +211,78 @@ def _get_llm_client():
     )
 
 
+def _extract_responses_text(response) -> Optional[str]:
+    """Достаёт текст из ответа Responses API (как в ml_service)."""
+    text = getattr(response, "output_text", None)
+    if text and text.strip():
+        return text
+    try:
+        dump = response.model_dump()
+    except Exception:
+        return None
+    chunks: list = []
+    for item in dump.get("output", []) or []:
+        # Пропускаем блок рассуждений — нам нужен только итоговый текст
+        if item.get("type") == "reasoning":
+            continue
+        for part in item.get("content", []) or []:
+            if isinstance(part, dict) and part.get("text"):
+                chunks.append(part["text"])
+    return "\n".join(chunks) if chunks else None
+
+
 def _llm_complete(instructions: str, prompt: str) -> Optional[str]:
     client = _get_llm_client()
     if client is None:
+        logger.warning("Advisor LLM disabled: YANDEX_API_KEY/FOLDER_ID not configured")
         return None
+
+    model = f"gpt://{settings.YANDEX_FOLDER_ID}/{settings.YANDEX_VISION_MODEL}"
+
+    # 1) Responses API (как у анализа фото). Бюджет токенов берём из настроек:
+    # у reasoning-моделей «мысли» съедают бюджет, при малом лимите ответ
+    # обрывается до JSON — из-за этого советчик уходил в fallback.
     try:
         response = client.responses.create(
-            model=f"gpt://{settings.YANDEX_FOLDER_ID}/{settings.YANDEX_VISION_MODEL}",
-            temperature=0.3,
-            max_output_tokens=1200,
-            reasoning={"effort": "low"},
+            model=model,
+            temperature=0.2,
+            max_output_tokens=getattr(settings, "YANDEX_MAX_OUTPUT_TOKENS", 4000),
+            reasoning={"effort": getattr(settings, "YANDEX_REASONING_EFFORT", "low")},
             instructions=instructions,
             input=[{
                 "role": "user",
                 "content": [{"type": "input_text", "text": prompt}],
             }],
         )
-        text = getattr(response, "output_text", None)
+        text = _extract_responses_text(response)
         if text:
             return text
-        # fallback-извлечение текста из output-структуры
-        dump = response.model_dump()
-        for item in dump.get("output", []) or []:
-            for part in item.get("content", []) or []:
-                if part.get("text"):
-                    return part["text"]
-        return None
+        logger.warning(
+            "Advisor LLM: empty text from Responses API (status=%s)",
+            getattr(response, "status", None),
+        )
     except Exception:
-        logger.warning("Advisor LLM call failed", exc_info=True)
-        return None
+        logger.warning("Advisor LLM: Responses API call failed", exc_info=True)
+
+    # 2) Fallback: классический chat.completions (тоже поддерживается Yandex)
+    try:
+        completion = client.chat.completions.create(
+            model=model,
+            temperature=0.2,
+            max_tokens=2000,
+            messages=[
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        text = (completion.choices[0].message.content or "").strip()
+        if text:
+            return text
+        logger.warning("Advisor LLM: empty text from chat.completions")
+    except Exception:
+        logger.warning("Advisor LLM: chat.completions call failed", exc_info=True)
+
+    return None
 
 
 _ADVICE_INSTRUCTIONS = """
@@ -298,7 +343,8 @@ def _cache_key(user_id: int, ctx: Dict[str, Any]) -> str:
     fingerprint = hashlib.sha256(
         json.dumps(ctx, sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()[:16]
-    return f"advisor:v1:{user_id}:{ctx['date']}:{fingerprint}"
+    # v2: старые записи v1 (rules могли закэшироваться на 30 мин) игнорируются
+    return f"advisor:v2:{user_id}:{ctx['date']}:{fingerprint}"
 
 
 def _cache_get(key: str) -> Optional[Dict[str, Any]]:
@@ -313,7 +359,10 @@ def _cache_get(key: str) -> Optional[Dict[str, Any]]:
 def _cache_set(key: str, payload: Dict[str, Any]) -> None:
     try:
         from app.ml_service import get_redis_client
-        get_redis_client().setex(key, ADVISOR_CACHE_TTL, json.dumps(payload, ensure_ascii=False))
+        # Rules-фолбэк кэшируем совсем ненадолго: как только LLM снова доступна,
+        # пользователь должен получить «живые» советы, а не залипший фолбэк.
+        ttl = ADVISOR_CACHE_TTL if payload.get("generated_by") == "llm" else ADVISOR_RULES_CACHE_TTL
+        get_redis_client().setex(key, ttl, json.dumps(payload, ensure_ascii=False))
     except Exception:
         pass
 
@@ -330,8 +379,11 @@ def get_advice(db: Session, user: models.User) -> Dict[str, Any]:
         return cached
 
     prompt = "Данные пользователя за сегодня:\n" + json.dumps(ctx, ensure_ascii=False, indent=2)
-    advice = _parse_llm_advice(_llm_complete(_ADVICE_INSTRUCTIONS, prompt))
+    raw = _llm_complete(_ADVICE_INSTRUCTIONS, prompt)
+    advice = _parse_llm_advice(raw)
     if advice is None:
+        if raw:
+            logger.warning("Advisor LLM: failed to parse advice JSON, raw=%r", raw[:500])
         advice = rule_based_advice(ctx)
 
     _cache_set(key, advice)
@@ -354,8 +406,11 @@ def ask(db: Session, user: models.User, question: str) -> Dict[str, str]:
         "Данные за сегодня:\n" + json.dumps(ctx, ensure_ascii=False, indent=2)
     )
     answer = _llm_complete(_ASK_INSTRUCTIONS, prompt)
-    if answer and answer.strip():
-        return {"answer": answer.strip()[:2000], "generated_by": "llm"}
+    if answer:
+        # Убираем возможный блок рассуждений reasoning-модели (<think>…</think>)
+        answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.DOTALL).strip()
+    if answer:
+        return {"answer": answer[:2000], "generated_by": "llm"}
 
     # Fallback: краткая сводка по правилам
     advice = rule_based_advice(ctx)

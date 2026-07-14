@@ -15,6 +15,8 @@ interface AppliedProduct {
 interface ProductPickerProps {
   // Подставляет посчитанные КБЖУ (на выбранный вес) в родительскую форму.
   onApply: (data: AppliedProduct) => void
+  // Текст кнопки применения (в конструкторе — «Добавить блюдом»)
+  applyLabel?: string
 }
 
 const round1 = (v: number) => Math.round(v * 10) / 10
@@ -34,7 +36,10 @@ const scaleToWeight = (product: Product, weightG: number) => {
 // Используется во всех местах, где можно добавить ингредиент/приём пищи
 // (ручной ввод, редактирование, подтверждение AI-анализа) — компонент
 // подключён внутри MealForm, общего для всех этих экранов.
-export const ProductPicker: React.FC<ProductPickerProps> = ({ onApply }) => {
+export const ProductPicker: React.FC<ProductPickerProps> = ({
+  onApply,
+  applyLabel = 'Подставить в форму',
+}) => {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Product[]>([])
   const [isOpen, setIsOpen] = useState(false)
@@ -94,6 +99,8 @@ export const ProductPicker: React.FC<ProductPickerProps> = ({ onApply }) => {
       weight_g: weight,
       ...nutrition,
     })
+    // Сбрасываем выбор — можно сразу искать следующее блюдо
+    handleClearSelection()
   }
 
   const preview = selected ? scaleToWeight(selected, weight || 0) : null
@@ -209,7 +216,7 @@ export const ProductPicker: React.FC<ProductPickerProps> = ({ onApply }) => {
             disabled={!weight}
             className="btn-primary w-full disabled:opacity-50"
           >
-            Подставить в форму
+            {applyLabel}
           </button>
         </div>
       )}

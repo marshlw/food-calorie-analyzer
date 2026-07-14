@@ -13,8 +13,9 @@ import { WeightChart } from '../components/profile/WeightChart'
 import { WeightHistoryList } from '../components/profile/WeightHistoryList'
 import { AddWeightModal } from '../components/profile/AddWeightModal'
 import { ChangePasswordForm } from '../components/profile/ChangePasswordForm'
+import { TargetsForm } from '../components/profile/TargetsForm'
 
-type SettingsSection = 'personal' | 'password' | null
+type SettingsSection = 'personal' | 'targets' | 'password' | null
 
 export const Profile: React.FC = () => {
   const { user, logout } = useAuth()
@@ -161,7 +162,21 @@ export const Profile: React.FC = () => {
 
           {/* Суточная норма КБЖУ */}
           <div className="card px-5 py-[18px] mb-6">
-            <div className="text-[13px] font-semibold mb-3">Суточная норма КБЖУ</div>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[13px] font-semibold">Суточная норма КБЖУ</span>
+              {(profile.custom_calorie_target != null ||
+                profile.custom_protein_g != null ||
+                profile.custom_fat_g != null ||
+                profile.custom_carbs_g != null ||
+                profile.custom_water_ml != null) && (
+                <button
+                  onClick={() => setOpenSection('targets')}
+                  className="chip-ai !text-[11px] font-semibold"
+                >
+                  задана вручную
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-3 gap-2.5">
               <div>
                 <div className="flex items-center gap-1.5 text-xs text-secondary">
@@ -230,6 +245,17 @@ export const Profile: React.FC = () => {
             {openSection === 'personal' && (
               <div className="px-5 pb-5 border-b border-divider dark:border-line-dark">
                 <ProfileForm profile={profile} onSave={handleSaveProfile} />
+              </div>
+            )}
+
+            <SettingsRow
+              label="Мои нормы КБЖУ и воды"
+              onClick={() => toggleSection('targets')}
+              expanded={openSection === 'targets'}
+            />
+            {openSection === 'targets' && (
+              <div className="px-5 pb-5 border-b border-divider dark:border-line-dark">
+                <TargetsForm profile={profile} onSave={handleSaveProfile} />
               </div>
             )}
 

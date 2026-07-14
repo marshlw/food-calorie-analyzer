@@ -98,6 +98,13 @@ class ProfileUpdate(BaseModel):
     # UX «Сохранить как новую запись?». По умолчанию True: вес из формы
     # профиля попадает в историю (за сегодня, upsert'ом).
     save_weight_as_record: bool = True
+    # Ручные нормы (для атлетов): None = не менять, 0 = вернуть авторасчёт,
+    # положительное значение = установить. Подхватываются во всех формах.
+    custom_calorie_target: Optional[float] = Field(None, ge=0, le=20000)
+    custom_protein_g: Optional[float] = Field(None, ge=0, le=2000)
+    custom_fat_g: Optional[float] = Field(None, ge=0, le=2000)
+    custom_carbs_g: Optional[float] = Field(None, ge=0, le=3000)
+    custom_water_ml: Optional[float] = Field(None, ge=0, le=20000)
 
 
 class NutritionTargets(BaseModel):
@@ -126,6 +133,13 @@ class ProfileResponse(BaseModel):
     carbs_target_g: Optional[float] = None
     # Суточная норма воды (мл), считается из веса/активности.
     water_target_ml: Optional[float] = None
+    # Ручные переопределения норм (NULL = соответствующая норма — авторасчёт).
+    # Нужны фронту, чтобы показать, какие значения заданы вручную.
+    custom_calorie_target: Optional[float] = None
+    custom_protein_g: Optional[float] = None
+    custom_fat_g: Optional[float] = None
+    custom_carbs_g: Optional[float] = None
+    custom_water_ml: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -244,6 +258,23 @@ class MealItemCreate(MealItemBase):
     pass
 
 
+class MealEntryItemCreate(BaseModel):
+    """Одно блюдо в составном приёме («гарнир + основное блюдо»)."""
+    food_name: str = Field(..., min_length=1, max_length=200)
+    weight_g: float = Field(..., gt=0)
+    calories: float = Field(..., ge=0)
+    protein_g: float = Field(0, ge=0)
+    fat_g: float = Field(0, ge=0)
+    carbs_g: float = Field(0, ge=0)
+
+
+class MealEntryItemResponse(MealEntryItemCreate):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
 class MealEntryCreate(BaseModel):
     food_name: str
     calories: float = Field(..., ge=0)
@@ -255,6 +286,9 @@ class MealEntryCreate(BaseModel):
     # День записи (по умолчанию сегодня) и связь с AI-задачей анализа.
     date: Optional[_date] = None
     task_id: Optional[str] = None
+    # Составной приём: несколько блюд. Если список непустой, итоги
+    # (calories/weight_g/...) пересчитываются на бэкенде из блюд.
+    items: List[MealEntryItemCreate] = Field(default_factory=list)
 
 
 class MealEntryResponse(BaseModel):
@@ -269,6 +303,8 @@ class MealEntryResponse(BaseModel):
     created_at: datetime
     # Наличие task_id => запись создана из AI-анализа (источник на фронте).
     task_id: Optional[str] = None
+    # Блюда составного приёма (пусто у простых записей).
+    items: List[MealEntryItemResponse] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -396,14 +432,32 @@ class GenerateDatasetResponse(BaseModel):
 WorkoutType = Literal["strength", "cardio", "stretching", "sport", "other"]
 
 
+class WorkoutItemCreate(BaseModel):
+    """Одно упражнение в составной тренировке («жим лёжа 25 мин 150 ккал»)."""
+    name: str = Field(..., min_length=1, max_length=200)
+    duration_min: float = Field(..., gt=0, le=1440)
+    calories_burned: float = Field(0, ge=0, le=10000)
+
+
+class WorkoutItemResponse(WorkoutItemCreate):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
 class WorkoutCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     workout_type: WorkoutType = "other"
-    duration_min: float = Field(..., gt=0, le=1440)
+    # Для составной тренировки (items непустой) итоги пересчитываются
+    # на бэкенде из упражнений, поэтому здесь допускаем 0.
+    duration_min: float = Field(0, ge=0, le=1440)
     calories_burned: float = Field(0, ge=0, le=10000)
     description: Optional[str] = Field(None, max_length=500)
     started_at: Optional[str] = Field(None, max_length=5)  # "HH:MM"
     date: Optional[_date] = None  # по умолчанию — сегодня
+    # Конструктор: несколько упражнений в одной тренировке.
+    items: List[WorkoutItemCreate] = Field(default_factory=list)
 
     @validator("started_at")
     def validate_time(cls, v):
@@ -414,6 +468,12 @@ class WorkoutCreate(BaseModel):
         except ValueError:
             raise ValueError("Время должно быть в формате HH:MM")
         return v
+
+    @root_validator(skip_on_failure=True)
+    def require_duration_or_items(cls, values):
+        if not values.get("items") and not (values.get("duration_min") or 0) > 0:
+            raise ValueError("Укажите длительность или добавьте хотя бы одно упражнение")
+        return values
 
 
 class WorkoutResponse(BaseModel):
@@ -426,6 +486,8 @@ class WorkoutResponse(BaseModel):
     duration_min: float
     calories_burned: float
     created_at: datetime
+    # Упражнения составной тренировки (пусто у простых записей).
+    items: List[WorkoutItemResponse] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -453,6 +515,19 @@ class WorkoutsResponse(BaseModel):
     workouts: List[WorkoutResponse]
     summary: WorkoutDaySummary
     week: List[WorkoutWeekDay]
+
+
+class ExerciseResponse(BaseModel):
+    """Упражнение из справочника. kcal_per_min — примерный расход ккал
+    в минуту (человек ~70 кг); kcal_per_30min — удобное число для UI."""
+    id: int
+    name: str
+    category: str
+    kcal_per_min: float
+    kcal_per_30min: int
+
+    class Config:
+        from_attributes = True
 
 
 # ==================== AI-СОВЕТЧИК ====================

@@ -58,6 +58,12 @@ _PROFILE_COLUMNS = {
     "sex": "VARCHAR",
     "birth_date": "DATE",
     "activity_level": "VARCHAR",
+    # Ручные нормы КБЖУ/воды (NULL = авторасчёт)
+    "custom_calorie_target": "FLOAT",
+    "custom_protein_g": "FLOAT",
+    "custom_fat_g": "FLOAT",
+    "custom_carbs_g": "FLOAT",
+    "custom_water_ml": "FLOAT",
 }
 
 

@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
-import { WorkoutCreate, WorkoutType } from '../types'
+import { Plus, Trash2 } from 'lucide-react'
+import { WorkoutCreate, WorkoutType, Exercise } from '../types'
+import { ExercisePicker } from './ExercisePicker'
 
 interface Props {
   onSubmit: (data: WorkoutCreate) => Promise<void>
@@ -14,44 +16,129 @@ const TYPES: { value: WorkoutType; label: string }[] = [
   { value: 'other', label: 'Другое' },
 ]
 
-// Форма записи тренировки (модалка «Записать» на вкладке «Тренировки»)
+const VALID_TYPES: WorkoutType[] = ['strength', 'cardio', 'stretching', 'sport', 'other']
+
+// Строка конструктора: одно упражнение
+interface Row {
+  key: number
+  name: string
+  duration: string // мин
+  calories: string // ккал
+  kcalPerMin: number | null // из справочника — для авторасчёта при смене длительности
+}
+
+let rowKey = 1
+const emptyRow = (): Row => ({ key: rowKey++, name: '', duration: '', calories: '', kcalPerMin: null })
+
+// Конструктор тренировки: несколько упражнений в одной записи
+// («жим лёжа 25 мин 150 ккал + становая 25 мин 150 ккал»).
 export const WorkoutForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
-  const [title, setTitle] = useState('')
+  const [rows, setRows] = useState<Row[]>([emptyRow()])
   const [type, setType] = useState<WorkoutType>('strength')
-  const [duration, setDuration] = useState('')
-  const [calories, setCalories] = useState('')
+  const [title, setTitle] = useState('')
   const [startedAt, setStartedAt] = useState('')
   const [description, setDescription] = useState('')
   const [error, setError] = useState('')
 
+  const updateRow = (key: number, patch: Partial<Row>) => {
+    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)))
+  }
+
+  const handleRowDuration = (row: Row, value: string) => {
+    const patch: Partial<Row> = { duration: value }
+    const d = parseFloat(value)
+    if (row.kcalPerMin && d > 0) {
+      patch.calories = String(Math.round(row.kcalPerMin * d))
+    }
+    updateRow(row.key, patch)
+  }
+
+  // Выбор из базы: заполняет первую пустую строку или добавляет новую
+  const handleExerciseSelect = (ex: Exercise) => {
+    const duration = 30
+    const newRow: Row = {
+      key: rowKey++,
+      name: ex.name,
+      duration: String(duration),
+      calories: String(Math.round(ex.kcal_per_min * duration)),
+      kcalPerMin: ex.kcal_per_min,
+    }
+    setRows((prev) => {
+      const emptyIdx = prev.findIndex((r) => !r.name.trim() && !r.duration && !r.calories)
+      if (emptyIdx >= 0) {
+        const next = [...prev]
+        next[emptyIdx] = newRow
+        return next
+      }
+      return [...prev, newRow]
+    })
+    // Тип тренировки — по первому выбранному упражнению
+    if (VALID_TYPES.includes(ex.category)) setType((cur) => (rows.some((r) => r.name.trim()) ? cur : ex.category))
+  }
+
+  const removeRow = (key: number) => {
+    setRows((prev) => (prev.length > 1 ? prev.filter((r) => r.key !== key) : prev))
+  }
+
+  const filledRows = rows.filter((r) => r.name.trim())
+  const totalMin = filledRows.reduce((s, r) => s + (parseFloat(r.duration) || 0), 0)
+  const totalKcal = filledRows.reduce((s, r) => s + (parseFloat(r.calories) || 0), 0)
+
+  const autoTitle =
+    filledRows.length > 0
+      ? filledRows.map((r) => r.name.trim()).join(' + ').slice(0, 190)
+      : ''
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const durationNum = parseFloat(duration)
-    const caloriesNum = calories ? parseFloat(calories) : 0
 
-    if (!title.trim()) {
-      setError('Укажите название тренировки')
+    if (filledRows.length === 0) {
+      setError('Добавьте хотя бы одно упражнение')
       return
     }
-    if (!durationNum || durationNum <= 0) {
-      setError('Длительность должна быть больше 0')
-      return
-    }
-    if (caloriesNum < 0) {
-      setError('Калории не могут быть отрицательными')
-      return
+    for (const r of filledRows) {
+      const d = parseFloat(r.duration)
+      if (!d || d <= 0) {
+        setError(`Укажите длительность: «${r.name.trim()}»`)
+        return
+      }
+      if ((parseFloat(r.calories) || 0) < 0) {
+        setError('Калории не могут быть отрицательными')
+        return
+      }
     }
 
     setError('')
+    const items = filledRows.map((r) => ({
+      name: r.name.trim(),
+      duration_min: parseFloat(r.duration),
+      calories_burned: parseFloat(r.calories) || 0,
+    }))
+
+    const finalTitle = (title.trim() || autoTitle || 'Тренировка').slice(0, 200)
+
     try {
-      await onSubmit({
-        title: title.trim(),
-        workout_type: type,
-        duration_min: durationNum,
-        calories_burned: caloriesNum,
-        started_at: startedAt || undefined,
-        description: description.trim() || undefined,
-      })
+      if (items.length === 1) {
+        // Простая тренировка — без вложенных позиций
+        await onSubmit({
+          title: finalTitle,
+          workout_type: type,
+          duration_min: items[0].duration_min,
+          calories_burned: items[0].calories_burned,
+          started_at: startedAt || undefined,
+          description: description.trim() || undefined,
+        })
+      } else {
+        await onSubmit({
+          title: finalTitle,
+          workout_type: type,
+          duration_min: 0, // итоги пересчитает бэкенд из items
+          calories_burned: 0,
+          items,
+          started_at: startedAt || undefined,
+          description: description.trim() || undefined,
+        })
+      }
     } catch {
       // Ошибку показывает родитель
     }
@@ -59,7 +146,96 @@ export const WorkoutForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Тип тренировки — сегментированный выбор как в дизайне */}
+      {/* Поиск в базе упражнений (~60 шт. с ккал/мин): выбор добавляет строку */}
+      <ExercisePicker onSelect={handleExerciseSelect} clearOnSelect />
+
+      {/* Конструктор упражнений */}
+      <div>
+        <label className="block text-[13px] font-semibold mb-1.5">Упражнения</label>
+        <div className="flex flex-col gap-2">
+          {rows.map((row, i) => (
+            <div
+              key={row.key}
+              className="rounded-tile border border-line dark:border-line-dark bg-surface dark:bg-chip-dark/50 p-3"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <input
+                  type="text"
+                  value={row.name}
+                  onChange={(e) => updateRow(row.key, { name: e.target.value, kcalPerMin: null })}
+                  placeholder={`Упражнение ${i + 1} (например: Жим лёжа)`}
+                  className="input flex-1 !py-2 text-sm"
+                  disabled={isLoading}
+                />
+                <button
+                  type="button"
+                  onClick={() => removeRow(row.key)}
+                  disabled={rows.length <= 1 || isLoading}
+                  aria-label="Убрать упражнение"
+                  className="p-1.5 rounded-lg text-faint dark:text-faint-dark hover:text-danger hover:bg-danger/10 transition-colors disabled:opacity-30 flex-shrink-0"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <input
+                    type="number"
+                    value={row.duration}
+                    onChange={(e) => handleRowDuration(row, e.target.value)}
+                    placeholder="мин"
+                    min="1"
+                    max="1440"
+                    step="1"
+                    className="input !py-2 text-sm"
+                    disabled={isLoading}
+                  />
+                  <span className="text-[10px] text-tertiary ml-1">минут</span>
+                </div>
+                <div>
+                  <input
+                    type="number"
+                    value={row.calories}
+                    onChange={(e) => updateRow(row.key, { calories: e.target.value })}
+                    placeholder="ккал"
+                    min="0"
+                    max="10000"
+                    step="1"
+                    className="input !py-2 text-sm"
+                    disabled={isLoading}
+                  />
+                  <span className="text-[10px] text-tertiary ml-1">
+                    ккал{row.kcalPerMin ? ' · авто' : ''}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => setRows((prev) => [...prev, emptyRow()])}
+          disabled={isLoading}
+          className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary-500 dark:text-primary-400 hover:text-primary-700"
+        >
+          <Plus className="h-3.5 w-3.5" /> Добавить упражнение
+        </button>
+      </div>
+
+      {/* Итого по тренировке */}
+      {filledRows.length > 0 && (
+        <div className="flex justify-between items-center px-4 py-3 rounded-tile bg-primary-50 dark:bg-chip-dark text-primary-500 dark:text-primary-400">
+          <span className="text-[13px] font-semibold">
+            Итого · {filledRows.length}{' '}
+            {filledRows.length === 1 ? 'упражнение' : filledRows.length < 5 ? 'упражнения' : 'упражнений'}
+          </span>
+          <span className="text-[13px] font-bold">
+            {Math.round(totalMin)} мин · {Math.round(totalKcal)} ккал
+          </span>
+        </div>
+      )}
+
+      {/* Тип тренировки */}
       <div>
         <label className="block text-[13px] font-semibold mb-1.5">Тип тренировки</label>
         <div className="grid grid-cols-3 gap-2">
@@ -81,12 +257,12 @@ export const WorkoutForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
       </div>
 
       <div>
-        <label className="block text-[13px] font-semibold mb-1.5">Название</label>
+        <label className="block text-[13px] font-semibold mb-1.5">Название тренировки (опц.)</label>
         <input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Например: Верх тела"
+          placeholder={autoTitle || 'Например: Верх тела'}
           className="input"
           disabled={isLoading}
         />
@@ -94,56 +270,26 @@ export const WorkoutForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-[13px] font-semibold mb-1.5">Длительность, мин</label>
+          <label className="block text-[13px] font-semibold mb-1.5">Время начала (опц.)</label>
           <input
-            type="number"
-            value={duration}
-            onChange={(e) => setDuration(e.target.value)}
-            placeholder="45"
-            min="1"
-            max="1440"
-            step="1"
+            type="time"
+            value={startedAt}
+            onChange={(e) => setStartedAt(e.target.value)}
             className="input"
             disabled={isLoading}
           />
         </div>
         <div>
-          <label className="block text-[13px] font-semibold mb-1.5">Потрачено, ккал</label>
+          <label className="block text-[13px] font-semibold mb-1.5">Заметка (опц.)</label>
           <input
-            type="number"
-            value={calories}
-            onChange={(e) => setCalories(e.target.value)}
-            placeholder="320"
-            min="0"
-            max="10000"
-            step="1"
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Как прошло?"
             className="input"
             disabled={isLoading}
           />
         </div>
-      </div>
-
-      <div>
-        <label className="block text-[13px] font-semibold mb-1.5">Время начала (опц.)</label>
-        <input
-          type="time"
-          value={startedAt}
-          onChange={(e) => setStartedAt(e.target.value)}
-          className="input"
-          disabled={isLoading}
-        />
-      </div>
-
-      <div>
-        <label className="block text-[13px] font-semibold mb-1.5">Заметка (опц.)</label>
-        <input
-          type="text"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Жим лёжа · Тяга в наклоне · Подтягивания"
-          className="input"
-          disabled={isLoading}
-        />
       </div>
 
       {error && <p className="text-danger text-xs">{error}</p>}

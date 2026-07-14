@@ -60,6 +60,17 @@ export interface AnalysisResult {
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks'
 
+// Одно блюдо в составном приёме («гарнир + основное блюдо»)
+export interface MealEntryItem {
+  id?: number
+  food_name: string
+  weight_g: number
+  calories: number
+  protein_g: number
+  fat_g: number
+  carbs_g: number
+}
+
 export interface MealEntry {
   id: number
   food_name: string
@@ -73,6 +84,8 @@ export interface MealEntry {
   // Если запись создана из AI-анализа, бэкенд возвращает связанный task_id.
   // Источник (AI/ручной) выводим из его наличия — отдельной колонки в БД нет.
   task_id?: string | null
+  // Блюда составного приёма (пусто у простых записей).
+  items?: MealEntryItem[]
 }
 
 export interface MealEntryCreate {
@@ -86,6 +99,8 @@ export interface MealEntryCreate {
   // Необязательные: день записи (по умолчанию сегодня) и связь с AI-задачей.
   date?: string
   task_id?: string
+  // Составной приём: итоги пересчитает бэкенд из блюд.
+  items?: MealEntryItem[]
 }
 
 export interface NutritionTargets {
@@ -156,6 +171,12 @@ export interface Profile {
   fat_target_g?: number | null
   carbs_target_g?: number | null
   water_target_ml?: number | null
+  // Ручные переопределения норм (null = эта норма считается автоматически)
+  custom_calorie_target?: number | null
+  custom_protein_g?: number | null
+  custom_fat_g?: number | null
+  custom_carbs_g?: number | null
+  custom_water_ml?: number | null
 }
 
 export interface ProfileUpdate {
@@ -167,6 +188,12 @@ export interface ProfileUpdate {
   activity_level?: ActivityLevel
   // По умолчанию true: изменённый в форме вес уходит в историю.
   save_weight_as_record?: boolean
+  // Ручные нормы: undefined = не менять, 0 = вернуть авторасчёт, >0 = установить
+  custom_calorie_target?: number
+  custom_protein_g?: number
+  custom_fat_g?: number
+  custom_carbs_g?: number
+  custom_water_ml?: number
 }
 
 export interface WeightRecordCreate {
@@ -179,6 +206,14 @@ export interface WeightRecordCreate {
 
 export type WorkoutType = 'strength' | 'cardio' | 'stretching' | 'sport' | 'other'
 
+// Одно упражнение в составной тренировке («жим лёжа 25 мин 150 ккал»)
+export interface WorkoutItem {
+  id?: number
+  name: string
+  duration_min: number
+  calories_burned: number
+}
+
 export interface Workout {
   id: number
   date: string // YYYY-MM-DD
@@ -189,6 +224,8 @@ export interface Workout {
   duration_min: number
   calories_burned: number
   created_at: string
+  // Упражнения составной тренировки (пусто у простых записей).
+  items?: WorkoutItem[]
 }
 
 export interface WorkoutCreate {
@@ -199,6 +236,8 @@ export interface WorkoutCreate {
   description?: string
   started_at?: string
   date?: string
+  // Конструктор: несколько упражнений; итоги пересчитает бэкенд.
+  items?: WorkoutItem[]
 }
 
 export interface WorkoutDaySummary {
@@ -220,6 +259,15 @@ export interface WorkoutsResponse {
   workouts: Workout[]
   summary: WorkoutDaySummary
   week: WorkoutWeekDay[]
+}
+
+// Справочник упражнений: примерный расход ккал/мин (человек ~70 кг)
+export interface Exercise {
+  id: number
+  name: string
+  category: WorkoutType
+  kcal_per_min: number
+  kcal_per_30min: number
 }
 
 // ==================== AI-СОВЕТЧИК ====================

@@ -1,10 +1,35 @@
 import React, { useEffect, useRef } from 'react'
 import { useFoodAnalysis } from '../hooks/useFoodAnalysis'
 import { MealForm } from './MealForm'
-import { IngredientList } from './IngredientList'
 import { LoadingSpinner } from './LoadingSpinner'
 import { ErrorAlert } from './ErrorAlert'
-import { MealEntry, MealEntryCreate } from '../types'
+import { AnalysisResult, MealEntry, MealEntryItem, MealEntryCreate } from '../types'
+
+const round1 = (v: number) => Math.round(v * 10) / 10
+const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
+
+// Превращает состав от AI в редактируемые позиции конструктора:
+// КБЖУ блюда распределяется по ингредиентам пропорционально их весу,
+// чтобы каждую позицию можно было менять/убирать по отдельности.
+export const ingredientsToItems = (r: AnalysisResult): MealEntryItem[] => {
+  const ings = (r.ingredients ?? []).filter((i) => i.name)
+  if (ings.length < 2) return []
+
+  const totalW = ings.reduce((s, i) => s + (i.weight_g || 0), 0) || r.weight_g || 0
+  if (totalW <= 0) return []
+
+  return ings.map((ing) => {
+    const share = (ing.weight_g || 0) / totalW
+    return {
+      food_name: cap(ing.name),
+      weight_g: round1(ing.weight_g || 0),
+      calories: round1(r.calories * share),
+      protein_g: round1(r.protein_g * share),
+      fat_g: round1(r.fat_g * share),
+      carbs_g: round1(r.carbs_g * share),
+    }
+  })
+}
 
 interface Props {
   file: File
@@ -57,7 +82,9 @@ export const AnalysisFlow: React.FC<Props> = ({ file, onConfirm, onCancel, savin
 
   if (phase === 'done' && task?.result) {
     const r = task.result
-    // Предзаполняем форму значениями AI — пользователь может всё поправить.
+    // Предзаполняем форму значениями AI — пользователь может всё поправить:
+    // ингредиенты становятся редактируемыми позициями (добавить/убрать/
+    // поменять вес — КБЖУ пересчитается).
     const initial: MealEntry = {
       id: 0,
       food_name: r.food || r.food_name || '',
@@ -68,6 +95,7 @@ export const AnalysisFlow: React.FC<Props> = ({ file, onConfirm, onCancel, savin
       weight_g: r.weight_g,
       meal_type: 'lunch',
       created_at: '',
+      items: ingredientsToItems(r),
     }
 
     // Прокидываем task_id, чтобы сохранённая запись сохранила источник «AI».
@@ -100,12 +128,9 @@ export const AnalysisFlow: React.FC<Props> = ({ file, onConfirm, onCancel, savin
           )}
         </div>
 
-        {/* Состав от AI */}
-        {r.ingredients && r.ingredients.length > 0 && <IngredientList ingredients={r.ingredients} />}
-
         <p className="text-xs text-tertiary">
-          Проверьте название, выберите приём пищи и при необходимости поправьте КБЖУ перед добавлением
-          в дневник.
+          Состав распознан AI и разобран на блюда ниже — уберите лишнее, поправьте вес
+          (КБЖУ пересчитается) или добавьте что-то из базы перед сохранением.
         </p>
 
         {/* Редактируемые поля (название/КБЖУ/тип приёма) */}

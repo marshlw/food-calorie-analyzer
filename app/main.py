@@ -97,6 +97,17 @@ async def startup_event():
     except Exception as exc:
         logger.warning("Product seeding failed", exc_info=exc)
 
+    # Засев справочника упражнений (ккал/мин), идемпотентно
+    try:
+        from .seed_exercises import seed_exercises
+        session = SessionLocal()
+        try:
+            seed_exercises(session)
+        finally:
+            session.close()
+    except Exception as exc:
+        logger.warning("Exercise seeding failed", exc_info=exc)
+
     try:
         ml_service.get_http_client()
         ml_service.get_redis_client()
@@ -415,6 +426,12 @@ def _build_profile(db: Session, user: models.User) -> dict:
         "fat_target_g": t["fat_g"],
         "carbs_target_g": t["carbs_g"],
         "water_target_ml": t["water_ml"],
+        # Какие нормы заданы вручную (для формы «Мои нормы» в профиле)
+        "custom_calorie_target": user.custom_calorie_target,
+        "custom_protein_g": user.custom_protein_g,
+        "custom_fat_g": user.custom_fat_g,
+        "custom_carbs_g": user.custom_carbs_g,
+        "custom_water_ml": user.custom_water_ml,
     }
 
 
@@ -692,17 +709,9 @@ async def edit_meal_entry(
     if not meal_entry or meal_entry.daily_log.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Meal entry not found")
 
-    meal_entry.food_name = update.food_name
-    meal_entry.calories = update.calories
-    meal_entry.protein_g = update.protein_g
-    meal_entry.fat_g = update.fat_g
-    meal_entry.carbs_g = update.carbs_g
-    meal_entry.weight_g = update.weight_g
-    meal_entry.meal_type = getattr(update, 'meal_type', meal_entry.meal_type)
-
-    db.commit()
-    db.refresh(meal_entry)
-    return meal_entry
+    # Составные записи (items) обновляются с полной заменой блюд и
+    # пересчётом итогов на бэкенде.
+    return crud.update_meal_entry(db, meal_entry, update)
 
 
 @app.delete("/api/v1/meals/{meal_id}")
@@ -793,6 +802,18 @@ async def delete_workout(
     if not crud.delete_workout(db, current_user.id, workout_id):
         raise HTTPException(status_code=404, detail="Workout not found")
     return {"status": "ok", "deleted_id": workout_id}
+
+
+@app.get("/api/v1/exercises", response_model=List[schemas.ExerciseResponse])
+async def search_exercises(
+    q: str = "",
+    limit: int = 60,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Справочник упражнений с примерным расходом калорий (ккал/мин, ~70 кг).
+    Используется формой «Записать тренировку» для авторасчёта калорий."""
+    return crud.search_exercises(db, q, limit)
 
 
 # ===================== AI-СОВЕТЧИК (кнопка ✦ по центру) =====================
