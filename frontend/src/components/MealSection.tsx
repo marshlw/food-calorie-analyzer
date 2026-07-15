@@ -7,12 +7,13 @@ interface Props {
   meals: MealEntry[]
   onEdit: (m: MealEntry) => void
   onDelete: (m: MealEntry) => void
+  onView?: (m: MealEntry) => void
   busy?: boolean
 }
 
 // Одна категория приёмов пищи (Завтрак/Обед/...): заголовок Manrope + сумма
 // ккал справа, ниже — карточки записей. Глупый, мемоизированный.
-export const MealSection = React.memo<Props>(({ title, meals, onEdit, onDelete, busy }) => {
+export const MealSection = React.memo<Props>(({ title, meals, onEdit, onDelete, onView, busy }) => {
   if (meals.length === 0) return null
 
   const kcal = Math.round(meals.reduce((s, m) => s + m.calories, 0))
@@ -29,6 +30,7 @@ export const MealSection = React.memo<Props>(({ title, meals, onEdit, onDelete, 
           meal={m}
           onEdit={() => onEdit(m)}
           onDelete={() => onDelete(m)}
+          onView={onView ? () => onView(m) : undefined}
           isLoading={busy}
         />
       ))}

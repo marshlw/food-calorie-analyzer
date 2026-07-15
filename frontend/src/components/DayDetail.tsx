@@ -18,11 +18,12 @@ const ORDER: { type: MealType; title: string }[] = [
 interface Props {
   onEdit: (m: MealEntry) => void
   onDelete: (m: MealEntry) => void
+  onView?: (m: MealEntry) => void
   busy?: boolean
 }
 
 // Детальный вид выбранного дня с группировкой по типам приёмов. Smart.
-export const DayDetail: React.FC<Props> = ({ onEdit, onDelete, busy }) => {
+export const DayDetail: React.FC<Props> = ({ onEdit, onDelete, onView, busy }) => {
   const { selectedDate, weekLogs } = useDiary()
   const { data, isLoading, execute } = useApi<DailyLog>()
 
@@ -66,6 +67,7 @@ export const DayDetail: React.FC<Props> = ({ onEdit, onDelete, busy }) => {
             meals={grouped[type]}
             onEdit={onEdit}
             onDelete={onDelete}
+            onView={onView}
             busy={busy}
           />
         ))

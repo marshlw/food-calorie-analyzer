@@ -8,6 +8,8 @@ interface MealCardProps {
   meal: MealEntry
   onEdit: () => void
   onDelete: () => void
+  // Открыть карточку записи (просмотр с фото). Если передан — карточка кликабельна.
+  onView?: () => void
   isLoading?: boolean
   // Показывать ли чип типа приёма (в сгруппированном списке он в заголовке секции)
   showTypeChip?: boolean
@@ -15,17 +17,32 @@ interface MealCardProps {
 
 // Запись приёма пищи из дизайна Rasify: точка-маркер, название, строка КБЖУ,
 // чип AI (если запись из анализа) и действия редактировать/удалить.
+// Клик по карточке (кроме кнопок) открывает просмотр записи.
 export const MealCard: React.FC<MealCardProps> = ({
   meal,
   onEdit,
   onDelete,
+  onView,
   isLoading,
   showTypeChip = false,
 }) => {
   const meta = MEAL_TYPE_META[meal.meal_type]
 
   return (
-    <div className="card-tile px-4 py-3.5 mb-2.5 flex items-center gap-3.5">
+    <div
+      onClick={onView}
+      role={onView ? 'button' : undefined}
+      tabIndex={onView ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (onView && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault()
+          onView()
+        }
+      }}
+      className={`card-tile px-4 py-3.5 mb-2.5 flex items-center gap-3.5 ${
+        onView ? 'cursor-pointer hover:border-primary-500/40 transition-colors' : ''
+      }`}
+    >
       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${meta.dot}`} />
 
       <div className="flex-1 min-w-0">
@@ -56,7 +73,10 @@ export const MealCard: React.FC<MealCardProps> = ({
 
       <div className="flex gap-1 flex-shrink-0">
         <button
-          onClick={onEdit}
+          onClick={(e) => {
+            e.stopPropagation()
+            onEdit()
+          }}
           disabled={isLoading}
           aria-label="Редактировать"
           className="p-1.5 rounded-lg text-faint dark:text-faint-dark hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-chip-dark transition-colors disabled:opacity-50"
@@ -64,7 +84,10 @@ export const MealCard: React.FC<MealCardProps> = ({
           <Edit2 className="h-4 w-4" />
         </button>
         <button
-          onClick={onDelete}
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete()
+          }}
           disabled={isLoading}
           aria-label="Удалить"
           className="p-1.5 rounded-lg text-faint dark:text-faint-dark hover:text-danger hover:bg-danger/10 transition-colors disabled:opacity-50"

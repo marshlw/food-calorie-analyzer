@@ -129,6 +129,9 @@ class MealEntry(Base):
     weight_g = Column(Float, nullable=False)
     meal_type = Column(String, default="snacks")  # breakfast, lunch, dinner, snacks
     task_id = Column(String, ForeignKey("tasks.id"), nullable=True)
+    # Фото, добавленное пользователем вручную (абсолютный путь на диске).
+    # Для записей из AI-анализа фото берётся из task.image_path.
+    photo_path = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     daily_log = relationship("DailyLog", back_populates="entries")
@@ -139,6 +142,26 @@ class MealEntry(Base):
         cascade="all, delete-orphan",
         order_by="MealEntryItem.id",
     )
+
+    @property
+    def photo_url(self):
+        """URL фото записи для фронта (раздаётся через StaticFiles /uploads).
+        Приоритет: своё фото пользователя, затем фото AI-анализа."""
+        from pathlib import Path
+        if self.photo_path:
+            return f"/uploads/{Path(self.photo_path).name}"
+        if self.task_id and self.task and self.task.image_path:
+            return f"/uploads/{Path(self.task.image_path).name}"
+        return None
+
+    @property
+    def photo_source(self):
+        """Откуда фото: 'user' — загружено вручную, 'ai' — из AI-анализа."""
+        if self.photo_path:
+            return "user"
+        if self.task_id and self.task and self.task.image_path:
+            return "ai"
+        return None
 
 
 class MealEntryItem(Base):

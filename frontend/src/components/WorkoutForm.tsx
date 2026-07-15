@@ -1,11 +1,14 @@
 import React, { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
-import { WorkoutCreate, WorkoutType, Exercise } from '../types'
+import { Workout, WorkoutCreate, WorkoutType, Exercise } from '../types'
 import { ExercisePicker } from './ExercisePicker'
 
 interface Props {
   onSubmit: (data: WorkoutCreate) => Promise<void>
   isLoading?: boolean
+  // Режим редактирования: форма предзаполняется существующей тренировкой
+  initialData?: Workout
+  submitLabel?: string
 }
 
 const TYPES: { value: WorkoutType; label: string }[] = [
@@ -30,14 +33,40 @@ interface Row {
 let rowKey = 1
 const emptyRow = (): Row => ({ key: rowKey++, name: '', duration: '', calories: '', kcalPerMin: null })
 
+const rowFrom = (name: string, durationMin: number, calories: number): Row => ({
+  key: rowKey++,
+  name,
+  duration: String(Math.round(durationMin * 10) / 10),
+  calories: String(Math.round(calories)),
+  kcalPerMin: null,
+})
+
+// Предзаполнение конструктора при редактировании тренировки
+const initRows = (w?: Workout): Row[] => {
+  if (w?.items && w.items.length > 0) {
+    return w.items.map((i) => rowFrom(i.name, i.duration_min, i.calories_burned))
+  }
+  if (w) return [rowFrom(w.title, w.duration_min, w.calories_burned)]
+  return [emptyRow()]
+}
+
 // Конструктор тренировки: несколько упражнений в одной записи
 // («жим лёжа 25 мин 150 ккал + становая 25 мин 150 ккал»).
-export const WorkoutForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
-  const [rows, setRows] = useState<Row[]>([emptyRow()])
-  const [type, setType] = useState<WorkoutType>('strength')
-  const [title, setTitle] = useState('')
-  const [startedAt, setStartedAt] = useState('')
-  const [description, setDescription] = useState('')
+// С initialData работает как форма редактирования.
+export const WorkoutForm: React.FC<Props> = ({
+  onSubmit,
+  isLoading,
+  initialData,
+  submitLabel = 'Записать тренировку',
+}) => {
+  const [rows, setRows] = useState<Row[]>(() => initRows(initialData))
+  const [type, setType] = useState<WorkoutType>(initialData?.workout_type || 'strength')
+  const [title, setTitle] = useState(
+    // Для простой записи название совпадает с упражнением — в поле не дублируем
+    initialData && initialData.items && initialData.items.length > 0 ? initialData.title : ''
+  )
+  const [startedAt, setStartedAt] = useState(initialData?.started_at || '')
+  const [description, setDescription] = useState(initialData?.description || '')
   const [error, setError] = useState('')
 
   const updateRow = (key: number, patch: Partial<Row>) => {
@@ -295,7 +324,7 @@ export const WorkoutForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
       {error && <p className="text-danger text-xs">{error}</p>}
 
       <button type="submit" disabled={isLoading} className="btn-primary w-full disabled:opacity-50">
-        {isLoading ? 'Сохранение...' : 'Записать тренировку'}
+        {isLoading ? 'Сохранение...' : submitLabel}
       </button>
     </form>
   )

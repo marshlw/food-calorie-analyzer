@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Edit2 } from 'lucide-react'
 import { AppHeader } from '../components/Brand'
 import { Modal } from '../components/Modal'
 import { WorkoutForm } from '../components/WorkoutForm'
@@ -51,6 +51,7 @@ const formatDuration = (min: number): string => {
 export const Workouts: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(() => toISODate(new Date()))
   const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState<Workout | null>(null)
   const [toast, setToast] = useState('')
 
   const { data, isLoading, error, execute: load } = useApi<WorkoutsResponse>()
@@ -72,6 +73,14 @@ export const Workouts: React.FC = () => {
     },
   })
 
+  const upd = useApi<Workout>({
+    onSuccess: () => {
+      setToast('Тренировка обновлена!')
+      setEditing(null)
+      refresh(selectedDate)
+    },
+  })
+
   const del = useApi<{ status: string }>({
     onSuccess: () => {
       setToast('Тренировка удалена')
@@ -81,6 +90,13 @@ export const Workouts: React.FC = () => {
 
   const handleAdd = async (payload: WorkoutCreate): Promise<void> => {
     await add.execute(() => workoutsApi.addWorkout({ ...payload, date: selectedDate }))
+  }
+
+  const handleUpdate = async (payload: WorkoutCreate): Promise<void> => {
+    if (!editing) return
+    await upd.execute(() =>
+      workoutsApi.updateWorkout(editing.id, { ...payload, date: editing.date })
+    )
   }
 
   const handleDelete = (w: Workout) => {
@@ -122,9 +138,12 @@ export const Workouts: React.FC = () => {
           <SuccessAlert message={toast} onClose={() => setToast('')} />
         </div>
       )}
-      {(error || add.error || del.error) && (
+      {(error || add.error || upd.error || del.error) && (
         <div className="mb-4">
-          <ErrorAlert message={error || add.error || del.error || ''} onClose={() => {}} />
+          <ErrorAlert
+            message={error || add.error || upd.error || del.error || ''}
+            onClose={() => {}}
+          />
         </div>
       )}
 
@@ -222,6 +241,14 @@ export const Workouts: React.FC = () => {
                           {formatDuration(w.duration_min)}
                         </span>
                         <button
+                          onClick={() => setEditing(w)}
+                          disabled={upd.isLoading}
+                          aria-label="Редактировать тренировку"
+                          className="p-1 rounded-lg text-faint hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-chip-dark transition-colors disabled:opacity-50"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button>
+                        <button
                           onClick={() => handleDelete(w)}
                           disabled={del.isLoading}
                           aria-label="Удалить тренировку"
@@ -284,6 +311,21 @@ export const Workouts: React.FC = () => {
 
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Записать тренировку">
         <WorkoutForm onSubmit={handleAdd} isLoading={add.isLoading} />
+      </Modal>
+
+      <Modal
+        isOpen={editing !== null}
+        onClose={() => setEditing(null)}
+        title="Редактировать тренировку"
+      >
+        {editing && (
+          <WorkoutForm
+            initialData={editing}
+            onSubmit={handleUpdate}
+            isLoading={upd.isLoading}
+            submitLabel="Сохранить"
+          />
+        )}
       </Modal>
     </div>
   )

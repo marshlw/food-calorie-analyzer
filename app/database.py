@@ -71,6 +71,13 @@ _PROFILE_COLUMNS = {
     "custom_water_ml": "FLOAT",
 }
 
+# Недостающие колонки по таблицам (та же логика, что для users).
+_ENSURE_COLUMNS = {
+    "users": _PROFILE_COLUMNS,
+    # Фото, добавленное пользователем к записи приёма пищи вручную
+    "meal_entries": {"photo_path": "VARCHAR"},
+}
+
 
 # Индексы для «старых» таблиц, созданных до того, как в моделях появились
 # index=True: create_all не добавляет индексы в существующие таблицы.
@@ -106,18 +113,17 @@ def ensure_schema():
                     f'CREATE INDEX IF NOT EXISTS {index_name} ON {table} ({column})'
                 ))
 
-    if "users" not in tables:
-        return
-
-    existing = {col["name"] for col in inspector.get_columns("users")}
-    missing = {k: v for k, v in _PROFILE_COLUMNS.items() if k not in existing}
-    if not missing:
-        return
-
-    with engine.begin() as conn:
-        for name, sql_type in missing.items():
-            conn.execute(text(f'ALTER TABLE users ADD COLUMN {name} {sql_type}'))
-            logger.info("Added missing column users.%s (%s)", name, sql_type)
+    for table, columns in _ENSURE_COLUMNS.items():
+        if table not in tables:
+            continue
+        existing = {col["name"] for col in inspector.get_columns(table)}
+        missing = {k: v for k, v in columns.items() if k not in existing}
+        if not missing:
+            continue
+        with engine.begin() as conn:
+            for name, sql_type in missing.items():
+                conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {sql_type}'))
+                logger.info("Added missing column %s.%s (%s)", table, name, sql_type)
 
 
 def close_db():

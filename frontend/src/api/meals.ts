@@ -26,6 +26,24 @@ export const mealsApi = {
     return response.data
   },
 
+  // Прикрепить/заменить фото записи (multipart). Бэкенд вернёт запись
+  // с обновлённым photo_url.
+  uploadMealPhoto: async (mealId: number, file: File): Promise<MealEntry> => {
+    const form = new FormData()
+    form.append('file', file)
+    const response = await apiClient.post<MealEntry>(`/api/v1/meals/${mealId}/photo`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  },
+
+  // Удалить добавленное вручную фото (для AI-записей photo_url
+  // вернётся к фото анализа).
+  deleteMealPhoto: async (mealId: number): Promise<MealEntry> => {
+    const response = await apiClient.delete<MealEntry>(`/api/v1/meals/${mealId}/photo`)
+    return response.data
+  },
+
   getDailyLog: async (dateStr?: string): Promise<DailyLog> => {
     const response = await apiClient.get<DailyLog>('/api/v1/daily-log', {
       params: dateStr ? { date_str: dateStr } : undefined,

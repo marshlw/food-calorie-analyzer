@@ -15,6 +15,11 @@ export const workoutsApi = {
     return response.data
   },
 
+  updateWorkout: async (workoutId: number, payload: WorkoutCreate): Promise<Workout> => {
+    const response = await apiClient.put<Workout>(`/api/v1/workouts/${workoutId}`, payload)
+    return response.data
+  },
+
   deleteWorkout: async (workoutId: number): Promise<{ status: string; deleted_id: number }> => {
     const response = await apiClient.delete(`/api/v1/workouts/${workoutId}`)
     return response.data

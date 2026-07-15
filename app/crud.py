@@ -365,7 +365,9 @@ def update_meal_entry(db: Session, meal_entry: models.MealEntry, update: schemas
 
 def get_daily_log(db: Session, user_id: int, date_value: date) -> Optional[models.DailyLog]:
     return db.query(models.DailyLog).options(
-        selectinload(models.DailyLog.entries).selectinload(models.MealEntry.items)
+        selectinload(models.DailyLog.entries).selectinload(models.MealEntry.items),
+        # task нужен для photo_url (фото AI-анализа) — грузим без N+1
+        selectinload(models.DailyLog.entries).selectinload(models.MealEntry.task),
     ).filter(
         models.DailyLog.user_id == user_id,
         models.DailyLog.date == date_value
@@ -516,12 +518,48 @@ def workout_dates_in_range(db: Session, user_id: int, start: date, end: date) ->
 
 def search_exercises(db: Session, query: str = "", limit: int = 60) -> List[models.Exercise]:
     """Поиск по справочнику упражнений (для формы записи тренировки).
+    Запрос разбивается на слова, каждое должно входить в название —
+    порядок слов не важен («лёжа жим» находит «жим лёжа»).
     Пустой запрос — весь список по алфавиту."""
     q = db.query(models.Exercise)
     query = (query or "").strip().lower()
-    if query:
-        q = q.filter(models.Exercise.name.ilike(f"%{query}%"))
+    for word in query.split():
+        q = q.filter(models.Exercise.name.ilike(f"%{word}%"))
     return q.order_by(models.Exercise.name.asc()).limit(limit).all()
+
+
+def update_workout(db: Session, workout: models.Workout, payload: schemas.WorkoutCreate) -> models.Workout:
+    """Обновление тренировки. Упражнения (items) заменяются целиком,
+    итоги по времени/калориям пересчитываются на бэкенде — по аналогии
+    с update_meal_entry для приёмов пищи."""
+    items = payload.items or []
+    if items:
+        duration = round(sum(i.duration_min for i in items), 1)
+        calories = round(sum(i.calories_burned for i in items), 1)
+    else:
+        duration = payload.duration_min
+        calories = payload.calories_burned
+
+    workout.items.clear()
+    for item in items:
+        workout.items.append(models.WorkoutItem(
+            name=item.name,
+            duration_min=item.duration_min,
+            calories_burned=item.calories_burned,
+        ))
+
+    workout.workout_type = payload.workout_type
+    workout.title = payload.title
+    workout.description = payload.description
+    workout.started_at = payload.started_at
+    workout.duration_min = duration
+    workout.calories_burned = calories
+    if payload.date:
+        workout.date = payload.date
+
+    db.commit()
+    db.refresh(workout)
+    return workout
 
 
 def delete_workout(db: Session, user_id: int, workout_id: int) -> bool:
@@ -537,8 +575,9 @@ def delete_workout(db: Session, user_id: int, workout_id: int) -> bool:
 
 def search_products(db: Session, query: str, limit: int = 20) -> List[models.Product]:
     """Поиск продуктов по (части) названия для автодополнения при добавлении
-    ингредиента. Совпадения с начала названия ранжируются выше совпадений
-    в середине слова; при пустом запросе возвращаем продукты по алфавиту."""
+    ингредиента. Запрос разбивается на слова, каждое слово должно входить
+    в название — порядок слов не важен: «печенье овсяное» находит
+    «овсяное печенье». При пустом запросе возвращаем продукты по алфавиту."""
     limit = max(1, min(limit, 50))
     q = (query or "").strip().lower()
 
@@ -547,16 +586,28 @@ def search_products(db: Session, query: str, limit: int = 20) -> List[models.Pro
     if not q:
         return base.order_by(models.Product.name.asc()).limit(limit).all()
 
-    like = f"%{q}%"
-    matches = base.filter(models.Product.name.ilike(like)).all()
+    words = q.split()
+    for word in words:
+        base = base.filter(models.Product.name.ilike(f"%{word}%"))
+    matches = base.all()
 
-    # Сортировка в Python: сначала совпадения с начала строки, потом остальные,
-    # внутри групп -- по длине названия и алфавиту (короче/точнее выше).
-    matches.sort(key=lambda p: (
-        0 if p.name.lower().startswith(q) else 1,
-        len(p.name),
-        p.name,
-    ))
+    # Ранжирование в Python: точное совпадение > совпадение фразы с начала
+    # названия > все слова запроса совпадают с началами слов названия >
+    # остальные; внутри групп — по длине названия и алфавиту (короче выше).
+    def rank(p: models.Product):
+        name = p.name.lower()
+        name_words = name.split()
+        if name == q:
+            group = 0
+        elif name.startswith(q):
+            group = 1
+        elif all(any(nw.startswith(w) for nw in name_words) for w in words):
+            group = 2
+        else:
+            group = 3
+        return (group, len(p.name), p.name)
+
+    matches.sort(key=rank)
     return matches[:limit]
 
 

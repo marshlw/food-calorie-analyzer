@@ -542,6 +542,35 @@ async def add_meal(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Дневной порядок приёмов: завтрак → обед → ужин — фиксированно,
+# перекусы встают между ними по времени записи (created_at).
+_MEAL_TYPE_ORDER = {"breakfast": 0, "lunch": 1, "dinner": 2}
+
+
+def _sort_meal_entries(entries: list) -> list:
+    """Сортировка записей дня: основные приёмы в порядке
+    завтрак/обед/ужин (независимо от порядка записи), перекусы
+    вставляются между ними по времени создания записи."""
+    mains = sorted(
+        (e for e in entries if e.meal_type in _MEAL_TYPE_ORDER),
+        key=lambda e: (_MEAL_TYPE_ORDER[e.meal_type], e.id),
+    )
+    snacks = [e for e in entries if e.meal_type not in _MEAL_TYPE_ORDER]
+
+    def snack_key(snack) -> float:
+        # Перекус встаёт после всех основных приёмов, записанных раньше него
+        after = sum(
+            1 for m in mains
+            if m.created_at and snack.created_at and m.created_at <= snack.created_at
+        )
+        return after - 0.5
+
+    keyed = [(float(i), m) for i, m in enumerate(mains)]
+    keyed += [(snack_key(s), s) for s in snacks]
+    keyed.sort(key=lambda pair: (pair[0], pair[1].id))
+    return [e for _, e in keyed]
+
+
 @app.get("/api/v1/daily-log", response_model=schemas.DailyLogResponse)
 async def get_daily_log(
     date_str: Optional[str] = None,
@@ -587,7 +616,7 @@ async def get_daily_log(
     return {
         "date": log.date,
         **totals,
-        "meals": log.entries,
+        "meals": _sort_meal_entries(log.entries),
         "targets": targets_payload,
         "water": water_payload,
     }
@@ -718,6 +747,61 @@ async def edit_meal_entry(
     return crud.update_meal_entry(db, meal_entry, update)
 
 
+def _get_owned_meal_entry(db: Session, meal_id: int, user: models.User) -> models.MealEntry:
+    meal_entry = crud.get_meal_entry_sync(db, meal_id)
+    if not meal_entry or meal_entry.daily_log.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Meal entry not found")
+    return meal_entry
+
+
+@app.post("/api/v1/meals/{meal_id}/photo", response_model=schemas.MealEntryResponse)
+async def upload_meal_photo(
+    meal_id: int,
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Прикрепить фото к записи приёма пищи (или заменить существующее).
+    Фото пользователя имеет приоритет над фото AI-анализа в photo_url."""
+    meal_entry = _get_owned_meal_entry(db, meal_id, current_user)
+
+    saved_path = _save_upload_file_securely(file)
+
+    # Старое своё фото убираем с диска — оно больше нигде не используется
+    if meal_entry.photo_path:
+        try:
+            Path(meal_entry.photo_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    meal_entry.photo_path = str(saved_path)
+    db.commit()
+    db.refresh(meal_entry)
+    return meal_entry
+
+
+@app.delete("/api/v1/meals/{meal_id}/photo", response_model=schemas.MealEntryResponse)
+async def delete_meal_photo(
+    meal_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Удалить добавленное вручную фото записи. Если запись создана из
+    AI-анализа, photo_url вернётся к фото анализа."""
+    meal_entry = _get_owned_meal_entry(db, meal_id, current_user)
+
+    if meal_entry.photo_path:
+        try:
+            Path(meal_entry.photo_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+        meal_entry.photo_path = None
+        db.commit()
+        db.refresh(meal_entry)
+
+    return meal_entry
+
+
 @app.delete("/api/v1/meals/{meal_id}")
 async def delete_meal_entry(
     meal_id: int,
@@ -795,6 +879,23 @@ async def add_workout(
     if payload.date and payload.date > date.today():
         raise HTTPException(status_code=400, detail="Дата тренировки не может быть в будущем")
     return crud.add_workout(db, current_user.id, payload)
+
+
+@app.put("/api/v1/workouts/{workout_id}", response_model=schemas.WorkoutResponse)
+async def update_workout(
+    workout_id: int,
+    payload: schemas.WorkoutCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Редактирование тренировки: упражнения заменяются целиком,
+    итоги пересчитываются на бэкенде (как при создании)."""
+    workout = crud.get_workout(db, current_user.id, workout_id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+    if payload.date and payload.date > date.today():
+        raise HTTPException(status_code=400, detail="Дата тренировки не может быть в будущем")
+    return crud.update_workout(db, workout, payload)
 
 
 @app.delete("/api/v1/workouts/{workout_id}")

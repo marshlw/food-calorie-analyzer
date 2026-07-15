@@ -303,6 +303,10 @@ class MealEntryResponse(BaseModel):
     created_at: datetime
     # Наличие task_id => запись создана из AI-анализа (источник на фронте).
     task_id: Optional[str] = None
+    # Фото записи: URL (через StaticFiles /uploads) и источник —
+    # 'user' (добавлено вручную) или 'ai' (фото из AI-анализа).
+    photo_url: Optional[str] = None
+    photo_source: Optional[Literal["user", "ai"]] = None
     # Блюда составного приёма (пусто у простых записей).
     items: List[MealEntryItemResponse] = Field(default_factory=list)
 

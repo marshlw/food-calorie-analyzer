@@ -4,6 +4,7 @@ import { WeekCalendar } from '../components/WeekCalendar'
 import { DayDetail } from '../components/DayDetail'
 import { AnalysisFlow } from '../components/AnalysisFlow'
 import { MealForm } from '../components/MealForm'
+import { MealDetail } from '../components/MealDetail'
 import { Modal } from '../components/Modal'
 import { SuccessAlert } from '../components/SuccessAlert'
 import { ErrorAlert } from '../components/ErrorAlert'
@@ -15,12 +16,13 @@ import { MealEntry, MealEntryCreate } from '../types'
 import { AppHeader } from '../components/Brand'
 import { Plus, Camera } from 'lucide-react'
 
-type ModalKind = 'none' | 'manual' | 'edit' | 'photo'
+type ModalKind = 'none' | 'manual' | 'edit' | 'photo' | 'view'
 
 const DiaryInner: React.FC = () => {
   const { selectedDate, refreshDay } = useDiary()
   const [modal, setModal] = useState<ModalKind>('none')
   const [editing, setEditing] = useState<MealEntry | null>(null)
+  const [viewing, setViewing] = useState<MealEntry | null>(null)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [toast, setToast] = useState('')
   const { aiLimit, aiExhausted, refreshAiLimit } = useAiLimit()
@@ -28,9 +30,16 @@ const DiaryInner: React.FC = () => {
   const close = () => {
     setModal('none')
     setEditing(null)
+    setViewing(null)
     setPhotoFile(null)
     // Загрузка фото расходует лимит даже без сохранения — обновляем счётчик
     refreshAiLimit()
+  }
+
+  // Фото добавлено/удалено в просмотре: обновляем открытую карточку и день
+  const handleViewedUpdated = (m: MealEntry) => {
+    setViewing(m)
+    refreshDay(selectedDate)
   }
 
   const afterWrite = async (msg: string) => {
@@ -122,6 +131,10 @@ const DiaryInner: React.FC = () => {
           setModal('edit')
         }}
         onDelete={handleDelete}
+        onView={(m) => {
+          setViewing(m)
+          setModal('view')
+        }}
         busy={del.isLoading}
       />
 
@@ -138,6 +151,10 @@ const DiaryInner: React.FC = () => {
             submitLabel="Сохранить"
           />
         )}
+      </Modal>
+
+      <Modal isOpen={modal === 'view'} onClose={close} title="Запись о еде">
+        {viewing && <MealDetail meal={viewing} onUpdated={handleViewedUpdated} />}
       </Modal>
 
       <Modal isOpen={modal === 'photo'} onClose={close} title="Анализ по фото">
