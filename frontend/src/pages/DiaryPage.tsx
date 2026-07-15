@@ -3,6 +3,7 @@ import { DiaryProvider, useDiary } from '../context/DiaryContext'
 import { WeekCalendar } from '../components/WeekCalendar'
 import { DayDetail } from '../components/DayDetail'
 import { AnalysisFlow } from '../components/AnalysisFlow'
+import { BarcodeFlow } from '../components/BarcodeFlow'
 import { MealForm } from '../components/MealForm'
 import { MealDetail } from '../components/MealDetail'
 import { Modal } from '../components/Modal'
@@ -14,9 +15,9 @@ import { useAiLimit } from '../hooks/useAiLimit'
 import { mealsApi } from '../api/meals'
 import { MealEntry, MealEntryCreate } from '../types'
 import { AppHeader } from '../components/Brand'
-import { Plus, Camera } from 'lucide-react'
+import { Plus, Camera, ScanBarcode } from 'lucide-react'
 
-type ModalKind = 'none' | 'manual' | 'edit' | 'photo' | 'view'
+type ModalKind = 'none' | 'manual' | 'edit' | 'photo' | 'barcode' | 'view'
 
 const DiaryInner: React.FC = () => {
   const { selectedDate, refreshDay } = useDiary()
@@ -24,6 +25,7 @@ const DiaryInner: React.FC = () => {
   const [editing, setEditing] = useState<MealEntry | null>(null)
   const [viewing, setViewing] = useState<MealEntry | null>(null)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [barcodeFile, setBarcodeFile] = useState<File | null>(null)
   const [toast, setToast] = useState('')
   const { aiLimit, aiExhausted, refreshAiLimit } = useAiLimit()
 
@@ -32,6 +34,7 @@ const DiaryInner: React.FC = () => {
     setEditing(null)
     setViewing(null)
     setPhotoFile(null)
+    setBarcodeFile(null)
     // Загрузка фото расходует лимит даже без сохранения — обновляем счётчик
     refreshAiLimit()
   }
@@ -93,7 +96,7 @@ const DiaryInner: React.FC = () => {
 
       <WeekCalendar />
 
-      <div className="grid grid-cols-2 gap-3 mb-2">
+      <div className="grid grid-cols-3 gap-3 mb-2">
         <button
           className="btn-primary flex items-center justify-center gap-2"
           onClick={() => setModal('manual')}
@@ -116,6 +119,24 @@ const DiaryInner: React.FC = () => {
               if (f) {
                 setPhotoFile(f)
                 setModal('photo')
+              }
+              e.target.value = '' // позволяет выбрать тот же файл повторно
+            }}
+          />
+        </label>
+        {/* Фото штрих-кода упаковки → продукт из Open Food Facts */}
+        <label className="btn-secondary flex items-center justify-center gap-2 cursor-pointer">
+          <ScanBarcode className="h-[18px] w-[18px]" /> Штрих-код
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) {
+                setBarcodeFile(f)
+                setModal('barcode')
               }
               e.target.value = '' // позволяет выбрать тот же файл повторно
             }}
@@ -161,6 +182,17 @@ const DiaryInner: React.FC = () => {
         {photoFile && (
           <AnalysisFlow
             file={photoFile}
+            onConfirm={handleAdd}
+            onCancel={close}
+            saving={add.isLoading}
+          />
+        )}
+      </Modal>
+
+      <Modal isOpen={modal === 'barcode'} onClose={close} title="Блюдо по штрих-коду">
+        {barcodeFile && (
+          <BarcodeFlow
+            file={barcodeFile}
             onConfirm={handleAdd}
             onCancel={close}
             saving={add.isLoading}

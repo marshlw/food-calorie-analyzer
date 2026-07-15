@@ -146,6 +146,23 @@ export interface Product {
   carbs: number
 }
 
+// ==================== BARCODE (Open Food Facts) ====================
+
+// Продукт, найденный по штрих-коду упаковки. Нутриенты — на 100 г,
+// пересчёт на граммовку делает клиент.
+export interface BarcodeProduct {
+  barcode: string
+  name: string
+  brand?: string | null
+  quantity?: string | null // объём/вес с упаковки, например «500 g»
+  calories_100g: number
+  protein_100g: number
+  fat_100g: number
+  carbs_100g: number
+  image_url?: string | null
+  source: 'openfoodfacts' | 'cache'
+}
+
 // ==================== PROFILE / WEIGHT ====================
 
 export type Sex = 'male' | 'female'

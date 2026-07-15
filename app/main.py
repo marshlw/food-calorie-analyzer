@@ -502,6 +502,59 @@ async def search_products(
     return crud.search_products(db, q, limit)
 
 
+# ===================== BARCODE (Open Food Facts) =====================
+
+# ВАЖНО: обычные def (threadpool), НЕ async — внутри синхронные HTTP-запросы
+# к Open Food Facts и CPU-декодирование штрих-кода.
+
+@app.post("/api/v1/barcode/scan", response_model=schemas.BarcodeProductResponse)
+def scan_barcode(
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Сканирование штрих-кода по фото упаковки: декодируем код,
+    ищем продукт в Open Food Facts, возвращаем название и КБЖУ на 100 г.
+    Само добавление в дневник клиент делает обычным POST /api/v1/meals
+    после выбора граммовки."""
+    from app import barcode_service
+
+    # Защита от злоупотребления внешним API (лимит щедрый — это не AI-анализ)
+    rate_limit.enforce(
+        f"barcode:scan:{current_user.id}:{date.today().isoformat()}",
+        limit=100,
+        window=86400,
+        detail="Дневной лимит сканирований штрих-кодов исчерпан. Попробуйте завтра.",
+    )
+
+    file_path = _save_upload_file_securely(file)
+    try:
+        product = barcode_service.scan_image(str(file_path))
+        return product.as_dict()
+    except barcode_service.BarcodeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    finally:
+        # Фото штрих-кода не нужно хранить — это не фото еды
+        try:
+            file_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+@app.get("/api/v1/barcode/{code}", response_model=schemas.BarcodeProductResponse)
+def get_barcode_product(
+    code: str,
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Поиск продукта по уже известному штрих-коду (ручной ввод цифр
+    с упаковки, если фото не распозналось)."""
+    from app import barcode_service
+
+    try:
+        return barcode_service.lookup_product(code).as_dict()
+    except barcode_service.BarcodeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+
 # ===================== TASK STATUS =====================
 
 @app.get("/api/v1/task/{task_id}", response_model=schemas.TaskResponse)

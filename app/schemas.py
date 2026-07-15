@@ -424,6 +424,21 @@ class ProductResponse(BaseModel):
         from_attributes = True
 
 
+class BarcodeProductResponse(BaseModel):
+    """Продукт, найденный по штрих-коду упаковки (Open Food Facts).
+    Нутриенты указаны на 100 г — клиент пересчитывает на граммовку."""
+    barcode: str
+    name: str
+    brand: Optional[str] = None
+    quantity: Optional[str] = None
+    calories_100g: float
+    protein_100g: float
+    fat_100g: float
+    carbs_100g: float
+    image_url: Optional[str] = None
+    source: str = "openfoodfacts"
+
+
 class GenerateDatasetResponse(BaseModel):
     """Ответ на запрос генерации датасета."""
     message: str
