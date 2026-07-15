@@ -532,6 +532,13 @@ def scan_barcode(
         return product.as_dict()
     except barcode_service.BarcodeError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    except Exception:
+        # Страховка: пользователь должен увидеть понятный текст, а не 500
+        logger.exception("Unexpected barcode scan failure")
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось обработать фото. Попробуйте сфотографировать штрих-код ещё раз.",
+        )
     finally:
         # Фото штрих-кода не нужно хранить — это не фото еды
         try:
@@ -553,6 +560,12 @@ def get_barcode_product(
         return barcode_service.lookup_product(code).as_dict()
     except barcode_service.BarcodeError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    except Exception:
+        logger.exception("Unexpected barcode lookup failure")
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось найти продукт по штрих-коду. Попробуйте ещё раз.",
+        )
 
 
 # ===================== TASK STATUS =====================

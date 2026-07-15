@@ -8,6 +8,7 @@
 # Ответы Open Food Facts кэшируются в Redis, чтобы не дёргать
 # внешний API повторно (данные продуктов меняются редко).
 
+import html
 import json
 import logging
 from dataclasses import dataclass
@@ -26,7 +27,9 @@ OFF_URL = "https://world.openfoodfacts.org/api/v2/product/{code}.json"
 OFF_FIELDS = "code,product_name,product_name_ru,brands,quantity,nutriments,image_front_small_url"
 OFF_USER_AGENT = "AI-Healthy/1.0 (food diary; contact: admin@ai-healthy.local)"
 
-CACHE_KEY = "off:product:{code}"
+# v2: имена очищаются от HTML-сущностей (&quot; и т.п.) — старый кэш
+# с «грязными» названиями инвалидируем сменой префикса ключа
+CACHE_KEY = "off:product:v2:{code}"
 CACHE_TTL = 7 * 24 * 3600          # найденный продукт — неделя
 CACHE_MISS_TTL = 3600              # «не найдено» — час (базу OFF пополняют)
 
@@ -80,7 +83,14 @@ def _decode_with_zxing(image: Image.Image) -> Optional[str]:
         logger.warning("zxing-cpp is not installed; falling back to OpenCV")
         return None
 
-    results = zxingcpp.read_barcodes(image)
+    # Ошибка декодера (смазанное/битое фото) не должна ронять запрос —
+    # просто считаем, что этот декодер код не нашёл
+    try:
+        results = zxingcpp.read_barcodes(image)
+    except Exception as exc:
+        logger.warning("zxing decode failed: %s", exc)
+        return None
+
     for r in results:
         if getattr(r.format, "name", str(r.format)) in RETAIL_FORMATS and r.text:
             return r.text
@@ -96,9 +106,16 @@ def _decode_with_opencv(image: Image.Image) -> Optional[str]:
     except ImportError:
         return None
 
-    frame = cv2.cvtColor(np.array(image.convert("RGB")), cv2.COLOR_RGB2BGR)
-    detector = cv2.barcode.BarcodeDetector()
-    ok, decoded, _, _ = detector.detectAndDecode(frame)
+    # cv2.barcode может отсутствовать в сборке или бросать cv2.error
+    # на «плохих» кадрах — это не повод отдавать 500
+    try:
+        frame = cv2.cvtColor(np.array(image.convert("RGB")), cv2.COLOR_RGB2BGR)
+        detector = cv2.barcode.BarcodeDetector()
+        ok, decoded, _, _ = detector.detectAndDecode(frame)
+    except Exception as exc:
+        logger.warning("OpenCV barcode decode failed: %s", exc)
+        return None
+
     if ok:
         for text in decoded:
             if text:
@@ -148,11 +165,11 @@ def _parse_off_product(code: str, payload: dict) -> BarcodeProduct:
     product = payload.get("product") or {}
     nutriments = product.get("nutriments") or {}
 
-    name = (
-        product.get("product_name_ru")
-        or product.get("product_name")
-        or ""
-    ).strip()
+    def clean(value) -> str:
+        # OFF отдаёт названия с HTML-сущностями («&quot;Picnic&quot;»)
+        return html.unescape(str(value or "")).strip()
+
+    name = clean(product.get("product_name_ru")) or clean(product.get("product_name"))
     if not name:
         name = f"Продукт {code}"
 
@@ -171,8 +188,8 @@ def _parse_off_product(code: str, payload: dict) -> BarcodeProduct:
     return BarcodeProduct(
         barcode=code,
         name=name,
-        brand=(product.get("brands") or "").split(",")[0].strip() or None,
-        quantity=product.get("quantity") or None,
+        brand=clean(product.get("brands")).split(",")[0].strip() or None,
+        quantity=clean(product.get("quantity")) or None,
         calories_100g=calories,
         protein_100g=n("proteins_100g"),
         fat_100g=n("fat_100g"),
