@@ -197,7 +197,7 @@ def lookup_product(code: str) -> BarcodeProduct:
         data = json.loads(cached)
         if data.get("not_found"):
             raise BarcodeError(
-                f"Продукт со штрих-кодом {code} не найден в Open Food Facts",
+                f"Блюда со штрих-кодом {code} нет в базе. Добавьте его вручную.",
                 status_code=404,
             )
         return BarcodeProduct(**{**data, "source": "cache"})
@@ -211,7 +211,7 @@ def lookup_product(code: str) -> BarcodeProduct:
     except httpx.HTTPError as exc:
         logger.warning("Open Food Facts request failed: %s", exc)
         raise BarcodeError(
-            "Сервис Open Food Facts недоступен, попробуйте позже",
+            "База штрих-кодов временно недоступна, попробуйте позже",
             status_code=502,
         ) from exc
 
@@ -227,14 +227,14 @@ def lookup_product(code: str) -> BarcodeProduct:
     ):
         _cache({"not_found": True}, CACHE_MISS_TTL)
         raise BarcodeError(
-            f"Продукт со штрих-кодом {code} не найден в Open Food Facts",
+            f"Блюда со штрих-кодом {code} нет в базе. Добавьте его вручную.",
             status_code=404,
         )
 
     if response.status_code != 200:
         logger.warning("Open Food Facts error: HTTP %s", response.status_code)
         raise BarcodeError(
-            "Сервис Open Food Facts недоступен, попробуйте позже",
+            "База штрих-кодов временно недоступна, попробуйте позже",
             status_code=502,
         )
 

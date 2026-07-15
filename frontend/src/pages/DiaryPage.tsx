@@ -25,7 +25,6 @@ const DiaryInner: React.FC = () => {
   const [editing, setEditing] = useState<MealEntry | null>(null)
   const [viewing, setViewing] = useState<MealEntry | null>(null)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
-  const [barcodeFile, setBarcodeFile] = useState<File | null>(null)
   const [toast, setToast] = useState('')
   const { aiLimit, aiExhausted, refreshAiLimit } = useAiLimit()
 
@@ -34,7 +33,6 @@ const DiaryInner: React.FC = () => {
     setEditing(null)
     setViewing(null)
     setPhotoFile(null)
-    setBarcodeFile(null)
     // Загрузка фото расходует лимит даже без сохранения — обновляем счётчик
     refreshAiLimit()
   }
@@ -96,15 +94,15 @@ const DiaryInner: React.FC = () => {
 
       <WeekCalendar />
 
-      <div className="grid grid-cols-3 gap-3 mb-2">
+      <div className="flex gap-3 mb-2">
         <button
-          className="btn-primary flex items-center justify-center gap-2"
+          className="btn-primary flex-1 flex items-center justify-center gap-2"
           onClick={() => setModal('manual')}
         >
           <Plus className="h-[18px] w-[18px]" /> Вручную
         </button>
         <label
-          className={`btn-secondary flex items-center justify-center gap-2 ${
+          className={`btn-secondary flex-1 flex items-center justify-center gap-2 ${
             aiExhausted ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
           }`}
         >
@@ -124,24 +122,16 @@ const DiaryInner: React.FC = () => {
             }}
           />
         </label>
-        {/* Фото штрих-кода упаковки → продукт из Open Food Facts */}
-        <label className="btn-secondary flex items-center justify-center gap-2 cursor-pointer">
-          <ScanBarcode className="h-[18px] w-[18px]" /> Штрих-код
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0]
-              if (f) {
-                setBarcodeFile(f)
-                setModal('barcode')
-              }
-              e.target.value = '' // позволяет выбрать тот же файл повторно
-            }}
-          />
-        </label>
+        {/* Сканер штрих-кода — квадратная кнопка, прижата к правому краю */}
+        <button
+          type="button"
+          aria-label="Сканировать штрих-код"
+          title="Добавить по штрих-коду"
+          onClick={() => setModal('barcode')}
+          className="btn-secondary flex-shrink-0 !px-3.5 flex items-center justify-center"
+        >
+          <ScanBarcode className="h-[20px] w-[20px]" />
+        </button>
       </div>
 
       <AiLimitBadge aiLimit={aiLimit} />
@@ -190,13 +180,8 @@ const DiaryInner: React.FC = () => {
       </Modal>
 
       <Modal isOpen={modal === 'barcode'} onClose={close} title="Блюдо по штрих-коду">
-        {barcodeFile && (
-          <BarcodeFlow
-            file={barcodeFile}
-            onConfirm={handleAdd}
-            onCancel={close}
-            saving={add.isLoading}
-          />
+        {modal === 'barcode' && (
+          <BarcodeFlow onConfirm={handleAdd} onCancel={close} saving={add.isLoading} />
         )}
       </Modal>
     </div>

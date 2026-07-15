@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { ScanBarcode } from 'lucide-react'
+import { ScanBarcode, Image as ImageIcon } from 'lucide-react'
 import { barcodeApi } from '../api/barcode'
 import { LoadingSpinner } from './LoadingSpinner'
 import { ErrorAlert } from './ErrorAlert'
@@ -16,33 +16,83 @@ const MEAL_TYPES: { value: MealType; label: string }[] = [
 ]
 
 interface Props {
-  file: File
   // Сохранение выбранного продукта (родитель добавит дату выбранного дня)
   onConfirm: (data: MealEntryCreate) => Promise<void> | void
   onCancel: () => void
   saving?: boolean
 }
 
-type Phase = 'scanning' | 'error' | 'done'
+type Phase = 'camera' | 'scanning' | 'error' | 'done'
 
-// Поток «блюдо по штрих-коду»: фото кода → продукт из Open Food Facts
-// (название + КБЖУ на 100 г) → выбор граммовки → расчёт КБЖУ → добавление.
-export const BarcodeFlow: React.FC<Props> = ({ file, onConfirm, onCancel, saving }) => {
-  const [phase, setPhase] = useState<Phase>('scanning')
+// Доля кадра, которую занимает рамка наведения (и область кадрирования).
+// Кадрируем с запасом чуть больше видимой рамки — пользователь не обязан
+// попадать в неё идеально.
+const FRAME_W = 0.85
+const FRAME_H = 0.45
+const CROP_W = 0.95
+const CROP_H = 0.6
+
+// Поток «блюдо по штрих-коду»: камера с рамкой наведения (или загрузка фото)
+// → поиск по коду в базе → выбор граммовки → расчёт КБЖУ → добавление.
+export const BarcodeFlow: React.FC<Props> = ({ onConfirm, onCancel, saving }) => {
+  const [phase, setPhase] = useState<Phase>('camera')
   const [product, setProduct] = useState<BarcodeProduct | null>(null)
   const [error, setError] = useState('')
   const [weight, setWeight] = useState('100')
   const [mealType, setMealType] = useState<MealType>('snacks')
   const [manualCode, setManualCode] = useState('')
+  const [cameraReady, setCameraReady] = useState(false)
+  const [cameraFailed, setCameraFailed] = useState(false)
 
-  // Защита от двойного запроса в React.StrictMode (dev монтирует дважды)
-  const scannedFile = useRef<File | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
 
-  const scan = async (f: File) => {
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
+    setCameraReady(false)
+  }
+
+  // Камера включается на фазе 'camera' и гасится при уходе с неё/размонтировании
+  useEffect(() => {
+    if (phase !== 'camera') return
+    let cancelled = false
+
+    const start = async () => {
+      setCameraFailed(false)
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false,
+        })
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop())
+          return
+        }
+        streamRef.current = stream
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          await videoRef.current.play()
+        }
+        setCameraReady(true)
+      } catch {
+        // Нет камеры или нет разрешения — остаётся загрузка фото
+        if (!cancelled) setCameraFailed(true)
+      }
+    }
+
+    start()
+    return () => {
+      cancelled = true
+      stopCamera()
+    }
+  }, [phase])
+
+  const scan = async (file: File) => {
     setPhase('scanning')
     setError('')
     try {
-      setProduct(await barcodeApi.scan(f))
+      setProduct(await barcodeApi.scan(file))
       setPhase('done')
     } catch (e) {
       setError(extractErrorMessage(e))
@@ -50,13 +100,32 @@ export const BarcodeFlow: React.FC<Props> = ({ file, onConfirm, onCancel, saving
     }
   }
 
-  useEffect(() => {
-    if (scannedFile.current === file) return
-    scannedFile.current = file
-    scan(file)
-  }, [file]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Снимок с камеры: кадрируем область вокруг рамки наведения —
+  // декодеру не мешает фон, а пользователю не нужен идеальный кадр
+  const capture = async () => {
+    const video = videoRef.current
+    if (!video || !video.videoWidth) return
 
-  // Ручной ввод цифр кода, если фото не распозналось
+    const cw = Math.round(video.videoWidth * CROP_W)
+    const ch = Math.round(video.videoHeight * CROP_H)
+    const cx = Math.round((video.videoWidth - cw) / 2)
+    const cy = Math.round((video.videoHeight - ch) / 2)
+
+    const canvas = document.createElement('canvas')
+    canvas.width = cw
+    canvas.height = ch
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(video, cx, cy, cw, ch, 0, 0, cw, ch)
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.92)
+    )
+    if (!blob) return
+    scan(new File([blob], 'barcode.jpg', { type: 'image/jpeg' }))
+  }
+
+  // Ручной ввод цифр кода, если сканирование не удалось
   const lookupManual = async () => {
     const code = manualCode.replace(/\D/g, '')
     if (code.length < 8) {
@@ -74,6 +143,95 @@ export const BarcodeFlow: React.FC<Props> = ({ file, onConfirm, onCancel, saving
     }
   }
 
+  const uploadInput = (
+    <label className="btn-secondary w-full flex items-center justify-center gap-2 cursor-pointer">
+      <ImageIcon className="h-[18px] w-[18px]" /> Загрузить фото штрих-кода
+      <input
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          if (f) scan(f)
+          e.target.value = ''
+        }}
+      />
+    </label>
+  )
+
+  const cancelButton = (
+    <button
+      type="button"
+      className="w-full py-3 text-sm font-medium text-muted dark:text-muted-dark hover:text-ink dark:hover:text-ink-dark transition-colors"
+      onClick={onCancel}
+    >
+      Отмена
+    </button>
+  )
+
+  if (phase === 'camera') {
+    return (
+      <div className="space-y-3">
+        {!cameraFailed ? (
+          <>
+            <div className="relative overflow-hidden rounded-tile bg-black">
+              <video ref={videoRef} playsInline muted className="w-full h-64 object-cover" />
+              {/* Рамка наведения: подсвеченное окно, фон затемнён */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div
+                  className="rounded-2xl border-2 border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"
+                  style={{ width: `${FRAME_W * 100}%`, height: `${FRAME_H * 100}%` }}
+                />
+              </div>
+              <p className="absolute bottom-2 inset-x-0 text-center text-white/90 text-xs pointer-events-none">
+                Поместите штрих-код в рамку
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
+              onClick={capture}
+              disabled={!cameraReady}
+            >
+              <ScanBarcode className="h-[18px] w-[18px]" />
+              {cameraReady ? 'Сканировать' : 'Включаем камеру…'}
+            </button>
+          </>
+        ) : (
+          <ErrorAlert
+            message="Камера недоступна. Загрузите фото штрих-кода или введите его цифры."
+            onClose={() => {}}
+          />
+        )}
+
+        {uploadInput}
+
+        {cameraFailed && (
+          <div>
+            <label className="block text-[13px] font-semibold mb-1.5">
+              Или введите цифры под штрих-кодом
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={manualCode}
+                onChange={(e) => setManualCode(e.target.value)}
+                placeholder="4600000000000"
+                className="input flex-1"
+              />
+              <button type="button" className="btn-primary px-4" onClick={lookupManual}>
+                Найти
+              </button>
+            </div>
+          </div>
+        )}
+
+        {cancelButton}
+      </div>
+    )
+  }
+
   if (phase === 'scanning') {
     return <LoadingSpinner message="Распознаём штрих-код…" />
   }
@@ -82,8 +240,8 @@ export const BarcodeFlow: React.FC<Props> = ({ file, onConfirm, onCancel, saving
     return (
       <div className="space-y-3">
         <ErrorAlert message={error || 'Не удалось распознать штрих-код'} onClose={() => {}} />
-        <button className="btn-secondary w-full" onClick={() => scan(file)}>
-          Повторить
+        <button type="button" className="btn-secondary w-full" onClick={() => setPhase('camera')}>
+          Сканировать ещё раз
         </button>
 
         {/* Фолбэк: цифры кода напечатаны под штрихами на любой упаковке */}
@@ -106,12 +264,7 @@ export const BarcodeFlow: React.FC<Props> = ({ file, onConfirm, onCancel, saving
           </div>
         </div>
 
-        <button
-          className="w-full py-3 text-sm font-medium text-muted dark:text-muted-dark hover:text-ink dark:hover:text-ink-dark transition-colors"
-          onClick={onCancel}
-        >
-          Отмена
-        </button>
+        {cancelButton}
       </div>
     )
   }
@@ -171,9 +324,7 @@ export const BarcodeFlow: React.FC<Props> = ({ file, onConfirm, onCancel, saving
             <p className="text-xs text-secondary mt-0.5">
               {[product.brand, product.quantity].filter(Boolean).join(' · ')}
             </p>
-            <p className="text-[11px] text-tertiary mt-1">
-              Штрих-код {product.barcode} · Open Food Facts
-            </p>
+            <p className="text-[11px] text-tertiary mt-1">Штрих-код {product.barcode}</p>
           </div>
         </div>
 
@@ -239,9 +390,9 @@ export const BarcodeFlow: React.FC<Props> = ({ file, onConfirm, onCancel, saving
         <button
           type="button"
           className="w-full py-3 text-sm font-medium text-muted dark:text-muted-dark hover:text-ink dark:hover:text-ink-dark transition-colors"
-          onClick={onCancel}
+          onClick={() => setPhase('camera')}
         >
-          Отмена
+          Сканировать другой продукт
         </button>
       </form>
     )

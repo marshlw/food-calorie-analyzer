@@ -4,6 +4,7 @@ import { AppHeader } from '../components/Brand'
 import { HeroCard } from '../components/HeroCard'
 import { MealForm } from '../components/MealForm'
 import { AnalysisFlow } from '../components/AnalysisFlow'
+import { BarcodeFlow } from '../components/BarcodeFlow'
 import { Modal } from '../components/Modal'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { SuccessAlert } from '../components/SuccessAlert'
@@ -15,9 +16,9 @@ import { mealsApi } from '../api/meals'
 import { DailyLog, MealEntryCreate } from '../types'
 import { MEAL_TYPE_META, kbjuLine } from '../utils/mealTypes'
 import { capitalize as cap } from '../utils/text'
-import { Plus, Camera } from 'lucide-react'
+import { Plus, Camera, ScanBarcode } from 'lucide-react'
 
-type ModalKind = 'none' | 'manual' | 'photo'
+type ModalKind = 'none' | 'manual' | 'photo' | 'barcode'
 
 // Приветствие по времени суток («Добрый день, Анна» из дизайна)
 const greeting = (): string => {
@@ -106,16 +107,16 @@ export const Dashboard: React.FC = () => {
       ) : null}
 
       {/* Действия */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className="flex gap-3 mb-6">
         <button
           onClick={() => setModal('manual')}
-          className="btn-primary flex items-center justify-center gap-2"
+          className="btn-primary flex-1 flex items-center justify-center gap-2"
         >
           <Plus className="h-[18px] w-[18px]" />
           Добавить
         </button>
         <label
-          className={`btn-secondary flex items-center justify-center gap-2 ${
+          className={`btn-secondary flex-1 flex items-center justify-center gap-2 ${
             aiExhausted ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
           }`}
         >
@@ -136,6 +137,16 @@ export const Dashboard: React.FC = () => {
             }}
           />
         </label>
+        {/* Сканер штрих-кода — квадратная кнопка, прижата к правому краю */}
+        <button
+          type="button"
+          aria-label="Сканировать штрих-код"
+          title="Добавить по штрих-коду"
+          onClick={() => setModal('barcode')}
+          className="btn-secondary flex-shrink-0 !px-3.5 flex items-center justify-center"
+        >
+          <ScanBarcode className="h-[20px] w-[20px]" />
+        </button>
       </div>
 
       {aiExhausted && (
@@ -212,6 +223,13 @@ export const Dashboard: React.FC = () => {
             onCancel={close}
             saving={isAddingMeal}
           />
+        )}
+      </Modal>
+
+      {/* Barcode Modal: камера с рамкой → продукт → граммовка → сохранить */}
+      <Modal isOpen={modal === 'barcode'} onClose={close} title="Блюдо по штрих-коду">
+        {modal === 'barcode' && (
+          <BarcodeFlow onConfirm={handleAddMeal} onCancel={close} saving={isAddingMeal} />
         )}
       </Modal>
     </div>
