@@ -79,9 +79,12 @@ export const inferProteinType = (
   return 'unknown'
 }
 
-// Нормализует product.protein_type в ProteinType (null/неизвестное → mixed:
-// у продукта из справочника белок всегда куда-то отнесён).
-export const productProteinType = (raw?: string | null): ProteinType => {
+// Нормализует product.protein_type (null/неизвестное → mixed: у продукта из
+// справочника белок всегда куда-то отнесён). Возвращает конкретный источник
+// без 'unknown', поэтому результатом можно индексировать PROTEIN_TYPE_META.
+export const productProteinType = (
+  raw?: string | null
+): Exclude<ProteinType, 'unknown'> => {
   if (raw === 'animal' || raw === 'plant' || raw === 'mixed') return raw
   return 'mixed'
 }
