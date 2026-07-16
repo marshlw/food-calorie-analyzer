@@ -182,6 +182,61 @@ def upsert_weight_record(
     return rec
 
 
+def get_weight_record(
+    db: Session, user_id: int, record_id: int
+) -> Optional[models.WeightRecord]:
+    """Запись замера по id с проверкой владельца (чужие не отдаём)."""
+    return (
+        db.query(models.WeightRecord)
+        .filter(
+            models.WeightRecord.id == record_id,
+            models.WeightRecord.user_id == user_id,
+        )
+        .first()
+    )
+
+
+class DuplicateDateError(Exception):
+    """На эту дату у пользователя уже есть другая запись замера."""
+
+
+def update_weight_record(
+    db: Session,
+    rec: models.WeightRecord,
+    payload: schemas.WeightRecordUpdate,
+) -> models.WeightRecord:
+    """Редактирование записи замера. Обхваты задаются явно: None очищает
+    значение (в форме пустое поле = убрать показатель). Смену даты
+    блокируем, если на новую дату уже есть другая запись (uq user+date)."""
+    if payload.recorded_on is not None and payload.recorded_on != rec.recorded_on:
+        clash = (
+            db.query(models.WeightRecord)
+            .filter(
+                models.WeightRecord.user_id == rec.user_id,
+                models.WeightRecord.recorded_on == payload.recorded_on,
+                models.WeightRecord.id != rec.id,
+            )
+            .first()
+        )
+        if clash is not None:
+            raise DuplicateDateError()
+        rec.recorded_on = payload.recorded_on
+
+    rec.weight_kg = payload.weight_kg
+    rec.note = payload.note
+    for field in MEASUREMENT_FIELDS:
+        setattr(rec, field, getattr(payload, field))
+
+    db.commit()
+    db.refresh(rec)
+    return rec
+
+
+def delete_weight_record(db: Session, rec: models.WeightRecord) -> None:
+    db.delete(rec)
+    db.commit()
+
+
 def update_profile(db: Session, user: models.User, payload: schemas.ProfileUpdate) -> models.User:
     # ВАЖНО: current_user приходит из сессии auth.get_current_user
     # (database.get_db), а эндпоинты работают через свою сессию (main.get_db).

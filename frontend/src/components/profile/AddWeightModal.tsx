@@ -1,12 +1,19 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { Modal } from '../Modal'
 import { ErrorAlert } from '../ErrorAlert'
-import { WeightRecordCreate } from '../../types'
+import { WeightRecord, WeightRecordCreate, WeightRecordUpdate } from '../../types'
 
 interface Props {
   isOpen: boolean
   onClose: () => void
-  onSubmit: (payload: WeightRecordCreate) => Promise<void>
+  // В режиме добавления payload — WeightRecordCreate; в режиме правки —
+  // WeightRecordUpdate (пустой обхват приходит как null, чтобы очистить его).
+  onSubmit: (payload: WeightRecordCreate | WeightRecordUpdate) => Promise<void>
+  // Если передана запись — модалка работает в режиме редактирования.
+  record?: WeightRecord | null
+  // Удаление доступно только в режиме редактирования.
+  onDelete?: (id: number) => Promise<void>
 }
 
 const today = () => new Date().toISOString().slice(0, 10)
@@ -28,24 +35,43 @@ const emptyMeasures: Record<MeasureKey, string> = {
   shoulders_cm: '',
 }
 
-export const AddWeightModal: React.FC<Props> = ({ isOpen, onClose, onSubmit }) => {
+export const AddWeightModal: React.FC<Props> = ({ isOpen, onClose, onSubmit, record, onDelete }) => {
+  const isEdit = !!record
+
   const [weight, setWeight] = useState('')
   const [date, setDate] = useState(today())
   const [note, setNote] = useState('')
   const [measures, setMeasures] = useState<Record<MeasureKey, string>>({ ...emptyMeasures })
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
-  const reset = () => {
-    setWeight('')
-    setDate(today())
-    setNote('')
-    setMeasures({ ...emptyMeasures })
+  // Синхронизируем поля при открытии: правка — из записи, добавление — пусто.
+  useEffect(() => {
+    if (!isOpen) return
     setError(null)
-  }
+    setConfirmDelete(false)
+    if (record) {
+      setWeight(record.weight_kg?.toString() ?? '')
+      setDate(record.recorded_on)
+      setNote(record.note ?? '')
+      setMeasures({
+        waist_cm: record.waist_cm?.toString() ?? '',
+        chest_cm: record.chest_cm?.toString() ?? '',
+        hips_cm: record.hips_cm?.toString() ?? '',
+        shoulders_cm: record.shoulders_cm?.toString() ?? '',
+      })
+    } else {
+      setWeight('')
+      setDate(today())
+      setNote('')
+      setMeasures({ ...emptyMeasures })
+    }
+  }, [isOpen, record])
 
   const handleClose = () => {
-    reset()
+    setError(null)
+    setConfirmDelete(false)
     onClose()
   }
 
@@ -63,11 +89,20 @@ export const AddWeightModal: React.FC<Props> = ({ isOpen, onClose, onSubmit }) =
       setError('Дата записи не может быть в будущем')
       return
     }
-    // Проверяем заполненные обхваты и собираем их в payload.
-    const payload: WeightRecordCreate = { weight_kg: w, recorded_on: date, note: note || undefined }
+    // Базовый payload (WeightRecordUpdate допускает null для очистки полей).
+    // В режиме правки заметку/обхваты передаём явно (null очищает значение на
+    // сервере), в режиме добавления — опускаем пустые.
+    const payload: WeightRecordUpdate = {
+      weight_kg: w,
+      recorded_on: date,
+      note: isEdit ? (note || null) : (note || undefined),
+    }
     for (const { key, label } of MEASUREMENTS) {
       const raw = measures[key].trim()
-      if (!raw) continue
+      if (!raw) {
+        if (isEdit) payload[key] = null // очистить ранее заполненный обхват
+        continue
+      }
       const val = parseFloat(raw)
       if (isNaN(val) || val <= 0 || val >= 300) {
         setError(`«${label}» должно быть больше 0 и меньше 300 см`)
@@ -79,8 +114,7 @@ export const AddWeightModal: React.FC<Props> = ({ isOpen, onClose, onSubmit }) =
     setError(null)
     try {
       await onSubmit(payload)
-      reset()
-      onClose()
+      handleClose()
     } catch (err: any) {
       setError(err?.message || 'Не удалось сохранить запись')
     } finally {
@@ -88,8 +122,25 @@ export const AddWeightModal: React.FC<Props> = ({ isOpen, onClose, onSubmit }) =
     }
   }
 
+  const handleDelete = async () => {
+    if (!record || !onDelete) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onDelete(record.id)
+      handleClose()
+    } catch (err: any) {
+      setError(err?.message || 'Не удалось удалить запись')
+      setSaving(false)
+    }
+  }
+
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Добавить замер тела">
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={isEdit ? 'Редактировать замер' : 'Добавить замер тела'}
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <ErrorAlert message={error} onClose={() => setError(null)} />}
 
@@ -122,7 +173,7 @@ export const AddWeightModal: React.FC<Props> = ({ isOpen, onClose, onSubmit }) =
           </div>
         </div>
 
-        {/* Обхваты тела — по желанию. Пустые поля не сохраняются. */}
+        {/* Обхваты тела — по желанию. В правке пустое поле очищает показатель. */}
         <div>
           <p className="text-xs font-semibold text-secondary mb-2">
             Обхваты тела <span className="font-normal text-tertiary">· по желанию</span>
@@ -166,6 +217,41 @@ export const AddWeightModal: React.FC<Props> = ({ isOpen, onClose, onSubmit }) =
             {saving ? 'Сохранение…' : 'Сохранить'}
           </button>
         </div>
+
+        {/* Удаление записи (только в режиме редактирования) */}
+        {isEdit && onDelete && (
+          <div className="pt-1">
+            {confirmDelete ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-secondary flex-1">Удалить запись?</span>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(false)}
+                  className="btn-secondary px-3 py-1.5 text-xs"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={saving}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-full bg-danger text-white hover:bg-danger-600 transition-colors"
+                >
+                  Удалить
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-danger hover:text-danger-600 transition-colors"
+              >
+                <Trash2 className="h-4 w-4" />
+                Удалить запись
+              </button>
+            )}
+          </div>
+        )}
       </form>
     </Modal>
   )

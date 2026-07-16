@@ -1,9 +1,11 @@
 import React from 'react'
-import { ArrowDown, ArrowUp, Minus } from 'lucide-react'
+import { ArrowDown, ArrowUp, Minus, Pencil } from 'lucide-react'
 import { WeightRecord } from '../../types'
 
 interface Props {
   data: WeightRecord[]
+  // Нажатие на запись открывает редактирование (там же — удаление).
+  onEdit?: (record: WeightRecord) => void
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -20,7 +22,7 @@ const MEASURE_CHIPS: { key: 'waist_cm' | 'chest_cm' | 'hips_cm' | 'shoulders_cm'
   { key: 'shoulders_cm', label: 'Плечи' },
 ]
 
-export const WeightHistoryList: React.FC<Props> = ({ data }) => {
+export const WeightHistoryList: React.FC<Props> = ({ data, onEdit }) => {
   if (data.length === 0) return null
 
   // Сортируем по убыванию даты для списка и считаем дельту к предыдущей записи.
@@ -32,9 +34,32 @@ export const WeightHistoryList: React.FC<Props> = ({ data }) => {
         const prev = sorted[i + 1] // более ранняя по дате
         const delta = prev ? +(rec.weight_kg - prev.weight_kg).toFixed(1) : 0
         const chips = MEASURE_CHIPS.filter((c) => rec[c.key] != null)
-        return (
-          <div key={rec.id} className="flex items-start justify-between px-5 py-3.5">
-            <div className="min-w-0">
+        const deltaBadge = prev ? (
+          <span
+            className={`flex items-center gap-1 text-xs font-semibold ${
+              delta < 0
+                ? 'text-carbs dark:text-carbs-dark'
+                : delta > 0
+                ? 'text-protein dark:text-protein-dark'
+                : 'text-faint dark:text-faint-dark'
+            }`}
+          >
+            {delta < 0 ? (
+              <ArrowDown className="h-3.5 w-3.5" />
+            ) : delta > 0 ? (
+              <ArrowUp className="h-3.5 w-3.5" />
+            ) : (
+              <Minus className="h-3.5 w-3.5" />
+            )}
+            {delta !== 0 ? `${Math.abs(delta)} кг` : '—'}
+          </span>
+        ) : (
+          <span className="text-xs text-tertiary">старт</span>
+        )
+
+        const body = (
+          <>
+            <div className="min-w-0 text-left">
               <p className="text-sm font-semibold">{rec.weight_kg} кг</p>
               <p className="text-[11px] text-tertiary mt-0.5">
                 {new Date(rec.recorded_on).toLocaleDateString('ru-RU', {
@@ -57,28 +82,25 @@ export const WeightHistoryList: React.FC<Props> = ({ data }) => {
                 </div>
               )}
             </div>
-            {prev ? (
-              <span
-                className={`flex items-center gap-1 text-xs font-semibold ${
-                  delta < 0
-                    ? 'text-carbs dark:text-carbs-dark'
-                    : delta > 0
-                    ? 'text-protein dark:text-protein-dark'
-                    : 'text-faint dark:text-faint-dark'
-                }`}
-              >
-                {delta < 0 ? (
-                  <ArrowDown className="h-3.5 w-3.5" />
-                ) : delta > 0 ? (
-                  <ArrowUp className="h-3.5 w-3.5" />
-                ) : (
-                  <Minus className="h-3.5 w-3.5" />
-                )}
-                {delta !== 0 ? `${Math.abs(delta)} кг` : '—'}
-              </span>
-            ) : (
-              <span className="text-xs text-tertiary">старт</span>
-            )}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {deltaBadge}
+              {onEdit && <Pencil className="h-3.5 w-3.5 text-faint dark:text-faint-dark" />}
+            </div>
+          </>
+        )
+
+        return onEdit ? (
+          <button
+            key={rec.id}
+            type="button"
+            onClick={() => onEdit(rec)}
+            className="w-full flex items-start justify-between px-5 py-3.5 text-left hover:bg-surface dark:hover:bg-chip-dark transition-colors"
+          >
+            {body}
+          </button>
+        ) : (
+          <div key={rec.id} className="flex items-start justify-between px-5 py-3.5">
+            {body}
           </div>
         )
       })}

@@ -213,6 +213,11 @@ export interface Profile {
   full_name?: string | null
   height_cm?: number | null
   current_weight_kg?: number | null
+  // Текущие обхваты (из последней записи истории) — для «Личных данных».
+  current_waist_cm?: number | null
+  current_chest_cm?: number | null
+  current_hips_cm?: number | null
+  current_shoulders_cm?: number | null
   sex?: Sex | null
   birth_date?: string | null
   activity_level?: ActivityLevel | null
@@ -269,6 +274,18 @@ export interface WeightRecordCreate {
   chest_cm?: number
   hips_cm?: number
   shoulders_cm?: number
+}
+
+// Редактирование записи замера. Обхваты задаются явно: null очищает
+// значение (пустое поле в форме = убрать показатель).
+export interface WeightRecordUpdate {
+  weight_kg: number
+  recorded_on?: string
+  note?: string | null
+  waist_cm?: number | null
+  chest_cm?: number | null
+  hips_cm?: number | null
+  shoulders_cm?: number | null
 }
 
 // Метрики тела, доступные в графике прогресса и в форме замера.

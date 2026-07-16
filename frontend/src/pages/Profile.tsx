@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, AlertCircle, ChevronRight, ChevronDown } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { profileApi } from '../api/profile'
-import { Profile as ProfileType, ProfileUpdate, WeightRecordCreate } from '../types'
+import { Profile as ProfileType, ProfileUpdate, WeightRecord, WeightRecordCreate, WeightRecordUpdate } from '../types'
 import { extractErrorMessage } from '../utils/errors'
 import { AppHeader } from '../components/Brand'
 import { LoadingSpinner } from '../components/LoadingSpinner'
@@ -25,6 +25,8 @@ export const Profile: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  // Запись, открытая на редактирование (null = модалка правки закрыта).
+  const [editing, setEditing] = useState<WeightRecord | null>(null)
   const [openSection, setOpenSection] = useState<SettingsSection>(null)
 
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark')
@@ -60,9 +62,22 @@ export const Profile: React.FC = () => {
     setProfile(await profileApi.updateProfile(payload))
   }
 
-  const handleAddWeight = async (payload: WeightRecordCreate) => {
-    await profileApi.addWeight(payload)
+  // Модалка отдаёт union (Create | Update); в режиме добавления обхваты не
+  // содержат null, поэтому безопасно приводим к нужному типу для API.
+  const handleAddWeight = async (payload: WeightRecordCreate | WeightRecordUpdate) => {
+    await profileApi.addWeight(payload as WeightRecordCreate)
     await load() // перечитываем, чтобы график/история/текущий вес обновились
+  }
+
+  const handleUpdateWeight = async (payload: WeightRecordCreate | WeightRecordUpdate) => {
+    if (!editing) return
+    await profileApi.updateWeight(editing.id, payload as WeightRecordUpdate)
+    await load()
+  }
+
+  const handleDeleteWeight = async (id: number) => {
+    await profileApi.deleteWeight(id)
+    await load()
   }
 
   const handleLogout = () => {
@@ -248,7 +263,7 @@ export const Profile: React.FC = () => {
 
           {profile.recent_weights.length > 0 && (
             <div className="mb-6">
-              <WeightHistoryList data={profile.recent_weights} />
+              <WeightHistoryList data={profile.recent_weights} onEdit={setEditing} />
             </div>
           )}
 
@@ -320,6 +335,13 @@ export const Profile: React.FC = () => {
       )}
 
       <AddWeightModal isOpen={addOpen} onClose={() => setAddOpen(false)} onSubmit={handleAddWeight} />
+      <AddWeightModal
+        isOpen={!!editing}
+        record={editing}
+        onClose={() => setEditing(null)}
+        onSubmit={handleUpdateWeight}
+        onDelete={handleDeleteWeight}
+      />
     </div>
   )
 }

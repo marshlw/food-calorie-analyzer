@@ -88,6 +88,19 @@ class WeightRecordCreate(BaseModel):
     shoulders_cm: Optional[float] = Field(None, gt=0, lt=300)  # плечи
 
 
+class WeightRecordUpdate(BaseModel):
+    """Редактирование существующей записи замера. В отличие от upsert,
+    здесь обхваты задаются явно: None очищает ранее заполненное значение
+    (в форме редактирования пустое поле = убрать показатель)."""
+    weight_kg: float = Field(..., gt=0, lt=300)
+    recorded_on: Optional[_date] = None  # None = не менять дату записи
+    note: Optional[str] = Field(None, max_length=200)
+    waist_cm: Optional[float] = Field(None, gt=0, lt=300)
+    chest_cm: Optional[float] = Field(None, gt=0, lt=300)
+    hips_cm: Optional[float] = Field(None, gt=0, lt=300)
+    shoulders_cm: Optional[float] = Field(None, gt=0, lt=300)
+
+
 class WeightRecordResponse(BaseModel):
     id: int
     weight_kg: float
@@ -151,6 +164,11 @@ class ProfileResponse(BaseModel):
     full_name: Optional[str] = None
     height_cm: Optional[float] = None
     current_weight_kg: Optional[float] = None  # выводится из последней записи
+    # Текущие обхваты тела (из последней записи истории) — для «Личных данных».
+    current_waist_cm: Optional[float] = None
+    current_chest_cm: Optional[float] = None
+    current_hips_cm: Optional[float] = None
+    current_shoulders_cm: Optional[float] = None
     sex: Optional[str] = None
     birth_date: Optional[_date] = None
     activity_level: Optional[str] = None

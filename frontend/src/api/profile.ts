@@ -1,5 +1,5 @@
 import { apiClient } from './axios'
-import { Profile, ProfileUpdate, WeightRecord, WeightRecordCreate } from '../types'
+import { Profile, ProfileUpdate, WeightRecord, WeightRecordCreate, WeightRecordUpdate } from '../types'
 
 export const profileApi = {
   getProfile: async (): Promise<Profile> => {
@@ -15,6 +15,15 @@ export const profileApi = {
   addWeight: async (payload: WeightRecordCreate): Promise<WeightRecord> => {
     const response = await apiClient.post<WeightRecord>('/api/v1/profile/weight', payload)
     return response.data
+  },
+
+  updateWeight: async (id: number, payload: WeightRecordUpdate): Promise<WeightRecord> => {
+    const response = await apiClient.put<WeightRecord>(`/api/v1/profile/weight/${id}`, payload)
+    return response.data
+  },
+
+  deleteWeight: async (id: number): Promise<void> => {
+    await apiClient.delete(`/api/v1/profile/weight/${id}`)
   },
 
   getWeightHistory: async (start?: string, end?: string): Promise<WeightRecord[]> => {

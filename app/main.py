@@ -434,6 +434,8 @@ def _build_profile(db: Session, user: models.User) -> dict:
     # Для графика на профиле достаточно последних ~30 записей.
     recent = crud.list_weight_history(db, user.id)[-30:]
     t = crud.compute_nutrition_targets(db, user)
+    # Текущие обхваты = последняя запись истории (тот же источник, что и вес).
+    latest = crud.get_latest_weight(db, user.id)
 
     return {
         "id": user.id,
@@ -441,6 +443,10 @@ def _build_profile(db: Session, user: models.User) -> dict:
         "full_name": user.full_name,
         "height_cm": user.height_cm,
         "current_weight_kg": t["current_weight_kg"],
+        "current_waist_cm": latest.waist_cm if latest else None,
+        "current_chest_cm": latest.chest_cm if latest else None,
+        "current_hips_cm": latest.hips_cm if latest else None,
+        "current_shoulders_cm": latest.shoulders_cm if latest else None,
         "sex": user.sex,
         "birth_date": user.birth_date,
         "activity_level": user.activity_level,
@@ -504,6 +510,45 @@ async def add_weight_record(
             "shoulders_cm": payload.shoulders_cm,
         },
     )
+
+
+@app.put(
+    "/api/v1/profile/weight/{record_id}",
+    response_model=schemas.WeightRecordResponse,
+)
+async def update_weight_record(
+    record_id: int,
+    payload: schemas.WeightRecordUpdate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    if payload.recorded_on and payload.recorded_on > date.today():
+        raise HTTPException(status_code=400, detail="Дата записи не может быть в будущем")
+    rec = crud.get_weight_record(db, current_user.id, record_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    try:
+        return crud.update_weight_record(db, rec, payload)
+    except crud.DuplicateDateError:
+        raise HTTPException(
+            status_code=409,
+            detail="На эту дату уже есть запись замера",
+        )
+
+
+@app.delete(
+    "/api/v1/profile/weight/{record_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_weight_record(
+    record_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    rec = crud.get_weight_record(db, current_user.id, record_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    crud.delete_weight_record(db, rec)
 
 
 @app.get(

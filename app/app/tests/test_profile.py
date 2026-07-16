@@ -112,3 +112,85 @@ class TestProfile:
         h2 = _auth_headers(client, email="user2@example.com")
         hist2 = client.get("/api/v1/profile/weight-history", headers=h2).json()
         assert all(r["weight_kg"] != 88 for r in hist2)
+
+
+class TestBodyMeasurements:
+    """Обхваты тела (талия/грудь/бёдра/плечи) на записи замера + edit/delete."""
+
+    def test_add_record_with_measurements(self, client):
+        h = _auth_headers(client, email="measure_add@example.com")
+        r = client.post("/api/v1/profile/weight", headers=h, json={
+            "weight_kg": 80, "recorded_on": "2026-02-01",
+            "waist_cm": 82, "chest_cm": 100, "hips_cm": 95, "shoulders_cm": 118,
+        })
+        assert r.status_code == 201
+        body = r.json()
+        assert body["waist_cm"] == 82 and body["shoulders_cm"] == 118
+
+    def test_measurement_out_of_range_rejected(self, client):
+        h = _auth_headers(client, email="measure_range@example.com")
+        r = client.post("/api/v1/profile/weight", headers=h,
+                        json={"weight_kg": 80, "waist_cm": 500})
+        assert r.status_code == 422
+
+    def test_edit_updates_weight_and_measurements(self, client):
+        h = _auth_headers(client, email="measure_edit@example.com")
+        rec = client.post("/api/v1/profile/weight", headers=h, json={
+            "weight_kg": 80, "recorded_on": "2026-03-01", "waist_cm": 85,
+        }).json()
+        r = client.put(f"/api/v1/profile/weight/{rec['id']}", headers=h, json={
+            "weight_kg": 78, "recorded_on": "2026-03-01", "waist_cm": 80,
+        })
+        assert r.status_code == 200
+        assert r.json()["weight_kg"] == 78 and r.json()["waist_cm"] == 80
+
+    def test_edit_null_clears_measurement(self, client):
+        h = _auth_headers(client, email="measure_clear@example.com")
+        rec = client.post("/api/v1/profile/weight", headers=h, json={
+            "weight_kg": 80, "recorded_on": "2026-04-01", "waist_cm": 85,
+        }).json()
+        r = client.put(f"/api/v1/profile/weight/{rec['id']}", headers=h, json={
+            "weight_kg": 80, "recorded_on": "2026-04-01", "waist_cm": None,
+        })
+        assert r.status_code == 200
+        assert r.json()["waist_cm"] is None
+
+    def test_edit_date_collision_returns_409(self, client):
+        h = _auth_headers(client, email="measure_clash@example.com")
+        client.post("/api/v1/profile/weight", headers=h,
+                    json={"weight_kg": 80, "recorded_on": "2026-05-01"})
+        rec2 = client.post("/api/v1/profile/weight", headers=h,
+                           json={"weight_kg": 81, "recorded_on": "2026-05-02"}).json()
+        r = client.put(f"/api/v1/profile/weight/{rec2['id']}", headers=h,
+                       json={"weight_kg": 81, "recorded_on": "2026-05-01"})
+        assert r.status_code == 409
+
+    def test_delete_record(self, client):
+        h = _auth_headers(client, email="measure_del@example.com")
+        rec = client.post("/api/v1/profile/weight", headers=h,
+                          json={"weight_kg": 80, "recorded_on": "2026-06-01"}).json()
+        assert client.delete(f"/api/v1/profile/weight/{rec['id']}", headers=h).status_code == 204
+        hist = client.get("/api/v1/profile/weight-history", headers=h).json()
+        assert all(r["id"] != rec["id"] for r in hist)
+
+    def test_edit_missing_record_404(self, client):
+        h = _auth_headers(client, email="measure_404@example.com")
+        r = client.put("/api/v1/profile/weight/999999", headers=h,
+                       json={"weight_kg": 80})
+        assert r.status_code == 404
+
+    def test_cross_user_cannot_edit_or_delete(self, client):
+        h1 = _auth_headers(client, email="measure_owner@example.com")
+        rec = client.post("/api/v1/profile/weight", headers=h1,
+                          json={"weight_kg": 80, "recorded_on": "2026-07-01"}).json()
+        h2 = _auth_headers(client, email="measure_intruder@example.com")
+        assert client.put(f"/api/v1/profile/weight/{rec['id']}", headers=h2,
+                          json={"weight_kg": 70}).status_code == 404
+        assert client.delete(f"/api/v1/profile/weight/{rec['id']}", headers=h2).status_code == 404
+
+    def test_profile_edit_writes_measurements_to_today(self, client):
+        h = _auth_headers(client, email="measure_profile@example.com",
+                          height_cm=180, weight_kg=80)
+        client.put("/api/v1/profile", headers=h, json={"weight_kg": 80, "waist_cm": 84})
+        profile = client.get("/api/v1/profile", headers=h).json()
+        assert profile["current_waist_cm"] == 84
