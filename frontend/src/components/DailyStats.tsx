@@ -1,6 +1,6 @@
 import React from 'react'
 import { DailyLog } from '../types'
-import { PROTEIN_TYPE_META } from '../utils/protein'
+import { ProteinBreakdown } from './ProteinBreakdown'
 
 interface DailyStatsProps {
   log: DailyLog
@@ -26,31 +26,12 @@ const StatCol: React.FC<{
 }
 
 // «Сводка» дня из дизайна Rasify: 4 колонки (ккал/белки/жиры/углеводы) с барами.
-// Одна доля белка (животный/растительный): точка, подпись, факт/норма
-const ProteinSplit: React.FC<{
-  metaKey: 'animal' | 'plant'
-  value: number
-  goal?: number | null
-}> = ({ metaKey, value, goal }) => {
-  const meta = PROTEIN_TYPE_META[metaKey]
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
-      <span className="text-[11px] text-secondary">
-        {meta.label}
-        <span className="font-semibold text-ink dark:text-ink-dark ml-1">{Math.round(value)}</span>
-        {goal ? <span className="text-tertiary"> / {Math.round(goal)} г</span> : ' г'}
-      </span>
-    </div>
-  )
-}
-
 export const DailyStats: React.FC<DailyStatsProps> = ({ log }) => {
   const t = log.targets
   const animal = log.total_protein_animal ?? 0
   const plant = log.total_protein_plant ?? 0
-  const undetermined = Math.max(0, Math.round(log.total_protein - animal - plant))
-  const showSplit = animal > 0 || plant > 0
+  const showSplit =
+    animal > 0 || plant > 0 || t?.protein_animal_g != null || t?.protein_plant_g != null
 
   return (
     <div className="card p-5 mb-3">
@@ -81,15 +62,17 @@ export const DailyStats: React.FC<DailyStatsProps> = ({ log }) => {
         />
       </div>
 
-      {/* Разделение белка: животный / растительный (и «не указан», если есть) */}
+      {/* Разбивка белка по источнику: две мелкие шкалы (животный/растительный) */}
       {showSplit && (
-        <div className="mt-3 pt-3 border-t border-divider dark:border-line-dark flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <span className="text-[11px] text-tertiary font-medium">Белок:</span>
-          <ProteinSplit metaKey="animal" value={animal} goal={t?.protein_animal_g} />
-          <ProteinSplit metaKey="plant" value={plant} goal={t?.protein_plant_g} />
-          {undetermined > 0 && (
-            <span className="text-[11px] text-tertiary">не указан {undetermined} г</span>
-          )}
+        <div className="mt-3 pt-3 border-t border-divider dark:border-line-dark">
+          <ProteinBreakdown
+            heading="Белок по источнику"
+            animal={animal}
+            plant={plant}
+            totalProtein={log.total_protein}
+            animalGoal={t?.protein_animal_g}
+            plantGoal={t?.protein_plant_g}
+          />
         </div>
       )}
 

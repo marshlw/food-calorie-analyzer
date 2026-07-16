@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { AppHeader } from '../components/Brand'
 import { HeroCard } from '../components/HeroCard'
 import { MealForm } from '../components/MealForm'
+import { MealDetail } from '../components/MealDetail'
 import { AnalysisFlow } from '../components/AnalysisFlow'
 import { BarcodeFlow } from '../components/BarcodeFlow'
 import { Modal } from '../components/Modal'
@@ -13,12 +14,12 @@ import { useApi } from '../hooks/useApi'
 import { useAiLimit } from '../hooks/useAiLimit'
 import { useAuth } from '../hooks/useAuth'
 import { mealsApi } from '../api/meals'
-import { DailyLog, MealEntryCreate } from '../types'
+import { DailyLog, MealEntry, MealEntryCreate } from '../types'
 import { MEAL_TYPE_META, kbjuLine } from '../utils/mealTypes'
 import { capitalize as cap } from '../utils/text'
 import { Plus, Camera, ScanBarcode } from 'lucide-react'
 
-type ModalKind = 'none' | 'manual' | 'photo' | 'barcode'
+type ModalKind = 'none' | 'manual' | 'photo' | 'barcode' | 'view'
 
 // Приветствие по времени суток («Добрый день, Анна» из дизайна)
 const greeting = (): string => {
@@ -34,6 +35,7 @@ export const Dashboard: React.FC = () => {
   const { user } = useAuth()
   const [modal, setModal] = useState<ModalKind>('none')
   const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [viewing, setViewing] = useState<MealEntry | null>(null)
   const [successMessage, setSuccessMessage] = useState('')
   const { aiLimit, aiExhausted, refreshAiLimit } = useAiLimit()
 
@@ -62,8 +64,21 @@ export const Dashboard: React.FC = () => {
   const close = () => {
     setModal('none')
     setPhotoFile(null)
+    setViewing(null)
     // Загрузка фото расходует лимит даже без сохранения — обновляем счётчик
     refreshAiLimit()
+  }
+
+  // Открыть карточку приёма (просмотр с фото и разбивкой белка)
+  const openView = (meal: MealEntry) => {
+    setViewing(meal)
+    setModal('view')
+  }
+
+  // Фото добавлено/удалено в просмотре — обновляем открытую карточку и день
+  const handleViewedUpdated = (m: MealEntry) => {
+    setViewing(m)
+    loadDailyLog(() => mealsApi.getDailyLog())
   }
 
   const firstName = (user?.full_name || '').trim().split(' ')[0]
@@ -171,7 +186,19 @@ export const Dashboard: React.FC = () => {
           {dailyLog.meals.map((meal) => {
             const meta = MEAL_TYPE_META[meal.meal_type]
             return (
-              <div key={meal.id} className="card-tile px-4 py-3.5">
+              <div
+                key={meal.id}
+                onClick={() => openView(meal)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    openView(meal)
+                  }
+                }}
+                className="card-tile px-4 py-3.5 cursor-pointer hover:border-primary-500/40 transition-colors"
+              >
                 <div className="flex items-center justify-between gap-2.5 mb-2">
                   <span className={`chip ${meta.chip}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
@@ -208,6 +235,11 @@ export const Dashboard: React.FC = () => {
           </div>
         )
       )}
+
+      {/* Просмотр приёма пищи (фото, КБЖУ, разбивка белка, состав) */}
+      <Modal isOpen={modal === 'view'} onClose={close} title="Запись о еде">
+        {viewing && <MealDetail meal={viewing} onUpdated={handleViewedUpdated} />}
+      </Modal>
 
       {/* Add Meal Modal (ручной) */}
       <Modal isOpen={modal === 'manual'} onClose={close} title="Добавить приём пищи">

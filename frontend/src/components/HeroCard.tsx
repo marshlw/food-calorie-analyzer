@@ -1,5 +1,6 @@
 import React from 'react'
 import { DailyLog, AiAnalysisLimit } from '../types'
+import { ProteinBreakdown } from './ProteinBreakdown'
 
 // Полоса макронутриента: «Белки  81 / 130 г» + прогресс-бар
 const MacroBar: React.FC<{
@@ -110,12 +111,28 @@ export const HeroCard: React.FC<Props> = ({ log, aiLimit }) => {
 
       {/* Макронутриенты */}
       <div className="flex flex-col gap-3.5">
-        <MacroBar
-          label="Белки"
-          value={log.total_protein}
-          goal={log.targets?.protein_g}
-          barClass="bg-protein dark:bg-protein-dark"
-        />
+        {/* Белки + вложенная разбивка на животный/растительный */}
+        <div>
+          <MacroBar
+            label="Белки"
+            value={log.total_protein}
+            goal={log.targets?.protein_g}
+            barClass="bg-protein dark:bg-protein-dark"
+          />
+          {(log.total_protein > 0 ||
+            log.targets?.protein_animal_g != null ||
+            log.targets?.protein_plant_g != null) && (
+            <div className="mt-2.5 ml-1 pl-3 border-l-2 border-line dark:border-line-dark">
+              <ProteinBreakdown
+                animal={log.total_protein_animal ?? 0}
+                plant={log.total_protein_plant ?? 0}
+                totalProtein={log.total_protein}
+                animalGoal={log.targets?.protein_animal_g}
+                plantGoal={log.targets?.protein_plant_g}
+              />
+            </div>
+          )}
+        </div>
         <MacroBar
           label="Жиры"
           value={log.total_fat}
