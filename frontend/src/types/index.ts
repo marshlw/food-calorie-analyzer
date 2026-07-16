@@ -243,7 +243,12 @@ export interface ProfileUpdate {
   sex?: Sex
   birth_date?: string
   activity_level?: ActivityLevel
-  // По умолчанию true: изменённый в форме вес уходит в историю.
+  // Обхваты тела (см) — все опциональны, сохраняются в запись веса за сегодня.
+  waist_cm?: number
+  chest_cm?: number
+  hips_cm?: number
+  shoulders_cm?: number
+  // По умолчанию true: изменённый в форме вес/обхваты уходят в историю.
   save_weight_as_record?: boolean
   // Ручные нормы: undefined = не менять, 0 = вернуть авторасчёт, >0 = установить
   custom_calorie_target?: number
@@ -375,6 +380,19 @@ export interface AdvisorAskResponse {
   generated_by: 'llm' | 'rules'
 }
 
+// Опциональные данные профиля, заполняемые при регистрации.
+export interface RegisterProfile {
+  height_cm?: number
+  weight_kg?: number
+  sex?: Sex
+  birth_date?: string // YYYY-MM-DD
+  // Обхваты тела (см) — попадут в первую запись веса (нужен вес).
+  waist_cm?: number
+  chest_cm?: number
+  hips_cm?: number
+  shoulders_cm?: number
+}
+
 export interface AuthContextType {
   user: User | null
   token: Token | null
@@ -386,7 +404,7 @@ export interface AuthContextType {
     email: string,
     password: string,
     fullName?: string,
-    profile?: { height_cm?: number; weight_kg?: number }
+    profile?: RegisterProfile
   ) => Promise<void>
   logout: () => void
   clearError: () => void

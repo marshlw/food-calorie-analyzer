@@ -46,6 +46,14 @@ class UserCreate(UserBase):
     # записью в истории взвешиваний (см. main.register).
     height_cm: Optional[float] = Field(None, gt=0, lt=300)
     weight_kg: Optional[float] = Field(None, gt=0, lt=300)
+    # Пол и дата рождения (возраст) — для расчёта BMR/норм калорий.
+    sex: Optional[Literal["male", "female"]] = None
+    birth_date: Optional[_date] = None
+    # Обхваты тела (см) — попадут в первую запись веса вместе с весом.
+    waist_cm: Optional[float] = Field(None, gt=0, lt=300)      # талия
+    chest_cm: Optional[float] = Field(None, gt=0, lt=300)      # грудь
+    hips_cm: Optional[float] = Field(None, gt=0, lt=300)       # бёдра
+    shoulders_cm: Optional[float] = Field(None, gt=0, lt=300)  # плечи
 
 
 class UserUpdate(BaseModel):
@@ -105,8 +113,14 @@ class ProfileUpdate(BaseModel):
     activity_level: Optional[Literal[
         "sedentary", "light", "moderate", "active", "very_active"
     ]] = None
-    # UX «Сохранить как новую запись?». По умолчанию True: вес из формы
-    # профиля попадает в историю (за сегодня, upsert'ом).
+    # Обхваты тела (см) — все опциональны. Сохраняются в запись веса за сегодня
+    # (тот же источник, что и модалка замера). None = не менять.
+    waist_cm: Optional[float] = Field(None, gt=0, lt=300)      # талия
+    chest_cm: Optional[float] = Field(None, gt=0, lt=300)      # грудь
+    hips_cm: Optional[float] = Field(None, gt=0, lt=300)       # бёдра
+    shoulders_cm: Optional[float] = Field(None, gt=0, lt=300)  # плечи
+    # UX «Сохранить как новую запись?». По умолчанию True: вес/обхваты из формы
+    # профиля попадают в историю (за сегодня, upsert'ом).
     save_weight_as_record: bool = True
     # Ручные нормы (для атлетов): None = не менять, 0 = вернуть авторасчёт,
     # положительное значение = установить. Подхватываются во всех формах.

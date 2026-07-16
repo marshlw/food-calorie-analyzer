@@ -4,6 +4,16 @@ import { useAuth } from '../hooks/useAuth'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { PasswordInput } from '../components/PasswordInput'
 import { RingLogo } from '../components/Brand'
+import { Sex } from '../types'
+
+// Обхваты тела: ключ, подпись, плейсхолдер. Все опциональны.
+type MeasureKey = 'waist_cm' | 'chest_cm' | 'hips_cm' | 'shoulders_cm'
+const MEASUREMENTS: { key: MeasureKey; label: string; placeholder: string }[] = [
+  { key: 'waist_cm', label: 'Талия, см', placeholder: '80' },
+  { key: 'chest_cm', label: 'Грудь, см', placeholder: '100' },
+  { key: 'hips_cm', label: 'Бёдра, см', placeholder: '95' },
+  { key: 'shoulders_cm', label: 'Плечи, см', placeholder: '115' },
+]
 
 // Экран регистрации в стиле экрана входа Rasify.
 export const Register: React.FC = () => {
@@ -13,9 +23,20 @@ export const Register: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [height, setHeight] = useState('')
   const [weight, setWeight] = useState('')
+  const [sex, setSex] = useState<Sex | ''>('')
+  const [birthDate, setBirthDate] = useState('')
+  const [measures, setMeasures] = useState<Record<MeasureKey, string>>({
+    waist_cm: '',
+    chest_cm: '',
+    hips_cm: '',
+    shoulders_cm: '',
+  })
   const [localError, setLocalError] = useState('')
   const navigate = useNavigate()
   const { register, isLoading, error, clearError } = useAuth()
+
+  const setMeasure = (key: MeasureKey, value: string) =>
+    setMeasures((m) => ({ ...m, [key]: value }))
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -47,8 +68,32 @@ export const Register: React.FC = () => {
       return
     }
 
+    // Собираем и проверяем обхваты
+    const measurePayload: Partial<Record<MeasureKey, number>> = {}
+    for (const { key, label } of MEASUREMENTS) {
+      const raw = measures[key].trim()
+      if (!raw) continue
+      const val = parseFloat(raw)
+      if (isNaN(val) || val <= 0 || val >= 300) {
+        setLocalError(`«${label}» должно быть больше 0 и меньше 300 см`)
+        return
+      }
+      measurePayload[key] = val
+    }
+    // Обхваты хранятся на записи веса — без веса их сохранить некуда.
+    if (Object.keys(measurePayload).length > 0 && w === undefined) {
+      setLocalError('Чтобы сохранить замеры, укажите вес')
+      return
+    }
+
     try {
-      await register(email, password, fullName || undefined, { height_cm: h, weight_kg: w })
+      await register(email, password, fullName || undefined, {
+        height_cm: h,
+        weight_kg: w,
+        sex: sex || undefined,
+        birth_date: birthDate || undefined,
+        ...measurePayload,
+      })
       navigate('/')
     } catch {
       // Error is already set by auth context
@@ -152,6 +197,66 @@ export const Register: React.FC = () => {
                   disabled={isLoading}
                 />
               </div>
+            </div>
+
+            {/* Пол и дата рождения (возраст) — для расчёта норм калорий */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[13px] font-semibold mb-1.5">Пол (опц.)</label>
+                <select
+                  className="input"
+                  value={sex}
+                  onChange={(e) => setSex(e.target.value as Sex)}
+                  disabled={isLoading}
+                >
+                  <option value="">—</option>
+                  <option value="male">Мужской</option>
+                  <option value="female">Женский</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[13px] font-semibold mb-1.5">
+                  Дата рождения (опц.)
+                </label>
+                <input
+                  type="date"
+                  className="input"
+                  max={new Date().toISOString().slice(0, 10)}
+                  value={birthDate}
+                  onChange={(e) => setBirthDate(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+            </div>
+
+            {/* Замеры тела — по желанию. Сохраняются в первую запись веса. */}
+            <div>
+              <p className="text-[13px] font-semibold mb-2">
+                Замеры тела <span className="font-normal text-tertiary">· по желанию</span>
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {MEASUREMENTS.map((m) => (
+                  <div key={m.key}>
+                    <label className="block text-[12px] font-medium mb-1.5">{m.label}</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="300"
+                      value={measures[m.key]}
+                      onChange={(e) => setMeasure(m.key, e.target.value)}
+                      placeholder={m.placeholder}
+                      className="input"
+                      disabled={isLoading}
+                    />
+                  </div>
+                ))}
+              </div>
+              {!weight && (
+                <p className="text-xs text-tertiary mt-2">
+                  Чтобы сохранить замеры, укажите вес.
+                </p>
+              )}
             </div>
 
             <button

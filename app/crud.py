@@ -33,6 +33,8 @@ def create_user_sync(db: Session, user: schemas.UserCreate, hashed_password: str
         full_name=user.full_name,
         hashed_password=hashed_password,
         height_cm=getattr(user, "height_cm", None),
+        sex=getattr(user, "sex", None),
+        birth_date=getattr(user, "birth_date", None),
     )
     db.add(db_user)
     db.commit()
@@ -218,12 +220,32 @@ def update_profile(db: Session, user: models.User, payload: schemas.ProfileUpdat
 
     db.commit()
 
-    # Вес из профиля -> в историю, только если изменился относительно
-    # последнего значения (иначе незачем трогать запись за сегодня).
-    if payload.weight_kg is not None and payload.save_weight_as_record:
+    # Вес и обхваты из профиля -> в историю (запись за сегодня, upsert'ом).
+    # Обхваты хранятся на записи веса, поэтому им нужен вес: берём из формы,
+    # иначе — последний известный. Пишем, если изменился вес ИЛИ заданы обхваты.
+    measurements = {
+        "waist_cm": payload.waist_cm,
+        "chest_cm": payload.chest_cm,
+        "hips_cm": payload.hips_cm,
+        "shoulders_cm": payload.shoulders_cm,
+    }
+    has_measurements = any(v is not None for v in measurements.values())
+    if payload.save_weight_as_record and (payload.weight_kg is not None or has_measurements):
         latest = get_latest_weight(db, db_user.id)
-        if latest is None or latest.weight_kg != payload.weight_kg:
-            upsert_weight_record(db, db_user.id, payload.weight_kg, source="profile_edit")
+        weight_for_record = (
+            payload.weight_kg if payload.weight_kg is not None
+            else (latest.weight_kg if latest else None)
+        )
+        if weight_for_record is not None:
+            weight_changed = latest is None or latest.weight_kg != weight_for_record
+            if weight_changed or has_measurements:
+                upsert_weight_record(
+                    db,
+                    db_user.id,
+                    weight_for_record,
+                    source="profile_edit",
+                    measurements=measurements,
+                )
 
     db.refresh(db_user)
     return db_user

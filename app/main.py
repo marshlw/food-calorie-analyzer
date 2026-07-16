@@ -303,11 +303,19 @@ def register(request: Request, user: schemas.UserCreate, db: Session = Depends(g
     hashed_password = auth.get_password_hash(user.password)
     db_user = crud.create_user_sync(db, user, hashed_password)
 
-    # UX из ТЗ: вес, заполненный при регистрации, становится первой
-    # записью в истории взвешиваний.
+    # UX из ТЗ: вес, заполненный при регистрации, становится первой записью в
+    # истории взвешиваний. Обхваты (если заданы) сохраняются в ту же запись.
     if user.weight_kg:
         try:
-            crud.upsert_weight_record(db, db_user.id, user.weight_kg, source="registration")
+            crud.upsert_weight_record(
+                db, db_user.id, user.weight_kg, source="registration",
+                measurements={
+                    "waist_cm": user.waist_cm,
+                    "chest_cm": user.chest_cm,
+                    "hips_cm": user.hips_cm,
+                    "shoulders_cm": user.shoulders_cm,
+                },
+            )
         except Exception as exc:
             logger.warning("Failed to seed initial weight record", exc_info=exc)
 

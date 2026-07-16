@@ -1,12 +1,12 @@
 import { apiClient } from './axios'
-import { User, Token } from '../types'
+import { User, Token, RegisterProfile } from '../types'
 
 export const authApi = {
   register: async (
     email: string,
     password: string,
     fullName?: string,
-    profile?: { height_cm?: number; weight_kg?: number }
+    profile?: RegisterProfile
   ): Promise<User> => {
     const response = await apiClient.post<User>('/api/v1/register', {
       email,
@@ -14,6 +14,12 @@ export const authApi = {
       full_name: fullName,
       height_cm: profile?.height_cm,
       weight_kg: profile?.weight_kg,
+      sex: profile?.sex,
+      birth_date: profile?.birth_date,
+      waist_cm: profile?.waist_cm,
+      chest_cm: profile?.chest_cm,
+      hips_cm: profile?.hips_cm,
+      shoulders_cm: profile?.shoulders_cm,
     })
     return response.data
   },

@@ -1,5 +1,5 @@
 import React, { createContext, useReducer, useCallback, useEffect } from 'react'
-import { User, Token, AuthContextType } from '../types'
+import { User, Token, AuthContextType, RegisterProfile } from '../types'
 import { authApi } from '../api/auth'
 import { setAuthTokens, clearAuthTokens, getAuthTokens } from '../api/axios'
 import { extractErrorMessage } from '../utils/errors'
@@ -119,7 +119,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     email: string,
     password: string,
     fullName?: string,
-    profile?: { height_cm?: number; weight_kg?: number }
+    profile?: RegisterProfile
   ) => {
     dispatch({ type: 'LOGIN_START' })
     try {
