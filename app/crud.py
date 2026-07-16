@@ -307,14 +307,38 @@ def get_or_create_daily_log(db: Session, user_id: int, date_value: date) -> mode
     return daily_log
 
 
+def resolve_protein_split(food_name: str, protein_g: float, animal, plant) -> tuple:
+    """Возвращает (животный, растительный) белок в граммах.
+
+    Если явное разделение уже задано (пользователь выбрал тип блюда или оно
+    пришло из справочника/AI) — используем его. Иначе определяем источник
+    автоматически по названию блюда (тот же классификатор, что и для базы
+    продуктов), чтобы разбивка была даже без ручного выбора типа."""
+    a = animal or 0
+    p = plant or 0
+    if a > 0 or p > 0:
+        return round(a, 1), round(p, 1)
+    if (protein_g or 0) <= 0:
+        return 0.0, 0.0
+    from .protein_source import classify, split_protein
+    return split_protein(protein_g, classify(food_name or ""))
+
+
 def _meal_totals_from_items(items: List[schemas.MealEntryItemCreate]) -> Dict[str, float]:
     """Итоги составного приёма: суммы КБЖУ/веса по блюдам (включая разделение
-    белка на животный/растительный)."""
+    белка на животный/растительный — с авто-определением источника по названию)."""
+    splits = [
+        resolve_protein_split(
+            i.food_name, i.protein_g,
+            getattr(i, "protein_animal_g", 0), getattr(i, "protein_plant_g", 0),
+        )
+        for i in items
+    ]
     return {
         "calories": round(sum(i.calories for i in items), 1),
         "protein_g": round(sum(i.protein_g for i in items), 1),
-        "protein_animal_g": round(sum(getattr(i, "protein_animal_g", 0) or 0 for i in items), 1),
-        "protein_plant_g": round(sum(getattr(i, "protein_plant_g", 0) or 0 for i in items), 1),
+        "protein_animal_g": round(sum(a for a, _ in splits), 1),
+        "protein_plant_g": round(sum(p for _, p in splits), 1),
         "fat_g": round(sum(i.fat_g for i in items), 1),
         "carbs_g": round(sum(i.carbs_g for i in items), 1),
         "weight_g": round(sum(i.weight_g for i in items), 1),
@@ -327,15 +351,22 @@ def add_meal_entry(db: Session, user_id: int, meal_data: schemas.MealEntryCreate
 
     items = getattr(meal_data, "items", None) or []
     # У составного приёма итоги считаем на бэкенде — фронту не доверяем суммы.
-    totals = _meal_totals_from_items(items) if items else {
-        "calories": meal_data.calories,
-        "protein_g": meal_data.protein_g,
-        "protein_animal_g": getattr(meal_data, "protein_animal_g", 0) or 0,
-        "protein_plant_g": getattr(meal_data, "protein_plant_g", 0) or 0,
-        "fat_g": meal_data.fat_g,
-        "carbs_g": meal_data.carbs_g,
-        "weight_g": meal_data.weight_g,
-    }
+    if items:
+        totals = _meal_totals_from_items(items)
+    else:
+        entry_animal, entry_plant = resolve_protein_split(
+            meal_data.food_name, meal_data.protein_g,
+            getattr(meal_data, "protein_animal_g", 0), getattr(meal_data, "protein_plant_g", 0),
+        )
+        totals = {
+            "calories": meal_data.calories,
+            "protein_g": meal_data.protein_g,
+            "protein_animal_g": entry_animal,
+            "protein_plant_g": entry_plant,
+            "fat_g": meal_data.fat_g,
+            "carbs_g": meal_data.carbs_g,
+            "weight_g": meal_data.weight_g,
+        }
 
     meal_entry = models.MealEntry(
         daily_log_id=daily_log.id,
@@ -351,13 +382,17 @@ def add_meal_entry(db: Session, user_id: int, meal_data: schemas.MealEntryCreate
         task_id=task_id
     )
     for item in items:
+        i_animal, i_plant = resolve_protein_split(
+            item.food_name, item.protein_g,
+            getattr(item, "protein_animal_g", 0), getattr(item, "protein_plant_g", 0),
+        )
         meal_entry.items.append(models.MealEntryItem(
             food_name=item.food_name,
             weight_g=item.weight_g,
             calories=item.calories,
             protein_g=item.protein_g,
-            protein_animal_g=getattr(item, "protein_animal_g", 0) or 0,
-            protein_plant_g=getattr(item, "protein_plant_g", 0) or 0,
+            protein_animal_g=i_animal,
+            protein_plant_g=i_plant,
             fat_g=item.fat_g,
             carbs_g=item.carbs_g,
         ))
@@ -375,13 +410,17 @@ def update_meal_entry(db: Session, meal_entry: models.MealEntry, update: schemas
         totals = _meal_totals_from_items(items)
         meal_entry.items.clear()
         for item in items:
+            i_animal, i_plant = resolve_protein_split(
+                item.food_name, item.protein_g,
+                getattr(item, "protein_animal_g", 0), getattr(item, "protein_plant_g", 0),
+            )
             meal_entry.items.append(models.MealEntryItem(
                 food_name=item.food_name,
                 weight_g=item.weight_g,
                 calories=item.calories,
                 protein_g=item.protein_g,
-                protein_animal_g=getattr(item, "protein_animal_g", 0) or 0,
-                protein_plant_g=getattr(item, "protein_plant_g", 0) or 0,
+                protein_animal_g=i_animal,
+                protein_plant_g=i_plant,
                 fat_g=item.fat_g,
                 carbs_g=item.carbs_g,
             ))
@@ -396,10 +435,14 @@ def update_meal_entry(db: Session, meal_entry: models.MealEntry, update: schemas
         # Простая запись: если раньше была составной — блюда убираем,
         # запись становится обычной с введёнными вручную итогами.
         meal_entry.items.clear()
+        u_animal, u_plant = resolve_protein_split(
+            update.food_name, update.protein_g,
+            getattr(update, "protein_animal_g", 0), getattr(update, "protein_plant_g", 0),
+        )
         meal_entry.calories = update.calories
         meal_entry.protein_g = update.protein_g
-        meal_entry.protein_animal_g = getattr(update, "protein_animal_g", 0) or 0
-        meal_entry.protein_plant_g = getattr(update, "protein_plant_g", 0) or 0
+        meal_entry.protein_animal_g = u_animal
+        meal_entry.protein_plant_g = u_plant
         meal_entry.fat_g = update.fat_g
         meal_entry.carbs_g = update.carbs_g
         meal_entry.weight_g = update.weight_g
@@ -425,6 +468,55 @@ def get_daily_log(db: Session, user_id: int, date_value: date) -> Optional[model
 
 def get_meal_entry_sync(db: Session, meal_entry_id: int) -> Optional[models.MealEntry]:
     return db.query(models.MealEntry).filter(models.MealEntry.id == meal_entry_id).first()
+
+
+def backfill_meal_protein_split(db: Session) -> int:
+    """Проставляет разделение белка (животный/растительный) существующим приёмам,
+    у которых оно ещё не заполнено — определяя источник по названию блюда.
+    Идемпотентно: строки с уже заданным разделением пропускаются.
+    Возвращает число обновлённых записей/блюд."""
+    from .protein_source import classify, split_protein
+
+    updated = 0
+
+    # 1) Блюда составных приёмов
+    items = (
+        db.query(models.MealEntryItem)
+        .filter(
+            ((models.MealEntryItem.protein_animal_g == None) | (models.MealEntryItem.protein_animal_g == 0)),  # noqa: E711
+            ((models.MealEntryItem.protein_plant_g == None) | (models.MealEntryItem.protein_plant_g == 0)),    # noqa: E711
+            models.MealEntryItem.protein_g > 0,
+        )
+        .all()
+    )
+    for it in items:
+        a, p = split_protein(it.protein_g, classify(it.food_name))
+        it.protein_animal_g, it.protein_plant_g = a, p
+        updated += 1
+
+    # 2) Записи приёмов
+    entries = (
+        db.query(models.MealEntry)
+        .filter(
+            ((models.MealEntry.protein_animal_g == None) | (models.MealEntry.protein_animal_g == 0)),  # noqa: E711
+            ((models.MealEntry.protein_plant_g == None) | (models.MealEntry.protein_plant_g == 0)),    # noqa: E711
+            models.MealEntry.protein_g > 0,
+        )
+        .all()
+    )
+    for e in entries:
+        if e.items:
+            # Составной приём: итог = сумма по блюдам (они уже размечены выше).
+            e.protein_animal_g = round(sum((i.protein_animal_g or 0) for i in e.items), 1)
+            e.protein_plant_g = round(sum((i.protein_plant_g or 0) for i in e.items), 1)
+        else:
+            a, p = split_protein(e.protein_g, classify(e.food_name))
+            e.protein_animal_g, e.protein_plant_g = a, p
+        updated += 1
+
+    if updated:
+        db.commit()
+    return updated
 
 
 def calculate_daily_totals(log: models.DailyLog) -> Dict[str, float]:

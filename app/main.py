@@ -108,6 +108,19 @@ async def startup_event():
     except Exception as exc:
         logger.warning("Exercise seeding failed", exc_info=exc)
 
+    # Разметка разделения белка (животный/растительный) у существующих приёмов,
+    # добавленных до появления фичи. Идемпотентно — по названию блюда.
+    try:
+        session = SessionLocal()
+        try:
+            n = crud.backfill_meal_protein_split(session)
+            if n:
+                logger.info("Backfilled protein split for %s meal rows", n)
+        finally:
+            session.close()
+    except Exception as exc:
+        logger.warning("Meal protein split backfill failed", exc_info=exc)
+
     try:
         ml_service.get_http_client()
         ml_service.get_redis_client()

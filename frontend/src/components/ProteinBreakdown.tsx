@@ -2,10 +2,10 @@ import React from 'react'
 import { PROTEIN_TYPE_META } from '../utils/protein'
 
 interface Props {
-  // Съедено за день (г)
+  // Съедено (г): животный / растительный
   animal: number
   plant: number
-  // Общий белок за день — нужен, чтобы вычислить «не указан»
+  // Общий белок — знаменатель для доли источника, когда нормы нет
   totalProtein: number
   // Суточные нормы (г); null/undefined — если профиль не заполнен
   animalGoal?: number | null
@@ -46,8 +46,9 @@ const MiniBar: React.FC<{
   )
 }
 
-// Разбивка белка на животный/растительный (две мелкие шкалы) + «не указан».
-// Используется под шкалой «Белки» в Дневнике и в сводке дня на Приёмах.
+// Разбивка белка на животный/растительный (две мелкие шкалы).
+// Используется под шкалой «Белки» в Дневнике, в сводке дня на Приёмах
+// и в раскрытой карточке приёма.
 export const ProteinBreakdown: React.FC<Props> = ({
   animal,
   plant,
@@ -56,7 +57,6 @@ export const ProteinBreakdown: React.FC<Props> = ({
   plantGoal,
   heading,
 }) => {
-  const undetermined = Math.max(0, Math.round(totalProtein - animal - plant))
   // Нет норм → бар показывает долю источника внутри белка приёма (композиция).
   const hasGoals = animalGoal != null || plantGoal != null
   const shareMax = hasGoals ? undefined : totalProtein
@@ -82,11 +82,6 @@ export const ProteinBreakdown: React.FC<Props> = ({
         barMax={shareMax}
         dotClass={PROTEIN_TYPE_META.plant.dot}
       />
-      {undetermined > 0 && (
-        <div className="text-[11px] text-tertiary">
-          Источник не указан: <span className="font-medium">{undetermined} г</span>
-        </div>
-      )}
     </div>
   )
 }
