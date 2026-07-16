@@ -427,12 +427,16 @@ def _build_profile(db: Session, user: models.User) -> dict:
         "bmr": t["bmr"],
         "daily_calorie_target": t["calories"],
         "protein_target_g": t["protein_g"],
+        "protein_animal_target_g": t["protein_animal_g"],
+        "protein_plant_target_g": t["protein_plant_g"],
         "fat_target_g": t["fat_g"],
         "carbs_target_g": t["carbs_g"],
         "water_target_ml": t["water_ml"],
         # Какие нормы заданы вручную (для формы «Мои нормы» в профиле)
         "custom_calorie_target": user.custom_calorie_target,
         "custom_protein_g": user.custom_protein_g,
+        "custom_protein_animal_g": user.custom_protein_animal_g,
+        "custom_protein_plant_g": user.custom_protein_plant_g,
         "custom_fat_g": user.custom_fat_g,
         "custom_carbs_g": user.custom_carbs_g,
         "custom_water_ml": user.custom_water_ml,
@@ -472,6 +476,12 @@ async def add_weight_record(
     return crud.upsert_weight_record(
         db, current_user.id, payload.weight_kg,
         recorded_on=payload.recorded_on, note=payload.note, source="manual",
+        measurements={
+            "waist_cm": payload.waist_cm,
+            "chest_cm": payload.chest_cm,
+            "hips_cm": payload.hips_cm,
+            "shoulders_cm": payload.shoulders_cm,
+        },
     )
 
 
@@ -653,6 +663,8 @@ async def get_daily_log(
     targets_payload = {
         "calories": targets["calories"],
         "protein_g": targets["protein_g"],
+        "protein_animal_g": targets["protein_animal_g"],
+        "protein_plant_g": targets["protein_plant_g"],
         "fat_g": targets["fat_g"],
         "carbs_g": targets["carbs_g"],
     }
@@ -671,6 +683,8 @@ async def get_daily_log(
             "date": date_value,
             "total_calories": 0.0,
             "total_protein": 0.0,
+            "total_protein_animal": 0.0,
+            "total_protein_plant": 0.0,
             "total_fat": 0.0,
             "total_carbs": 0.0,
             "meals": [],
@@ -754,6 +768,8 @@ async def add_meal_from_analysis(
         food_name=result_data.get("food") or result_data.get("food_name") or "analyzed meal",
         calories=float(result_data.get("calories", 0)),
         protein_g=float(result_data.get("protein_g", 0)),
+        protein_animal_g=float(result_data.get("protein_animal_g", 0) or 0),
+        protein_plant_g=float(result_data.get("protein_plant_g", 0) or 0),
         fat_g=float(result_data.get("fat_g", 0)),
         carbs_g=float(result_data.get("carbs_g", 0)),
         weight_g=float(result_data.get("weight_g", 0)),

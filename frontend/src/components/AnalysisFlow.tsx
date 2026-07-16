@@ -5,6 +5,7 @@ import { LoadingSpinner } from './LoadingSpinner'
 import { ErrorAlert } from './ErrorAlert'
 import { AnalysisResult, MealEntry, MealEntryItem, MealEntryCreate } from '../types'
 import { capitalize as cap } from '../utils/text'
+import { splitProtein } from '../utils/protein'
 
 const round1 = (v: number) => Math.round(v * 10) / 10
 
@@ -20,11 +21,17 @@ export const ingredientsToItems = (r: AnalysisResult): MealEntryItem[] => {
 
   return ings.map((ing) => {
     const share = (ing.weight_g || 0) / totalW
+    const protein = round1(r.protein_g * share)
+    // Тип источника белка берём из ингредиента (проставлен бэкендом по
+    // справочнику); из него считаем животный/растительный грамм блюда.
+    const split = splitProtein(protein, ing.protein_type ?? 'unknown')
     return {
       food_name: cap(ing.name),
       weight_g: round1(ing.weight_g || 0),
       calories: round1(r.calories * share),
-      protein_g: round1(r.protein_g * share),
+      protein_g: protein,
+      protein_animal_g: split.animal,
+      protein_plant_g: split.plant,
       fat_g: round1(r.fat_g * share),
       carbs_g: round1(r.carbs_g * share),
     }
@@ -90,6 +97,9 @@ export const AnalysisFlow: React.FC<Props> = ({ file, onConfirm, onCancel, savin
       food_name: cap(r.food || r.food_name || ''),
       calories: r.calories,
       protein_g: r.protein_g,
+      // Разделение белка от AI (по справочнику продуктов) — для простого приёма.
+      protein_animal_g: r.protein_animal_g ?? 0,
+      protein_plant_g: r.protein_plant_g ?? 0,
       fat_g: r.fat_g,
       carbs_g: r.carbs_g,
       weight_g: r.weight_g,

@@ -50,6 +50,12 @@ class User(Base):
     # переопределяет расчёт везде (дневник, вода, советчик, тренировки).
     custom_calorie_target = Column(Float, nullable=True)
     custom_protein_g = Column(Float, nullable=True)
+    # Ручное разделение нормы белка на животный/растительный (NULL = авторасчёт
+    # из общей нормы белка по доле PROTEIN_ANIMAL_TARGET_SHARE). Сумма животного
+    # и растительного не обязана точно равняться общей норме — это независимые
+    # цели, которые атлет может выставить под свой рацион.
+    custom_protein_animal_g = Column(Float, nullable=True)
+    custom_protein_plant_g = Column(Float, nullable=True)
     custom_fat_g = Column(Float, nullable=True)
     custom_carbs_g = Column(Float, nullable=True)
     custom_water_ml = Column(Float, nullable=True)
@@ -88,6 +94,14 @@ class WeightRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     weight_kg = Column(Float, nullable=False)
+    # ---- Обхваты тела (см), всё опционально ----
+    # Хранятся в той же строке, что и вес: один замер на (пользователь + дата).
+    # Любой из обхватов можно не заполнять — тогда он остаётся пустым и не
+    # попадает в график соответствующей метрики.
+    waist_cm = Column(Float, nullable=True)      # талия
+    chest_cm = Column(Float, nullable=True)      # грудь
+    hips_cm = Column(Float, nullable=True)       # бёдра
+    shoulders_cm = Column(Float, nullable=True)  # плечи
     recorded_on = Column(Date, nullable=False, server_default=func.current_date())
     note = Column(String, nullable=True)
     source = Column(String, default="manual")  # manual | registration | profile_edit
@@ -124,6 +138,12 @@ class MealEntry(Base):
     # без изменений.
     calories = Column(Float, nullable=False)
     protein_g = Column(Float, nullable=False)
+    # Разделение белка записи на животный/растительный (г). Их сумма ≤ protein_g;
+    # разница (если есть) — «источник не определён» (например, ручная запись без
+    # указания типа или продукт вне справочника). Для составных приёмов это
+    # суммы по блюдам (см. crud._meal_totals_from_items).
+    protein_animal_g = Column(Float, nullable=False, default=0)
+    protein_plant_g = Column(Float, nullable=False, default=0)
     fat_g = Column(Float, nullable=False)
     carbs_g = Column(Float, nullable=False)
     weight_g = Column(Float, nullable=False)
@@ -177,6 +197,9 @@ class MealEntryItem(Base):
     weight_g = Column(Float, nullable=False, default=0)
     calories = Column(Float, nullable=False, default=0)
     protein_g = Column(Float, nullable=False, default=0)
+    # Разделение белка блюда (г); сумма ≤ protein_g, остаток — «не определён».
+    protein_animal_g = Column(Float, nullable=False, default=0)
+    protein_plant_g = Column(Float, nullable=False, default=0)
     fat_g = Column(Float, nullable=False, default=0)
     carbs_g = Column(Float, nullable=False, default=0)
 
@@ -296,6 +319,9 @@ class Meal(Base):
     # 👉 добавили агрегаты (очень важно для аналитики)
     total_calories = Column(Float, default=0)
     total_protein = Column(Float, default=0)
+    # Разделение суммарного белка приёма на животный/растительный.
+    total_protein_animal = Column(Float, default=0)
+    total_protein_plant = Column(Float, default=0)
     total_fat = Column(Float, default=0)
     total_carbs = Column(Float, default=0)
 
@@ -314,6 +340,9 @@ class MealItem(Base):
 
     calories = Column(Float, nullable=False)
     protein_g = Column(Float, nullable=False)
+    # Разделение белка позиции на животный/растительный (г).
+    protein_animal_g = Column(Float, nullable=False, default=0)
+    protein_plant_g = Column(Float, nullable=False, default=0)
     fat_g = Column(Float, nullable=False)
     carbs_g = Column(Float, nullable=False)
 
@@ -416,5 +445,11 @@ class Product(Base):
     protein = Column(Float, nullable=False)
     fat = Column(Float, nullable=False)
     carbs = Column(Float, nullable=False)
+
+    # Источник белка продукта: "animal" (животный), "plant" (растительный)
+    # или "mixed" (смешанный — часть животного, часть растительного, напр.
+    # пельмени/пицца). Проставляется автоматически классификатором
+    # protein_source.classify по названию при засеве базы.
+    protein_type = Column(String, nullable=True, default="mixed")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())

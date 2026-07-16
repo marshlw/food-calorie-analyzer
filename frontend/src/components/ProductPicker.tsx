@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import { productsApi } from '../api/products'
-import { Product } from '../types'
+import { Product, ProteinType } from '../types'
 import { capitalize as cap } from '../utils/text'
+import { PROTEIN_TYPE_META, productProteinType } from '../utils/protein'
 
 interface AppliedProduct {
   food_name: string
@@ -11,6 +12,8 @@ interface AppliedProduct {
   protein_g: number
   fat_g: number
   carbs_g: number
+  // Источник белка продукта — подставляется в форму как тип блюда.
+  protein_type: ProteinType
 }
 
 interface ProductPickerProps {
@@ -98,6 +101,7 @@ export const ProductPicker: React.FC<ProductPickerProps> = ({
     onApply({
       food_name: cap(selected.name),
       weight_g: weight,
+      protein_type: productProteinType(selected.protein_type),
       ...nutrition,
     })
     // Сбрасываем выбор — можно сразу искать следующее блюдо
@@ -170,11 +174,22 @@ export const ProductPicker: React.FC<ProductPickerProps> = ({
       {selected && preview && (
         <div className="rounded-tile border border-line dark:border-line-dark bg-surface dark:bg-chip-dark/50 p-3.5 space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold">{cap(selected.name)}</p>
+            <div className="flex items-center gap-2 min-w-0">
+              <p className="text-sm font-semibold truncate">{cap(selected.name)}</p>
+              {(() => {
+                const meta = PROTEIN_TYPE_META[productProteinType(selected.protein_type)]
+                return (
+                  <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${meta.text}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                    {meta.label} белок
+                  </span>
+                )
+              })()}
+            </div>
             <button
               type="button"
               onClick={handleClearSelection}
-              className="text-xs text-tertiary hover:underline"
+              className="text-xs text-tertiary hover:underline flex-shrink-0"
             >
               Сбросить
             </button>

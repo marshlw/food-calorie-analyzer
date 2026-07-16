@@ -73,6 +73,11 @@ class WeightRecordCreate(BaseModel):
     weight_kg: float = Field(..., gt=0, lt=300)
     recorded_on: Optional[_date] = None  # по умолчанию -- сегодня
     note: Optional[str] = Field(None, max_length=200)
+    # Обхваты тела (см) -- все опциональны. None = не заполнять/не менять.
+    waist_cm: Optional[float] = Field(None, gt=0, lt=300)      # талия
+    chest_cm: Optional[float] = Field(None, gt=0, lt=300)      # грудь
+    hips_cm: Optional[float] = Field(None, gt=0, lt=300)       # бёдра
+    shoulders_cm: Optional[float] = Field(None, gt=0, lt=300)  # плечи
 
 
 class WeightRecordResponse(BaseModel):
@@ -81,6 +86,11 @@ class WeightRecordResponse(BaseModel):
     recorded_on: _date
     note: Optional[str] = None
     source: str
+    # Обхваты тела (см); None у записей, где замер не заполняли.
+    waist_cm: Optional[float] = None
+    chest_cm: Optional[float] = None
+    hips_cm: Optional[float] = None
+    shoulders_cm: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -102,6 +112,9 @@ class ProfileUpdate(BaseModel):
     # положительное значение = установить. Подхватываются во всех формах.
     custom_calorie_target: Optional[float] = Field(None, ge=0, le=20000)
     custom_protein_g: Optional[float] = Field(None, ge=0, le=2000)
+    # Ручные нормы животного/растительного белка (0 = вернуть авторасчёт).
+    custom_protein_animal_g: Optional[float] = Field(None, ge=0, le=2000)
+    custom_protein_plant_g: Optional[float] = Field(None, ge=0, le=2000)
     custom_fat_g: Optional[float] = Field(None, ge=0, le=2000)
     custom_carbs_g: Optional[float] = Field(None, ge=0, le=3000)
     custom_water_ml: Optional[float] = Field(None, ge=0, le=20000)
@@ -111,6 +124,9 @@ class NutritionTargets(BaseModel):
     """Суточные нормы КБЖУ, рассчитанные из веса/роста/возраста/активности."""
     calories: Optional[float] = None
     protein_g: Optional[float] = None
+    # Разделение нормы белка на животный/растительный.
+    protein_animal_g: Optional[float] = None
+    protein_plant_g: Optional[float] = None
     fat_g: Optional[float] = None
     carbs_g: Optional[float] = None
 
@@ -129,6 +145,9 @@ class ProfileResponse(BaseModel):
     daily_calorie_target: Optional[float] = None
     # Нормы макронутриентов (по аналогии с нормой калорий)
     protein_target_g: Optional[float] = None
+    # Разделение нормы белка на животный/растительный.
+    protein_animal_target_g: Optional[float] = None
+    protein_plant_target_g: Optional[float] = None
     fat_target_g: Optional[float] = None
     carbs_target_g: Optional[float] = None
     # Суточная норма воды (мл), считается из веса/активности.
@@ -137,6 +156,8 @@ class ProfileResponse(BaseModel):
     # Нужны фронту, чтобы показать, какие значения заданы вручную.
     custom_calorie_target: Optional[float] = None
     custom_protein_g: Optional[float] = None
+    custom_protein_animal_g: Optional[float] = None
+    custom_protein_plant_g: Optional[float] = None
     custom_fat_g: Optional[float] = None
     custom_carbs_g: Optional[float] = None
     custom_water_ml: Optional[float] = None
@@ -171,6 +192,8 @@ class IngredientResponse(BaseModel):
     name: str = ""
     type: str = "unknown"  # protein | carb | fat | vegetable | unknown
     weight_g: float = 0
+    # Источник белка ингредиента: animal | plant | mixed | unknown.
+    protein_type: str = "unknown"
 
 
 class NutritionResponse(BaseModel):
@@ -178,6 +201,9 @@ class NutritionResponse(BaseModel):
     weight_g: float = Field(..., ge=0.1, le=5000, description="Вес в граммах")
     calories: float = Field(..., ge=0, le=10000, description="Калории")
     protein_g: float = Field(..., ge=0, description="Белки, г")
+    # Разделение белка на животный/растительный (по справочнику продуктов).
+    protein_animal_g: float = Field(0, ge=0, description="Животный белок, г")
+    protein_plant_g: float = Field(0, ge=0, description="Растительный белок, г")
     fat_g: float = Field(..., ge=0, description="Жиры, г")
     carbs_g: float = Field(..., ge=0, description="Углеводы, г")
     confidence: float = Field(..., ge=0, le=1, description="Уверенность модели")
@@ -264,12 +290,21 @@ class MealEntryItemCreate(BaseModel):
     weight_g: float = Field(..., gt=0)
     calories: float = Field(..., ge=0)
     protein_g: float = Field(0, ge=0)
+    # Разделение белка блюда (г); сумма ≤ protein_g, остаток — «не определён».
+    protein_animal_g: float = Field(0, ge=0)
+    protein_plant_g: float = Field(0, ge=0)
     fat_g: float = Field(0, ge=0)
     carbs_g: float = Field(0, ge=0)
 
 
 class MealEntryItemResponse(MealEntryItemCreate):
     id: int
+
+    # Старые строки (до миграции) хранят NULL в колонках разделения белка —
+    # приводим их к 0, чтобы схема с типом float не падала на None.
+    @validator("protein_animal_g", "protein_plant_g", pre=True)
+    def _coerce_split_none(cls, v):
+        return 0 if v is None else v
 
     class Config:
         from_attributes = True
@@ -279,6 +314,9 @@ class MealEntryCreate(BaseModel):
     food_name: str = Field(..., min_length=1, max_length=200)
     calories: float = Field(..., ge=0)
     protein_g: float = Field(..., ge=0)
+    # Разделение белка (г). Для составного приёма пересчитывается из блюд.
+    protein_animal_g: float = Field(0, ge=0)
+    protein_plant_g: float = Field(0, ge=0)
     fat_g: float = Field(..., ge=0)
     carbs_g: float = Field(..., ge=0)
     weight_g: float = Field(..., gt=0)
@@ -296,6 +334,9 @@ class MealEntryResponse(BaseModel):
     food_name: str
     calories: float
     protein_g: float
+    # Разделение белка записи на животный/растительный (г).
+    protein_animal_g: float = 0
+    protein_plant_g: float = 0
     fat_g: float
     carbs_g: float
     weight_g: float
@@ -310,6 +351,11 @@ class MealEntryResponse(BaseModel):
     # Блюда составного приёма (пусто у простых записей).
     items: List[MealEntryItemResponse] = Field(default_factory=list)
 
+    # Старые строки (до миграции) хранят NULL в разделении белка → приводим к 0.
+    @validator("protein_animal_g", "protein_plant_g", pre=True)
+    def _coerce_split_none(cls, v):
+        return 0 if v is None else v
+
     class Config:
         from_attributes = True
 
@@ -318,6 +364,9 @@ class DailyLogResponse(BaseModel):
     date: date
     total_calories: float
     total_protein: float
+    # Разделение суммарного белка за день на животный/растительный.
+    total_protein_animal: float = 0
+    total_protein_plant: float = 0
     total_fat: float
     total_carbs: float
     meals: List[MealEntryResponse]
@@ -419,6 +468,8 @@ class ProductResponse(BaseModel):
     protein: float
     fat: float
     carbs: float
+    # Источник белка: animal | plant | mixed. None у старых записей до миграции.
+    protein_type: Optional[str] = None
 
     class Config:
         from_attributes = True

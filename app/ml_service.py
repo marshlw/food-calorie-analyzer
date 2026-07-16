@@ -1043,14 +1043,24 @@ def _estimate_by_type(ing_type: str) -> dict:
 
 
 def calc_kbju(session, ingredients: List[dict]) -> dict:
-    """Суммарные КБЖУ по ингредиентам.
+    """Суммарные КБЖУ по ингредиентам + разделение белка на животный/растительный.
 
     Для каждого ингредиента сначала пытаемся взять точные данные из таблицы
     products; если совпадения нет (или таблица недоступна) — используем оценку
     по типу ингредиента, чтобы итог не был нулевым. Ошибки по отдельному
     ингредиенту не обнуляют весь расчёт.
+
+    Разделение белка: если продукт найден в справочнике, берём его тег
+    protein_type (animal|plant|mixed) и делим белок ингредиента через
+    protein_source.split_protein. Если продукта в справочнике нет, источник
+    белка неизвестен — он попадает в общий protein_g, но не в животный/
+    растительный (сумма животного и растительного будет ≤ общего белка).
     """
+    from .protein_source import split_protein
+
     total = {"calories": 0.0, "protein_g": 0.0, "fat_g": 0.0, "carbs_g": 0.0}
+    protein_animal = 0.0
+    protein_plant = 0.0
 
     for ing in ingredients:
         try:
@@ -1071,8 +1081,20 @@ def calc_kbju(session, ingredients: List[dict]) -> dict:
                     "fat_g": float(product.fat),
                     "carbs_g": float(product.carbs),
                 }
+                ptype = getattr(product, "protein_type", None) or "mixed"
+                ing_protein = per100["protein_g"] * k
+                animal, plant = split_protein(ing_protein, ptype)
+                protein_animal += animal
+                protein_plant += plant
+                # Проставляем тег источника белка на ингредиент — фронт использует
+                # его для типа блюда на экране подтверждения AI-анализа.
+                if isinstance(ing, dict):
+                    ing["protein_type"] = ptype
             else:
                 per100 = _estimate_by_type(ing.get("type"))
+                # Источник неизвестен — не относим к животному/растительному.
+                if isinstance(ing, dict):
+                    ing["protein_type"] = "unknown"
 
             for key in total:
                 total[key] += per100[key] * k
@@ -1080,7 +1102,10 @@ def calc_kbju(session, ingredients: List[dict]) -> dict:
             logger.warning("Skipping ingredient in KBJU calc", extra={"error": str(exc), "ingredient": ing})
             continue
 
-    return {key: round(value, 1) for key, value in total.items()}
+    result = {key: round(value, 1) for key, value in total.items()}
+    result["protein_animal_g"] = round(protein_animal, 1)
+    result["protein_plant_g"] = round(protein_plant, 1)
+    return result
 
 
 def _clamp_calorie_density(kbju: dict, total_weight: int) -> dict:

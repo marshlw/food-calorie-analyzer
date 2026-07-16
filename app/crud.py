@@ -72,10 +72,25 @@ def compute_nutrition_targets(db: Session, user: models.User) -> Dict[str, Any]:
     if getattr(user, "custom_water_ml", None):
         water_ml = user.custom_water_ml
 
+    # Разделение нормы белка на животный/растительный. По умолчанию делим общую
+    # норму по доле PROTEIN_ANIMAL_TARGET_SHARE; любую из целей можно задать
+    # вручную (custom_protein_animal_g / custom_protein_plant_g).
+    from .protein_source import PROTEIN_ANIMAL_TARGET_SHARE
+    if protein_g is not None:
+        auto_animal = round(protein_g * PROTEIN_ANIMAL_TARGET_SHARE)
+        auto_plant = round(protein_g - auto_animal)
+    else:
+        auto_animal = None
+        auto_plant = None
+    protein_animal_g = getattr(user, "custom_protein_animal_g", None) or auto_animal
+    protein_plant_g = getattr(user, "custom_protein_plant_g", None) or auto_plant
+
     return {
         "bmr": bmr,
         "calories": calories,
         "protein_g": protein_g,
+        "protein_animal_g": protein_animal_g,
+        "protein_plant_g": protein_plant_g,
         "fat_g": fat_g,
         "carbs_g": carbs_g,
         "water_ml": water_ml,
@@ -110,6 +125,10 @@ def list_weight_history(
     return q.order_by(models.WeightRecord.recorded_on.asc()).all()
 
 
+# Обхваты тела, которые можно записать вместе с весом (см).
+MEASUREMENT_FIELDS = ("waist_cm", "chest_cm", "hips_cm", "shoulders_cm")
+
+
 def upsert_weight_record(
     db: Session,
     user_id: int,
@@ -117,10 +136,17 @@ def upsert_weight_record(
     recorded_on: Optional[date] = None,
     note: Optional[str] = None,
     source: str = "manual",
+    measurements: Optional[Dict[str, Any]] = None,
 ) -> models.WeightRecord:
     """Одна запись на (user, дата): повторное сохранение за тот же день
-    обновляет существующую строку, а не создаёт дубль."""
+    обновляет существующую строку, а не создаёт дубль.
+
+    measurements -- словарь обхватов тела (waist_cm/chest_cm/hips_cm/
+    shoulders_cm). Значение None означает «не трогать»: при обновлении
+    записи ранее заполненный обхват не затирается, если в этот раз его
+    не прислали."""
     recorded_on = recorded_on or date.today()
+    measurements = measurements or {}
     rec = (
         db.query(models.WeightRecord)
         .filter(
@@ -134,6 +160,11 @@ def upsert_weight_record(
         if note is not None:
             rec.note = note
         rec.source = source
+        # Обновляем только присланные обхваты; остальные оставляем как есть.
+        for field in MEASUREMENT_FIELDS:
+            value = measurements.get(field)
+            if value is not None:
+                setattr(rec, field, value)
     else:
         rec = models.WeightRecord(
             user_id=user_id,
@@ -141,6 +172,7 @@ def upsert_weight_record(
             recorded_on=recorded_on,
             note=note,
             source=source,
+            **{f: measurements.get(f) for f in MEASUREMENT_FIELDS},
         )
         db.add(rec)
     db.commit()
@@ -174,6 +206,8 @@ def update_profile(db: Session, user: models.User, payload: schemas.ProfileUpdat
     for field in (
         "custom_calorie_target",
         "custom_protein_g",
+        "custom_protein_animal_g",
+        "custom_protein_plant_g",
         "custom_fat_g",
         "custom_carbs_g",
         "custom_water_ml",
@@ -274,10 +308,13 @@ def get_or_create_daily_log(db: Session, user_id: int, date_value: date) -> mode
 
 
 def _meal_totals_from_items(items: List[schemas.MealEntryItemCreate]) -> Dict[str, float]:
-    """Итоги составного приёма: суммы КБЖУ/веса по блюдам."""
+    """Итоги составного приёма: суммы КБЖУ/веса по блюдам (включая разделение
+    белка на животный/растительный)."""
     return {
         "calories": round(sum(i.calories for i in items), 1),
         "protein_g": round(sum(i.protein_g for i in items), 1),
+        "protein_animal_g": round(sum(getattr(i, "protein_animal_g", 0) or 0 for i in items), 1),
+        "protein_plant_g": round(sum(getattr(i, "protein_plant_g", 0) or 0 for i in items), 1),
         "fat_g": round(sum(i.fat_g for i in items), 1),
         "carbs_g": round(sum(i.carbs_g for i in items), 1),
         "weight_g": round(sum(i.weight_g for i in items), 1),
@@ -293,6 +330,8 @@ def add_meal_entry(db: Session, user_id: int, meal_data: schemas.MealEntryCreate
     totals = _meal_totals_from_items(items) if items else {
         "calories": meal_data.calories,
         "protein_g": meal_data.protein_g,
+        "protein_animal_g": getattr(meal_data, "protein_animal_g", 0) or 0,
+        "protein_plant_g": getattr(meal_data, "protein_plant_g", 0) or 0,
         "fat_g": meal_data.fat_g,
         "carbs_g": meal_data.carbs_g,
         "weight_g": meal_data.weight_g,
@@ -303,6 +342,8 @@ def add_meal_entry(db: Session, user_id: int, meal_data: schemas.MealEntryCreate
         food_name=meal_data.food_name,
         calories=totals["calories"],
         protein_g=totals["protein_g"],
+        protein_animal_g=totals["protein_animal_g"],
+        protein_plant_g=totals["protein_plant_g"],
         fat_g=totals["fat_g"],
         carbs_g=totals["carbs_g"],
         weight_g=totals["weight_g"],
@@ -315,6 +356,8 @@ def add_meal_entry(db: Session, user_id: int, meal_data: schemas.MealEntryCreate
             weight_g=item.weight_g,
             calories=item.calories,
             protein_g=item.protein_g,
+            protein_animal_g=getattr(item, "protein_animal_g", 0) or 0,
+            protein_plant_g=getattr(item, "protein_plant_g", 0) or 0,
             fat_g=item.fat_g,
             carbs_g=item.carbs_g,
         ))
@@ -337,11 +380,15 @@ def update_meal_entry(db: Session, meal_entry: models.MealEntry, update: schemas
                 weight_g=item.weight_g,
                 calories=item.calories,
                 protein_g=item.protein_g,
+                protein_animal_g=getattr(item, "protein_animal_g", 0) or 0,
+                protein_plant_g=getattr(item, "protein_plant_g", 0) or 0,
                 fat_g=item.fat_g,
                 carbs_g=item.carbs_g,
             ))
         meal_entry.calories = totals["calories"]
         meal_entry.protein_g = totals["protein_g"]
+        meal_entry.protein_animal_g = totals["protein_animal_g"]
+        meal_entry.protein_plant_g = totals["protein_plant_g"]
         meal_entry.fat_g = totals["fat_g"]
         meal_entry.carbs_g = totals["carbs_g"]
         meal_entry.weight_g = totals["weight_g"]
@@ -351,6 +398,8 @@ def update_meal_entry(db: Session, meal_entry: models.MealEntry, update: schemas
         meal_entry.items.clear()
         meal_entry.calories = update.calories
         meal_entry.protein_g = update.protein_g
+        meal_entry.protein_animal_g = getattr(update, "protein_animal_g", 0) or 0
+        meal_entry.protein_plant_g = getattr(update, "protein_plant_g", 0) or 0
         meal_entry.fat_g = update.fat_g
         meal_entry.carbs_g = update.carbs_g
         meal_entry.weight_g = update.weight_g
@@ -381,18 +430,24 @@ def get_meal_entry_sync(db: Session, meal_entry_id: int) -> Optional[models.Meal
 def calculate_daily_totals(log: models.DailyLog) -> Dict[str, float]:
     total_calories = 0.0
     total_protein = 0.0
+    total_protein_animal = 0.0
+    total_protein_plant = 0.0
     total_fat = 0.0
     total_carbs = 0.0
 
     for entry in log.entries:
         total_calories += entry.calories
         total_protein += entry.protein_g
+        total_protein_animal += getattr(entry, "protein_animal_g", 0) or 0
+        total_protein_plant += getattr(entry, "protein_plant_g", 0) or 0
         total_fat += entry.fat_g
         total_carbs += entry.carbs_g
 
     return {
         "total_calories": round(total_calories, 1),
         "total_protein": round(total_protein, 1),
+        "total_protein_animal": round(total_protein_animal, 1),
+        "total_protein_plant": round(total_protein_plant, 1),
         "total_fat": round(total_fat, 1),
         "total_carbs": round(total_carbs, 1)
     }
@@ -651,12 +706,14 @@ def learn_products_from_feedback(db: Session, predicted: dict, corrected_food: s
         # грубая оценка (можно улучшить позже)
         weight = safe_float(ing.get("weight_g", 100), 100)
 
+        from .protein_source import classify as classify_protein_type
         new_product = models.Product(
             name=name,
             calories=100,
             protein=5,
             fat=5,
-            carbs=10
+            carbs=10,
+            protein_type=classify_protein_type(name),
         )
 
         db.add(new_product)

@@ -6,6 +6,7 @@ import { API_BASE_URL } from '../api/axios'
 import { MEAL_TYPE_META, kbjuLine } from '../utils/mealTypes'
 import { capitalize as cap } from '../utils/text'
 import { extractErrorMessage } from '../utils/errors'
+import { PROTEIN_TYPE_META } from '../utils/protein'
 
 interface Props {
   meal: MealEntry
@@ -155,6 +156,23 @@ export const MealDetail: React.FC<Props> = ({ meal, onUpdated }) => {
           <p className="text-[11px] text-tertiary">углев.</p>
         </div>
       </div>
+
+      {/* Разделение белка: животный / растительный */}
+      {((meal.protein_animal_g ?? 0) > 0 || (meal.protein_plant_g ?? 0) > 0) && (
+        <div className="flex items-center gap-4 px-4 py-2.5 rounded-tile bg-surface dark:bg-chip-dark/50 border border-line dark:border-line-dark">
+          <span className="text-[11px] text-tertiary font-medium">Белок:</span>
+          <span className="inline-flex items-center gap-1.5 text-xs">
+            <span className={`w-2 h-2 rounded-full ${PROTEIN_TYPE_META.animal.dot}`} />
+            {PROTEIN_TYPE_META.animal.label}
+            <span className="font-semibold">{Math.round(meal.protein_animal_g ?? 0)} г</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-xs">
+            <span className={`w-2 h-2 rounded-full ${PROTEIN_TYPE_META.plant.dot}`} />
+            {PROTEIN_TYPE_META.plant.label}
+            <span className="font-semibold">{Math.round(meal.protein_plant_g ?? 0)} г</span>
+          </span>
+        </div>
+      )}
 
       {/* Блюда составного приёма */}
       {meal.items && meal.items.length > 1 && (

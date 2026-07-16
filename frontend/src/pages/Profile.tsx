@@ -186,6 +186,23 @@ export const Profile: React.FC = () => {
                 <div className="font-display font-bold text-base mt-1">
                   {profile.protein_target_g != null ? `${Math.round(profile.protein_target_g)} г` : '—'}
                 </div>
+                {(profile.protein_animal_target_g != null ||
+                  profile.protein_plant_target_g != null) && (
+                  <div className="mt-1 flex flex-col gap-0.5 text-[10px] text-tertiary">
+                    {profile.protein_animal_target_g != null && (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 dark:bg-rose-400" />
+                        живот. {Math.round(profile.protein_animal_target_g)} г
+                      </span>
+                    )}
+                    {profile.protein_plant_target_g != null && (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400" />
+                        раст. {Math.round(profile.protein_plant_target_g)} г
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
               <div>
                 <div className="flex items-center gap-1.5 text-xs text-secondary">
@@ -221,7 +238,7 @@ export const Profile: React.FC = () => {
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold rounded-full bg-primary-50 text-primary-500 dark:bg-chip-dark dark:text-primary-400 hover:bg-primary-100 transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
-              Запись веса
+              Добавить замер
             </button>
           </div>
 

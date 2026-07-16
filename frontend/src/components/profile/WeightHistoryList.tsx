@@ -12,6 +12,14 @@ const SOURCE_LABELS: Record<string, string> = {
   manual: 'вручную',
 }
 
+// Обхваты тела для компактных чипов под весом.
+const MEASURE_CHIPS: { key: 'waist_cm' | 'chest_cm' | 'hips_cm' | 'shoulders_cm'; label: string }[] = [
+  { key: 'waist_cm', label: 'Талия' },
+  { key: 'chest_cm', label: 'Грудь' },
+  { key: 'hips_cm', label: 'Бёдра' },
+  { key: 'shoulders_cm', label: 'Плечи' },
+]
+
 export const WeightHistoryList: React.FC<Props> = ({ data }) => {
   if (data.length === 0) return null
 
@@ -23,9 +31,10 @@ export const WeightHistoryList: React.FC<Props> = ({ data }) => {
       {sorted.map((rec, i) => {
         const prev = sorted[i + 1] // более ранняя по дате
         const delta = prev ? +(rec.weight_kg - prev.weight_kg).toFixed(1) : 0
+        const chips = MEASURE_CHIPS.filter((c) => rec[c.key] != null)
         return (
-          <div key={rec.id} className="flex items-center justify-between px-5 py-3.5">
-            <div>
+          <div key={rec.id} className="flex items-start justify-between px-5 py-3.5">
+            <div className="min-w-0">
               <p className="text-sm font-semibold">{rec.weight_kg} кг</p>
               <p className="text-[11px] text-tertiary mt-0.5">
                 {new Date(rec.recorded_on).toLocaleDateString('ru-RU', {
@@ -35,6 +44,18 @@ export const WeightHistoryList: React.FC<Props> = ({ data }) => {
                 {rec.note ? ` · ${rec.note}` : ''}
                 {` · ${SOURCE_LABELS[rec.source] ?? rec.source}`}
               </p>
+              {chips.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {chips.map((c) => (
+                    <span
+                      key={c.key}
+                      className="inline-flex items-center gap-1 rounded-full bg-surface dark:bg-chip-dark px-2 py-0.5 text-[10px] text-secondary"
+                    >
+                      {c.label} {rec[c.key]} см
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             {prev ? (
               <span

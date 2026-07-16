@@ -66,16 +66,45 @@ _PROFILE_COLUMNS = {
     # Ручные нормы КБЖУ/воды (NULL = авторасчёт)
     "custom_calorie_target": "FLOAT",
     "custom_protein_g": "FLOAT",
+    # Ручное разделение нормы белка на животный/растительный
+    "custom_protein_animal_g": "FLOAT",
+    "custom_protein_plant_g": "FLOAT",
     "custom_fat_g": "FLOAT",
     "custom_carbs_g": "FLOAT",
     "custom_water_ml": "FLOAT",
 }
 
+# Разделение белка на животный/растительный (появилось после первого create_all).
+_PROTEIN_SPLIT_COLUMNS = {
+    "protein_animal_g": "FLOAT",
+    "protein_plant_g": "FLOAT",
+}
+
+# Обхваты тела на записи взвешивания (появились после первого create_all).
+_WEIGHT_RECORD_COLUMNS = {
+    "waist_cm": "FLOAT",
+    "chest_cm": "FLOAT",
+    "hips_cm": "FLOAT",
+    "shoulders_cm": "FLOAT",
+}
+
 # Недостающие колонки по таблицам (та же логика, что для users).
 _ENSURE_COLUMNS = {
     "users": _PROFILE_COLUMNS,
-    # Фото, добавленное пользователем к записи приёма пищи вручную
-    "meal_entries": {"photo_path": "VARCHAR"},
+    # Фото + разделение белка на записи приёма пищи
+    "meal_entries": {"photo_path": "VARCHAR", **_PROTEIN_SPLIT_COLUMNS},
+    # Разделение белка на блюдах составного приёма
+    "meal_entry_items": dict(_PROTEIN_SPLIT_COLUMNS),
+    # Разделение белка в «старой» модели приёмов
+    "meals": {
+        "total_protein_animal": "FLOAT",
+        "total_protein_plant": "FLOAT",
+    },
+    "meal_items": dict(_PROTEIN_SPLIT_COLUMNS),
+    # Тег источника белка продукта (animal|plant|mixed)
+    "products": {"protein_type": "VARCHAR"},
+    # Обхваты тела в истории замеров
+    "weight_records": _WEIGHT_RECORD_COLUMNS,
 }
 
 

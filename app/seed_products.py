@@ -7,6 +7,7 @@
 """
 import logging
 from . import models
+from .protein_source import classify as classify_protein_type
 
 logger = logging.getLogger(__name__)
 
@@ -2092,9 +2093,23 @@ def seed_products(session) -> int:
     for name, (cal, protein, fat, carbs) in PRODUCTS.items():
         if name in existing:
             continue
-        session.add(models.Product(name=name, calories=cal, protein=protein, fat=fat, carbs=carbs))
+        session.add(models.Product(
+            name=name,
+            calories=cal,
+            protein=protein,
+            fat=fat,
+            carbs=carbs,
+            # Источник белка размечается автоматически по названию.
+            protein_type=classify_protein_type(name),
+        ))
         inserted += 1
     if inserted:
         session.commit()
-    logger.info("Product seed complete", extra={"inserted": inserted, "total": len(PRODUCTS)})
+    # Дотегируем ранее засеянные продукты без protein_type (миграция базы).
+    from .protein_source import backfill
+    backfilled = backfill(session)
+    logger.info(
+        "Product seed complete",
+        extra={"inserted": inserted, "backfilled": backfilled, "total": len(PRODUCTS)},
+    )
     return inserted

@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
-import { MealEntryCreate, MealEntry, MealEntryItem, MealType } from '../types'
+import { MealEntryCreate, MealEntry, MealEntryItem, MealType, ProteinType } from '../types'
 import { ProductPicker } from './ProductPicker'
+import { PROTEIN_TYPE_META, splitProtein, inferProteinType } from '../utils/protein'
 
 interface MealFormProps {
   initialData?: MealEntry
@@ -37,6 +38,8 @@ interface Row {
   fat: string
   carbs: string
   density: Density | null
+  // Источник белка блюда: животный/растительный/смешанный/не указан
+  proteinType: ProteinType
 }
 
 let rowKey = 1
@@ -50,6 +53,7 @@ const emptyRow = (): Row => ({
   fat: '',
   carbs: '',
   density: null,
+  proteinType: 'unknown',
 })
 
 const rowFromValues = (
@@ -58,7 +62,8 @@ const rowFromValues = (
   calories: number,
   protein: number,
   fat: number,
-  carbs: number
+  carbs: number,
+  proteinType: ProteinType = 'unknown'
 ): Row => ({
   key: rowKey++,
   food_name: name,
@@ -72,12 +77,21 @@ const rowFromValues = (
     weight > 0
       ? { kcal: calories / weight, p: protein / weight, f: fat / weight, c: carbs / weight }
       : null,
+  proteinType,
 })
 
 const initRows = (initialData?: MealEntry): Row[] => {
   if (initialData?.items && initialData.items.length > 0) {
     return initialData.items.map((i) =>
-      rowFromValues(i.food_name, i.weight_g, i.calories, i.protein_g, i.fat_g, i.carbs_g)
+      rowFromValues(
+        i.food_name,
+        i.weight_g,
+        i.calories,
+        i.protein_g,
+        i.fat_g,
+        i.carbs_g,
+        inferProteinType(i.protein_animal_g, i.protein_plant_g)
+      )
     )
   }
   if (initialData) {
@@ -88,12 +102,22 @@ const initRows = (initialData?: MealEntry): Row[] => {
         initialData.calories,
         initialData.protein_g,
         initialData.fat_g,
-        initialData.carbs_g
+        initialData.carbs_g,
+        inferProteinType(initialData.protein_animal_g, initialData.protein_plant_g)
       ),
     ]
   }
   return [emptyRow()]
 }
+
+// Тип источника белка + режим авто-пересчёта веса не связаны, но при смене
+// веса тип остаётся прежним — грамм белка меняется, а его «природа» нет.
+const PROTEIN_CHOICES: Array<{ value: ProteinType; label: string }> = [
+  { value: 'animal', label: PROTEIN_TYPE_META.animal.short },
+  { value: 'plant', label: PROTEIN_TYPE_META.plant.short },
+  { value: 'mixed', label: PROTEIN_TYPE_META.mixed.short },
+  { value: 'unknown', label: '—' },
+]
 
 const num = (v: string): number => parseFloat(v) || 0
 
@@ -150,6 +174,7 @@ export const MealForm: React.FC<MealFormProps> = ({
     protein_g: number
     fat_g: number
     carbs_g: number
+    protein_type?: ProteinType
   }) => {
     const newRow = rowFromValues(
       data.food_name,
@@ -157,7 +182,8 @@ export const MealForm: React.FC<MealFormProps> = ({
       data.calories,
       data.protein_g,
       data.fat_g,
-      data.carbs_g
+      data.carbs_g,
+      data.protein_type ?? 'unknown'
     )
     setRows((prev) => {
       const emptyIdx = prev.findIndex((r) => !r.food_name.trim() && !num(r.weight) && !num(r.calories))
@@ -172,10 +198,14 @@ export const MealForm: React.FC<MealFormProps> = ({
   }
 
   const filledRows = rows.filter((r) => r.food_name.trim())
+  // Разделение белка по каждому блюду согласно его типу источника.
+  const rowSplit = (r: Row) => splitProtein(num(r.protein), r.proteinType)
   const totals = {
     weight: filledRows.reduce((s, r) => s + num(r.weight), 0),
     calories: filledRows.reduce((s, r) => s + num(r.calories), 0),
     protein: filledRows.reduce((s, r) => s + num(r.protein), 0),
+    proteinAnimal: filledRows.reduce((s, r) => s + rowSplit(r).animal, 0),
+    proteinPlant: filledRows.reduce((s, r) => s + rowSplit(r).plant, 0),
     fat: filledRows.reduce((s, r) => s + num(r.fat), 0),
     carbs: filledRows.reduce((s, r) => s + num(r.carbs), 0),
   }
@@ -202,19 +232,26 @@ export const MealForm: React.FC<MealFormProps> = ({
 
     setError('')
 
-    const items: MealEntryItem[] = filledRows.map((r) => ({
-      food_name: r.food_name.trim(),
-      weight_g: num(r.weight),
-      calories: round1(num(r.calories)),
-      protein_g: round1(num(r.protein)),
-      fat_g: round1(num(r.fat)),
-      carbs_g: round1(num(r.carbs)),
-    }))
+    const items: MealEntryItem[] = filledRows.map((r) => {
+      const split = rowSplit(r)
+      return {
+        food_name: r.food_name.trim(),
+        weight_g: num(r.weight),
+        calories: round1(num(r.calories)),
+        protein_g: round1(num(r.protein)),
+        protein_animal_g: split.animal,
+        protein_plant_g: split.plant,
+        fat_g: round1(num(r.fat)),
+        carbs_g: round1(num(r.carbs)),
+      }
+    })
 
     const base = {
       meal_type: mealType,
       calories: round1(totals.calories),
       protein_g: round1(totals.protein),
+      protein_animal_g: round1(totals.proteinAnimal),
+      protein_plant_g: round1(totals.proteinPlant),
       fat_g: round1(totals.fat),
       carbs_g: round1(totals.carbs),
       weight_g: round1(totals.weight),
@@ -362,6 +399,33 @@ export const MealForm: React.FC<MealFormProps> = ({
                   <div className="text-[10px] text-center mt-0.5 text-carbs dark:text-carbs-dark">У</div>
                 </div>
               </div>
+
+              {/* Источник белка блюда: животный / растительный / смешанный */}
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-[11px] text-tertiary flex-shrink-0">Белок:</span>
+                <div className="flex gap-1 flex-wrap">
+                  {PROTEIN_CHOICES.map((choice) => {
+                    const active = row.proteinType === choice.value
+                    const meta =
+                      choice.value !== 'unknown' ? PROTEIN_TYPE_META[choice.value] : null
+                    return (
+                      <button
+                        key={choice.value}
+                        type="button"
+                        onClick={() => updateRow(row.key, { proteinType: choice.value })}
+                        disabled={isLoading}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors border ${
+                          active
+                            ? 'bg-primary-500 text-white border-primary-500'
+                            : 'border-line dark:border-line-dark text-muted dark:text-muted-dark hover:bg-white dark:hover:bg-card-dark'
+                        }`}
+                      >
+                        {meta ? `${meta.icon} ${choice.label}` : choice.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
           ))}
         </div>
@@ -377,14 +441,28 @@ export const MealForm: React.FC<MealFormProps> = ({
 
       {/* Итого по приёму */}
       {filledRows.length > 0 && (
-        <div className="flex justify-between items-center px-4 py-3 rounded-tile bg-primary-50 dark:bg-chip-dark text-primary-500 dark:text-primary-400">
-          <span className="text-[13px] font-semibold">
-            Итого · {Math.round(totals.weight)} г
-          </span>
-          <span className="text-[13px] font-bold">
-            {Math.round(totals.calories)} ккал · Б {Math.round(totals.protein)} · Ж{' '}
-            {Math.round(totals.fat)} · У {Math.round(totals.carbs)}
-          </span>
+        <div className="px-4 py-3 rounded-tile bg-primary-50 dark:bg-chip-dark text-primary-500 dark:text-primary-400">
+          <div className="flex justify-between items-center">
+            <span className="text-[13px] font-semibold">
+              Итого · {Math.round(totals.weight)} г
+            </span>
+            <span className="text-[13px] font-bold">
+              {Math.round(totals.calories)} ккал · Б {Math.round(totals.protein)} · Ж{' '}
+              {Math.round(totals.fat)} · У {Math.round(totals.carbs)}
+            </span>
+          </div>
+          {(totals.proteinAnimal > 0 || totals.proteinPlant > 0) && (
+            <div className="mt-1.5 flex items-center gap-3 text-[11px]">
+              <span className="inline-flex items-center gap-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${PROTEIN_TYPE_META.animal.dot}`} />
+                {PROTEIN_TYPE_META.animal.label} {Math.round(totals.proteinAnimal)} г
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${PROTEIN_TYPE_META.plant.dot}`} />
+                {PROTEIN_TYPE_META.plant.label} {Math.round(totals.proteinPlant)} г
+              </span>
+            </div>
+          )}
         </div>
       )}
 

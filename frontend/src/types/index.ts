@@ -44,13 +44,22 @@ export interface Ingredient {
   name: string
   type: IngredientType
   weight_g: number
+  // Источник белка ингредиента (по справочнику): animal | plant | mixed | unknown.
+  protein_type?: ProteinType
 }
+
+// Источник белка продукта/блюда: животный, растительный или смешанный.
+// 'unknown' — источник не определён (продукт вне справочника / не указан).
+export type ProteinType = 'animal' | 'plant' | 'mixed' | 'unknown'
 
 export interface AnalysisResult {
   food?: string
   food_name?: string
   calories: number
   protein_g: number
+  // Разделение белка на животный/растительный (по справочнику продуктов).
+  protein_animal_g?: number
+  protein_plant_g?: number
   fat_g: number
   carbs_g: number
   weight_g: number
@@ -67,6 +76,9 @@ export interface MealEntryItem {
   weight_g: number
   calories: number
   protein_g: number
+  // Разделение белка блюда (г); сумма ≤ protein_g, остаток — «не определён».
+  protein_animal_g?: number
+  protein_plant_g?: number
   fat_g: number
   carbs_g: number
 }
@@ -76,6 +88,9 @@ export interface MealEntry {
   food_name: string
   calories: number
   protein_g: number
+  // Разделение белка записи на животный/растительный (г).
+  protein_animal_g?: number
+  protein_plant_g?: number
   fat_g: number
   carbs_g: number
   weight_g: number
@@ -96,6 +111,9 @@ export interface MealEntryCreate {
   food_name: string
   calories: number
   protein_g: number
+  // Разделение белка (г). Для составного приёма пересчитает бэкенд из блюд.
+  protein_animal_g?: number
+  protein_plant_g?: number
   fat_g: number
   carbs_g: number
   weight_g: number
@@ -110,6 +128,9 @@ export interface MealEntryCreate {
 export interface NutritionTargets {
   calories?: number | null
   protein_g?: number | null
+  // Разделение нормы белка на животный/растительный.
+  protein_animal_g?: number | null
+  protein_plant_g?: number | null
   fat_g?: number | null
   carbs_g?: number | null
 }
@@ -125,6 +146,9 @@ export interface DailyLog {
   date: string
   total_calories: number
   total_protein: number
+  // Разделение суммарного белка за день на животный/растительный.
+  total_protein_animal?: number
+  total_protein_plant?: number
   total_fat: number
   total_carbs: number
   meals: MealEntry[]
@@ -144,6 +168,8 @@ export interface Product {
   protein: number
   fat: number
   carbs: number
+  // Источник белка: animal | plant | mixed (null у старых записей до миграции).
+  protein_type?: ProteinType | null
 }
 
 // ==================== BARCODE (Open Food Facts) ====================
@@ -174,6 +200,11 @@ export interface WeightRecord {
   recorded_on: string // YYYY-MM-DD
   note?: string | null
   source: string // manual | registration | profile_edit
+  // Обхваты тела (см); null у записей, где замер не заполняли.
+  waist_cm?: number | null
+  chest_cm?: number | null
+  hips_cm?: number | null
+  shoulders_cm?: number | null
 }
 
 export interface Profile {
@@ -189,12 +220,17 @@ export interface Profile {
   bmr?: number | null
   daily_calorie_target?: number | null
   protein_target_g?: number | null
+  // Разделение нормы белка на животный/растительный.
+  protein_animal_target_g?: number | null
+  protein_plant_target_g?: number | null
   fat_target_g?: number | null
   carbs_target_g?: number | null
   water_target_ml?: number | null
   // Ручные переопределения норм (null = эта норма считается автоматически)
   custom_calorie_target?: number | null
   custom_protein_g?: number | null
+  custom_protein_animal_g?: number | null
+  custom_protein_plant_g?: number | null
   custom_fat_g?: number | null
   custom_carbs_g?: number | null
   custom_water_ml?: number | null
@@ -212,6 +248,8 @@ export interface ProfileUpdate {
   // Ручные нормы: undefined = не менять, 0 = вернуть авторасчёт, >0 = установить
   custom_calorie_target?: number
   custom_protein_g?: number
+  custom_protein_animal_g?: number
+  custom_protein_plant_g?: number
   custom_fat_g?: number
   custom_carbs_g?: number
   custom_water_ml?: number
@@ -221,7 +259,32 @@ export interface WeightRecordCreate {
   weight_kg: number
   recorded_on?: string
   note?: string
+  // Обхваты тела (см) — все опциональны.
+  waist_cm?: number
+  chest_cm?: number
+  hips_cm?: number
+  shoulders_cm?: number
 }
+
+// Метрики тела, доступные в графике прогресса и в форме замера.
+export type BodyMetric = 'weight_kg' | 'waist_cm' | 'chest_cm' | 'hips_cm' | 'shoulders_cm'
+
+export interface BodyMetricMeta {
+  key: BodyMetric
+  label: string // «Вес», «Талия», …
+  short: string // короткая метка для пилюль
+  unit: string  // «кг» | «см»
+  color: string // цвет линии на графике
+}
+
+// Единый источник правды для подписей/цветов метрик тела.
+export const BODY_METRICS: BodyMetricMeta[] = [
+  { key: 'weight_kg', label: 'Вес', short: 'Вес', unit: 'кг', color: '#2b6fe3' },
+  { key: 'waist_cm', label: 'Талия', short: 'Талия', unit: 'см', color: '#e0663d' },
+  { key: 'chest_cm', label: 'Грудь', short: 'Грудь', unit: 'см', color: '#7c5ce6' },
+  { key: 'hips_cm', label: 'Бёдра', short: 'Бёдра', unit: 'см', color: '#2ba77a' },
+  { key: 'shoulders_cm', label: 'Плечи', short: 'Плечи', unit: 'см', color: '#d4a017' },
+]
 
 // ==================== WORKOUTS (вкладка «Тренировки») ====================
 

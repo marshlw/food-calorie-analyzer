@@ -12,7 +12,13 @@ interface Props {
 interface FieldDef {
   key: keyof Pick<
     ProfileUpdate,
-    'custom_calorie_target' | 'custom_protein_g' | 'custom_fat_g' | 'custom_carbs_g' | 'custom_water_ml'
+    | 'custom_calorie_target'
+    | 'custom_protein_g'
+    | 'custom_protein_animal_g'
+    | 'custom_protein_plant_g'
+    | 'custom_fat_g'
+    | 'custom_carbs_g'
+    | 'custom_water_ml'
   >
   label: string
   unit: string
@@ -20,6 +26,8 @@ interface FieldDef {
   custom?: number | null // текущее ручное значение
   auto?: number | null // текущее эффективное значение (для placeholder)
   dotClass?: string
+  // Отступ для «под-норм» (животный/растительный белок под общим белком)
+  indent?: boolean
 }
 
 // Форма «Мои нормы»: ручные нормы КБЖУ и воды для атлетов.
@@ -43,6 +51,26 @@ export const TargetsForm: React.FC<Props> = ({ profile, onSave }) => {
       custom: profile.custom_protein_g,
       auto: profile.protein_target_g,
       dotClass: 'bg-protein dark:bg-protein-dark',
+    },
+    {
+      key: 'custom_protein_animal_g',
+      label: 'Животный',
+      unit: 'г',
+      max: 2000,
+      custom: profile.custom_protein_animal_g,
+      auto: profile.protein_animal_target_g,
+      dotClass: 'bg-rose-500 dark:bg-rose-400',
+      indent: true,
+    },
+    {
+      key: 'custom_protein_plant_g',
+      label: 'Растительный',
+      unit: 'г',
+      max: 2000,
+      custom: profile.custom_protein_plant_g,
+      auto: profile.protein_plant_target_g,
+      dotClass: 'bg-emerald-500 dark:bg-emerald-400',
+      indent: true,
     },
     {
       key: 'custom_fat_g',
@@ -146,7 +174,11 @@ export const TargetsForm: React.FC<Props> = ({ profile, onSave }) => {
       <div className="flex flex-col gap-3">
         {fields.map((f) => (
           <div key={f.key} className="flex items-center gap-3">
-            <div className="w-[104px] flex items-center gap-1.5 text-[13px] font-medium flex-shrink-0">
+            <div
+              className={`w-[104px] flex items-center gap-1.5 text-[13px] font-medium flex-shrink-0 ${
+                f.indent ? 'pl-3.5 text-secondary' : ''
+              }`}
+            >
               {f.dotClass && <span className={`w-2 h-2 rounded-full ${f.dotClass}`} />}
               {f.label}
             </div>
