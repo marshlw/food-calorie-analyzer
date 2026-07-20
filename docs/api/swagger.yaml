@@ -24,10 +24,20 @@ tags:
     description: Дневник питания
   - name: Water
     description: Трекер выпитой воды
+  - name: Products
+    description: Справочник продуктов (КБЖУ)
+  - name: Barcode
+    description: Поиск продукта по штрих-коду
+  - name: Workouts
+    description: Дневник тренировок и справочник упражнений
+  - name: Advisor
+    description: AI-советчик
   - name: Feedback
     description: Обратная связь по результатам анализа
   - name: Admin
     description: Администрирование фидбеков
+  - name: Uploads
+    description: Раздача загруженных файлов (подписанные ссылки)
 
 paths:
   /health:
@@ -170,6 +180,33 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/v1/change-password:
+    post:
+      tags: [Authentication]
+      summary: Сменить пароль
+      description: Инвалидирует все ранее выданные токены (token_version++); возвращает свежую пару access/refresh.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Пароль изменён, новая пара токенов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+        '400':
+          description: Неверный текущий пароль / новый совпадает с текущим
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/v1/profile:
     get:
       tags: [Profile]
@@ -261,6 +298,167 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/WeightRecordResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/profile/weight/{record_id}:
+    put:
+      tags: [Profile]
+      summary: Редактировать запись взвешивания
+      parameters:
+        - name: record_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WeightRecordUpdate'
+      responses:
+        '200':
+          description: Обновлённая запись
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeightRecordResponse'
+        '400':
+          description: Дата записи не может быть в будущем
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: На эту дату уже есть запись
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [Profile]
+      summary: Удалить запись взвешивания
+      parameters:
+        - name: record_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Удалено
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/products:
+    get:
+      tags: [Products]
+      summary: Поиск продукта по названию
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            default: ''
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Найденные продукты
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/barcode/scan:
+    post:
+      tags: [Barcode]
+      summary: Сканировать штрих-код по фото упаковки
+      description: Дневной лимит — 100 сканирований на пользователя.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Найденный продукт
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BarcodeProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Продукт не найден по штрих-коду
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Дневной лимит сканирований исчерпан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/barcode/{code}:
+    get:
+      tags: [Barcode]
+      summary: Найти продукт по известному штрих-коду
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Найденный продукт
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BarcodeProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Продукт не найден по штрих-коду
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/analyze/limit:
+    get:
+      tags: [Analysis]
+      summary: Остаток дневного лимита AI-анализов
+      responses:
+        '200':
+          description: Сколько анализов осталось сегодня
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiLimitResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -571,6 +769,225 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/v1/meals/{meal_id}/photo:
+    post:
+      tags: [Diary]
+      summary: Прикрепить/заменить фото записи приёма пищи
+      parameters:
+        - name: meal_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Обновлённая запись с фото
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealEntryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Diary]
+      summary: Удалить своё фото записи
+      parameters:
+        - name: meal_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Обновлённая запись (photo_url откатится к фото анализа, если оно есть)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealEntryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/workouts:
+    get:
+      tags: [Workouts]
+      summary: Тренировки за дату + сводка + недельная активность
+      parameters:
+        - name: date_str
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Тренировки дня
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Workouts]
+      summary: Добавить тренировку
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkoutCreate'
+      responses:
+        '201':
+          description: Тренировка создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutResponse'
+        '400':
+          description: Дата тренировки не может быть в будущем
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/workouts/{workout_id}:
+    put:
+      tags: [Workouts]
+      summary: Редактировать тренировку
+      parameters:
+        - name: workout_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkoutCreate'
+      responses:
+        '200':
+          description: Обновлённая тренировка
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Workouts]
+      summary: Удалить тренировку
+      parameters:
+        - name: workout_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Удалено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  deleted_id: { type: integer }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/exercises:
+    get:
+      tags: [Workouts]
+      summary: Справочник упражнений
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            default: ''
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 60
+      responses:
+        '200':
+          description: Список упражнений
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExerciseResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/advisor:
+    get:
+      tags: [Advisor]
+      summary: Советы дня
+      description: LLM (Yandex Cloud) с фолбэком на правила; кэшируется в Redis.
+      responses:
+        '200':
+          description: Советы дня
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdvisorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/advisor/ask:
+    post:
+      tags: [Advisor]
+      summary: Свободный вопрос советчику
+      description: Дневной лимит — 30 вопросов на пользователя.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdvisorAskRequest'
+      responses:
+        '200':
+          description: Ответ советчика
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdvisorAskResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          description: Дневной лимит вопросов исчерпан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/v1/feedback:
     post:
       tags: [Feedback]
@@ -710,6 +1127,41 @@ paths:
                 $ref: '#/components/schemas/Error'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /uploads/{filename}:
+    get:
+      tags: [Uploads]
+      summary: Отдать загруженный файл
+      description: >
+        Файлы не раздаются публично — ссылка обязана содержать валидные exp/sig
+        (HMAC от SECRET_KEY, см. utils.signed_upload_url). API уже отдаёт готовые
+        подписанные URL в photo_url/image_path.
+      security: []
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: exp
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: sig
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Файл
+          content:
+            image/*: {}
+        '403':
+          description: Невалидная/просроченная подпись
+        '404':
+          description: Не найден
 
 components:
   securitySchemes:
@@ -859,6 +1311,10 @@ components:
           type: string
           maxLength: 200
           nullable: true
+        waist_cm: { type: number, format: float, nullable: true }
+        chest_cm: { type: number, format: float, nullable: true }
+        hips_cm: { type: number, format: float, nullable: true }
+        shoulders_cm: { type: number, format: float, nullable: true }
 
     WeightRecordResponse:
       type: object
@@ -877,6 +1333,10 @@ components:
         source:
           type: string
           example: manual
+        waist_cm: { type: number, format: float, nullable: true }
+        chest_cm: { type: number, format: float, nullable: true }
+        hips_cm: { type: number, format: float, nullable: true }
+        shoulders_cm: { type: number, format: float, nullable: true }
 
     ProfileUpdate:
       type: object
@@ -911,6 +1371,13 @@ components:
         save_weight_as_record:
           type: boolean
           default: true
+        custom_calorie_target: { type: number, format: float, nullable: true }
+        custom_protein_g: { type: number, format: float, nullable: true }
+        custom_protein_animal_g: { type: number, format: float, nullable: true }
+        custom_protein_plant_g: { type: number, format: float, nullable: true }
+        custom_fat_g: { type: number, format: float, nullable: true }
+        custom_carbs_g: { type: number, format: float, nullable: true }
+        custom_water_ml: { type: number, format: float, nullable: true }
 
     NutritionTargets:
       type: object
@@ -920,6 +1387,14 @@ components:
           format: float
           nullable: true
         protein_g:
+          type: number
+          format: float
+          nullable: true
+        protein_animal_g:
+          type: number
+          format: float
+          nullable: true
+        protein_plant_g:
           type: number
           format: float
           nullable: true
@@ -961,6 +1436,10 @@ components:
         activity_level:
           type: string
           nullable: true
+        current_waist_cm: { type: number, format: float, nullable: true }
+        current_chest_cm: { type: number, format: float, nullable: true }
+        current_hips_cm: { type: number, format: float, nullable: true }
+        current_shoulders_cm: { type: number, format: float, nullable: true }
         recent_weights:
           type: array
           items:
@@ -977,6 +1456,14 @@ components:
           type: number
           format: float
           nullable: true
+        protein_animal_target_g:
+          type: number
+          format: float
+          nullable: true
+        protein_plant_target_g:
+          type: number
+          format: float
+          nullable: true
         fat_target_g:
           type: number
           format: float
@@ -990,6 +1477,13 @@ components:
           format: float
           nullable: true
           description: Суточная норма воды в мл
+        custom_calorie_target: { type: number, format: float, nullable: true }
+        custom_protein_g: { type: number, format: float, nullable: true }
+        custom_protein_animal_g: { type: number, format: float, nullable: true }
+        custom_protein_plant_g: { type: number, format: float, nullable: true }
+        custom_fat_g: { type: number, format: float, nullable: true }
+        custom_carbs_g: { type: number, format: float, nullable: true }
+        custom_water_ml: { type: number, format: float, nullable: true }
 
     IngredientResponse:
       type: object
@@ -998,11 +1492,15 @@ components:
           type: string
         type:
           type: string
-          enum: [protein, carb, fat, vegetable, unknown]
+          enum: [protein, carb, fat, vegetable, broth, sauce, unknown]
           default: unknown
         weight_g:
           type: number
           format: float
+        protein_type:
+          type: string
+          enum: [animal, plant, mixed, unknown]
+          nullable: true
 
     NutritionResponse:
       type: object
@@ -1021,6 +1519,14 @@ components:
           minimum: 0
           maximum: 10000
         protein_g:
+          type: number
+          format: float
+          minimum: 0
+        protein_animal_g:
+          type: number
+          format: float
+          minimum: 0
+        protein_plant_g:
           type: number
           format: float
           minimum: 0
@@ -1044,6 +1550,16 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/IngredientResponse'
+        source:
+          type: string
+          description: "Какой провайдер/кэш/фолбэк ответил: yandex|gemini|deepseek|ollama|cache|fallback"
+        models_tried:
+          type: array
+          items:
+            type: string
+        processing_time_sec:
+          type: number
+          format: float
 
     TaskCreatedResponse:
       type: object
@@ -1108,6 +1624,14 @@ components:
           format: float
           exclusiveMinimum: true
           minimum: 0
+        protein_animal_g:
+          type: number
+          format: float
+          nullable: true
+        protein_plant_g:
+          type: number
+          format: float
+          nullable: true
         meal_type:
           type: string
           enum: [breakfast, lunch, dinner, snacks]
@@ -1119,6 +1643,12 @@ components:
         task_id:
           type: string
           nullable: true
+        items:
+          type: array
+          nullable: true
+          description: Составной приём пищи — при наличии итоги пересчитываются на бэкенде
+          items:
+            $ref: '#/components/schemas/MealEntryItemCreate'
 
     MealEntryResponse:
       type: object
@@ -1131,6 +1661,12 @@ components:
           type: number
           format: float
         protein_g:
+          type: number
+          format: float
+        protein_animal_g:
+          type: number
+          format: float
+        protein_plant_g:
           type: number
           format: float
         fat_g:
@@ -1149,6 +1685,17 @@ components:
           format: date-time
         task_id:
           type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MealEntryItemResponse'
+        photo_url:
+          type: string
+          nullable: true
+        photo_source:
+          type: string
+          enum: [user, ai]
           nullable: true
 
     AnalysisMealRequest:
@@ -1172,6 +1719,12 @@ components:
           type: number
           format: float
         total_protein:
+          type: number
+          format: float
+        total_protein_animal:
+          type: number
+          format: float
+        total_protein_plant:
           type: number
           format: float
         total_fat:
@@ -1280,6 +1833,191 @@ components:
         status:
           type: string
           enum: [pending, used]
+
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+
+    WeightRecordUpdate:
+      type: object
+      properties:
+        weight_kg: { type: number, format: float, minimum: 0, maximum: 300, nullable: true }
+        recorded_on: { type: string, format: date, nullable: true }
+        note: { type: string, maxLength: 200, nullable: true }
+        waist_cm: { type: number, format: float, nullable: true }
+        chest_cm: { type: number, format: float, nullable: true }
+        hips_cm: { type: number, format: float, nullable: true }
+        shoulders_cm: { type: number, format: float, nullable: true }
+
+    AiLimitResponse:
+      type: object
+      properties:
+        limit: { type: integer, example: 5 }
+        used: { type: integer }
+        remaining: { type: integer }
+
+    ProductResponse:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        calories: { type: number, format: float, description: "на 100 г" }
+        protein: { type: number, format: float }
+        fat: { type: number, format: float }
+        carbs: { type: number, format: float }
+        protein_type: { type: string, enum: [animal, plant, mixed], nullable: true }
+
+    BarcodeProductResponse:
+      type: object
+      properties:
+        barcode: { type: string }
+        name: { type: string }
+        calories: { type: number, format: float, description: "на 100 г" }
+        protein: { type: number, format: float }
+        fat: { type: number, format: float }
+        carbs: { type: number, format: float }
+
+    WorkoutItemCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        duration_min: { type: number, format: float, default: 0 }
+        calories_burned: { type: number, format: float, default: 0 }
+
+    WorkoutItemResponse:
+      allOf:
+        - $ref: '#/components/schemas/WorkoutItemCreate'
+        - type: object
+          properties:
+            id: { type: integer }
+
+    WorkoutCreate:
+      type: object
+      required: [title]
+      properties:
+        workout_type:
+          type: string
+          enum: [strength, cardio, stretching, sport, other]
+          default: other
+        title: { type: string }
+        description: { type: string, nullable: true }
+        started_at: { type: string, nullable: true, description: "HH:MM" }
+        duration_min: { type: number, format: float, default: 0 }
+        calories_burned: { type: number, format: float, default: 0 }
+        date: { type: string, format: date, nullable: true }
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkoutItemCreate'
+
+    WorkoutResponse:
+      allOf:
+        - $ref: '#/components/schemas/WorkoutCreate'
+        - type: object
+          properties:
+            id: { type: integer }
+            created_at: { type: string, format: date-time }
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/WorkoutItemResponse'
+
+    WorkoutDaySummary:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        total_calories_burned: { type: number, format: float }
+        total_duration_min: { type: number, format: float }
+        count: { type: integer }
+        base_calorie_target: { type: number, format: float, nullable: true }
+        adjusted_calorie_target: { type: number, format: float, nullable: true }
+
+    WorkoutWeekDay:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        has_workout: { type: boolean }
+
+    WorkoutsResponse:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        workouts:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkoutResponse'
+        summary:
+          $ref: '#/components/schemas/WorkoutDaySummary'
+        week:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkoutWeekDay'
+
+    ExerciseResponse:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        category: { type: string }
+        kcal_per_min: { type: number, format: float }
+        kcal_per_30min: { type: integer }
+
+    AdvisorTip:
+      type: object
+      properties:
+        title: { type: string }
+        text: { type: string }
+
+    AdvisorResponse:
+      type: object
+      properties:
+        headline_title: { type: string }
+        headline_text: { type: string }
+        nutrition:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdvisorTip'
+        training:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdvisorTip'
+
+    AdvisorAskRequest:
+      type: object
+      required: [question]
+      properties:
+        question: { type: string }
+
+    AdvisorAskResponse:
+      type: object
+      properties:
+        answer: { type: string, maxLength: 2000 }
+
+    MealEntryItemCreate:
+      type: object
+      required: [food_name]
+      properties:
+        food_name: { type: string }
+        weight_g: { type: number, format: float, default: 0 }
+        calories: { type: number, format: float, default: 0 }
+        protein_g: { type: number, format: float, default: 0 }
+        protein_animal_g: { type: number, format: float, default: 0 }
+        protein_plant_g: { type: number, format: float, default: 0 }
+        fat_g: { type: number, format: float, default: 0 }
+        carbs_g: { type: number, format: float, default: 0 }
+
+    MealEntryItemResponse:
+      allOf:
+        - $ref: '#/components/schemas/MealEntryItemCreate'
+        - type: object
+          properties:
+            id: { type: integer }
 
 security:
   - BearerAuth: []

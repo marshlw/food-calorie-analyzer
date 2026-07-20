@@ -35,9 +35,10 @@ Celery, фронтенд — React (Vite, PWA).
 ## 🏗 Архитектура
 
 - [Обзор архитектуры](architecture/architecture.md) — компоненты системы, потоки данных, ML-сервис.
+- [Взаимодействие БД и бэкенда](architecture/db-backend-interaction.md) — какой компонент какие таблицы/ключи Redis читает и пишет, с диаграммой.
 - [Аутентификация](architecture/auth_flow.md) — JWT access/refresh-токены, флоу авторизации.
 - [Жизненный цикл задачи](architecture/task_lifecycle.md) — статусы анализа изображения.
-- [Аудит кода](architecture/code_audit.md) — состояние тестов и качество кода.
+- [Аудит кода](architecture/code_audit.md) — актуальное состояние кода, известные проблемы и мёртвый код.
 
 ## ⚙️ Установка и запуск
 

@@ -94,6 +94,10 @@ def analyze_image_task(self, task_id: str, file_path: str):
 
 @celery_app.task(bind=True, max_retries=1)
 def retrain_model_task(self):
+    """Ретрейн модели. Guard-флаг retrain:queued (ставится в
+    crud.create_feedback_sync) гарантирует не более одной задачи
+    одновременно; снимаем его в finally, чтобы следующий ретрейн
+    мог запуститься после завершения текущего."""
     try:
         logger.info("Starting model retraining")
 
@@ -127,3 +131,9 @@ def retrain_model_task(self):
     except Exception as e:
         logger.exception(f"Retraining failed: {e}")
         raise
+    finally:
+        # Снимаем guard-флаг независимо от результата
+        try:
+            ml_service.get_redis_client().delete("retrain:queued")
+        except Exception:
+            pass

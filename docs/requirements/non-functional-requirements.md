@@ -48,7 +48,7 @@
 
 | ID | Требование |
 |----|-----------|
-| NFR-COMPAT-01 | Бэкенд — Python 3 / FastAPI, хранилище — PostgreSQL, очередь/кэш — Redis. Развёртывание через Docker / docker-compose. |
+| NFR-COMPAT-01 | Бэкенд — Python 3 / FastAPI, хранилище — PostgreSQL, очередь/кэш — Redis. `Dockerfile` + `requirements.txt` есть в репозитории и собираются напрямую (`docker build`); `docker-compose.yml`/`docker-compose-prod.yml` для оркестрации сервисов пока отсутствуют — см. [Docker Setup](../setup/DOCKER.md) (включая раздел про локальный запуск без Docker). |
 | NFR-COMPAT-02 | Эндпоинт `/api/v1/login` принимает тело как `application/json`, так и `application/x-www-form-urlencoded` (fallback) — совместимость с OAuth2-клиентами. |
 | NFR-COMPAT-03 | Фронтенд — React (Vite, TypeScript) c PWA service worker; обслуживается статикой из того же приложения. |
 | NFR-COMPAT-04 | API версионируется префиксом `/api/v1`. |
@@ -69,7 +69,7 @@
 
 | ID | Требование |
 |----|-----------|
-| NFR-TEST-01 | API задокументировано в OpenAPI 3.0 (`/docs/api/swagger.yaml`) и доступно интерактивно по `/docs` (Swagger UI FastAPI). |
+| NFR-TEST-01 | API задокументировано в OpenAPI 3.0: статическая копия — [`docs/api/swagger.yaml`](../api/swagger.yaml), машиночитаемая схема также доступна на живом сервере по `/openapi.json`, интерактивно — по `/docs` (Swagger UI FastAPI). Последние два отключены, если `ENABLE_DOCS=false` (значение по умолчанию — в прод-конфиге держите выключенным); статический `swagger.yaml` поддерживается вручную и может немного отставать от кода между обновлениями. |
 | NFR-TEST-02 | Предоставляется Postman-коллекция, полностью соответствующая спецификации, с переменными окружения (`base_url`, `access_token`, и т.д.). |
 | NFR-TEST-03 | Базовый URL по умолчанию для локального запуска — `http://localhost:8000`. |
 

@@ -29,6 +29,13 @@ def get_password_hash(password: str) -> str:
     truncated = _truncate_password(password)
     return bcrypt.hashpw(truncated, bcrypt.gensalt()).decode('utf-8')
 
+def token_claims_for(user: models.User) -> dict:
+    """Стандартные claims для access/refresh токенов пользователя.
+    "tv" (token version) позволяет мгновенно отозвать все токены,
+    инкрементировав users.token_version (например, при смене пароля)."""
+    return {"sub": user.email, "tv": user.token_version or 0}
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
@@ -87,16 +94,26 @@ def get_current_user(
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Токены, выданные до смены пароля (bump token_version), недействительны.
+    # Старые токены без "tv" трактуем как tv=0 — обратная совместимость.
+    if int(payload.get("tv") or 0) != int(user.token_version or 0):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 
-def verify_refresh_token(token: str) -> str:
+def verify_refresh_token(token: str) -> dict:
+    """Проверяет refresh-токен, возвращает payload (sub, tv, ...).
+    Сверку tv с БД делает вызывающий код (нужен пользователь из БД)."""
     payload = _decode_token(token, "refresh")
-    email: str = payload.get("sub")
-    if not email:
+    if not payload.get("sub"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return email
+    return payload

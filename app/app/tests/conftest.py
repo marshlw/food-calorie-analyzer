@@ -9,6 +9,10 @@ os.environ.setdefault("DATABASE_URL", f"sqlite:///{test_db_path}")
 # с одного "IP", и повторные register/login в разных тестах упирались бы в 429.
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
+# Приложение падает при запуске с плейсхолдером в SECRET_KEY (fail-fast в
+# config.py) — для тестов задаём фиксированный ключ без «плейсхолдерных» слов.
+os.environ.setdefault("SECRET_KEY", "unit-test-only-jwt-signing-key-af8k3n2p9q7r5s1t4u6v8w0x")
+
 from app.database import Base, configure_database, engine
 import app.models  # register ORM models on Base
 

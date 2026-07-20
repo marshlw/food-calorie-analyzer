@@ -1,0 +1,100 @@
+<svg viewBox="0 0 980 700" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Взаимодействие БД и бэкенда AI Healthy</title>
+<desc>Схема показывает, как FastAPI, Celery worker, ml_service.py и advisor.py читают и пишут данные в PostgreSQL и Redis, а клиенты (React SPA и Telegram-бот) обращаются к FastAPI.</desc>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+  </marker>
+</defs>
+<rect x="0" y="0" width="980" height="700" fill="#ffffff"/>
+
+<!-- Row 1: clients -->
+<rect x="70" y="24" width="220" height="56" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+<text x="180" y="48" text-anchor="middle" font-size="14" font-weight="600" fill="#0f172a">React SPA / PWA</text>
+<text x="180" y="66" text-anchor="middle" font-size="11" fill="#64748b">frontend/src/api/*.ts</text>
+
+<rect x="690" y="24" width="220" height="56" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+<text x="800" y="48" text-anchor="middle" font-size="14" font-weight="600" fill="#0f172a">Telegram Bot</text>
+<text x="800" y="66" text-anchor="middle" font-size="11" fill="#64748b">app/telegram_bot.py</text>
+
+<!-- FastAPI -->
+<rect x="330" y="130" width="320" height="64" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+<text x="490" y="156" text-anchor="middle" font-size="15" font-weight="700" fill="#0f172a">FastAPI · app/main.py</text>
+<text x="490" y="176" text-anchor="middle" font-size="11" fill="#475569">uvicorn, синхронный SQLAlchemy</text>
+
+<path d="M180,80 L180,110 Q180,130 200,130 L330,155" fill="none" stroke="#94a3b8" marker-end="url(#arrow)"/>
+<path d="M800,80 L800,110 Q800,130 780,130 L650,155" fill="none" stroke="#94a3b8" marker-end="url(#arrow)"/>
+<text x="330" y="112" font-size="10" fill="#64748b">HTTP + JWT</text>
+
+<!-- Row 3: data stores + worker -->
+<rect x="70" y="270" width="230" height="70" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+<text x="185" y="298" text-anchor="middle" font-size="14" font-weight="700" fill="#0f172a">PostgreSQL</text>
+<text x="185" y="316" text-anchor="middle" font-size="11" fill="#78350f">источник правды</text>
+
+<rect x="375" y="270" width="230" height="70" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+<text x="490" y="298" text-anchor="middle" font-size="14" font-weight="700" fill="#0f172a">Redis</text>
+<text x="490" y="316" text-anchor="middle" font-size="11" fill="#78350f">кэш · очередь · токены бота</text>
+
+<rect x="680" y="270" width="230" height="70" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+<text x="795" y="298" text-anchor="middle" font-size="14" font-weight="700" fill="#0f172a">Celery worker</text>
+<text x="795" y="316" text-anchor="middle" font-size="11" fill="#64748b">app/tasks.py</text>
+
+<path d="M450,194 L300,270" fill="none" stroke="#94a3b8" marker-end="url(#arrow)"/>
+<text x="330" y="245" font-size="10" fill="#64748b">CRUD (users, дневник,</text>
+<text x="330" y="258" font-size="10" fill="#64748b">тренировки, продукты...)</text>
+
+<path d="M530,194 L490,270" fill="none" stroke="#94a3b8" marker-end="url(#arrow)"/>
+<text x="500" y="235" font-size="10" fill="#64748b">enqueue задачи,</text>
+<text x="500" y="248" font-size="10" fill="#64748b">rate-limit счётчики</text>
+
+<path d="M605,305 L680,305" fill="none" stroke="#94a3b8" marker-end="url(#arrow)"/>
+<text x="615" y="298" font-size="10" fill="#64748b">dequeue</text>
+
+<path d="M795,270 L300,305" fill="none" stroke="#94a3b8" marker-end="url(#arrow)"/>
+<text x="620" y="352" font-size="10" fill="#64748b">UPDATE tasks (status, result_json)</text>
+
+<!-- Row 4: services -->
+<rect x="680" y="400" width="230" height="56" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+<text x="795" y="424" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">ml_service.py</text>
+<text x="795" y="441" text-anchor="middle" font-size="10" fill="#64748b">вызывается из worker</text>
+
+<rect x="330" y="400" width="230" height="56" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+<text x="445" y="424" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">advisor.py</text>
+<text x="445" y="441" text-anchor="middle" font-size="10" fill="#64748b">вызывается из FastAPI</text>
+
+<path d="M795,340 L795,400" fill="none" stroke="#94a3b8" marker-end="url(#arrow)"/>
+<path d="M470,194 L450,400" fill="none" stroke="#94a3b8" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+<path d="M680,420 L300,300" fill="none" stroke="#94a3b8" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<text x="600" y="380" font-size="10" fill="#64748b">SELECT products (КБЖУ ингредиента)</text>
+
+<path d="M680,435 L605,320" fill="none" stroke="#94a3b8" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<text x="608" y="400" font-size="10" fill="#64748b">кэш анализа (24ч)</text>
+
+<path d="M375,435 L300,320" fill="none" stroke="#94a3b8" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<text x="255" y="400" font-size="10" fill="#64748b">SELECT контекст</text>
+<text x="255" y="413" font-size="10" fill="#64748b">пользователя</text>
+
+<path d="M420,400 L470,340" fill="none" stroke="#94a3b8" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<text x="425" y="368" font-size="10" fill="#64748b">кэш совета</text>
+
+<!-- Row 5: external -->
+<rect x="680" y="520" width="230" height="60" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-dasharray="2 2"/>
+<text x="795" y="546" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Yandex Cloud (+ фолбэк)</text>
+<text x="795" y="564" text-anchor="middle" font-size="10" fill="#64748b">Gemini / DeepSeek / Ollama</text>
+
+<rect x="330" y="520" width="230" height="60" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-dasharray="2 2"/>
+<text x="445" y="546" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Open Food Facts</text>
+<text x="445" y="564" text-anchor="middle" font-size="10" fill="#64748b">поиск по штрих-коду</text>
+
+<path d="M795,456 L795,520" fill="none" stroke="#94a3b8" marker-end="url(#arrow)"/>
+<path d="M445,456 L445,520" fill="none" stroke="#94a3b8" marker-end="url(#arrow)"/>
+<path d="M490,194 Q560,340 620,520" fill="none" stroke="#94a3b8" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<text x="580" y="480" font-size="10" fill="#64748b">GET /barcode/scan</text>
+
+<!-- Legend -->
+<line x1="70" y1="640" x2="100" y2="640" stroke="#94a3b8"/>
+<text x="108" y="644" font-size="11" fill="#64748b">прямой вызов</text>
+<line x1="230" y1="640" x2="260" y2="640" stroke="#94a3b8" stroke-dasharray="4 3"/>
+<text x="268" y="644" font-size="11" fill="#64748b">чтение/кэш/внешний API</text>
+</svg>

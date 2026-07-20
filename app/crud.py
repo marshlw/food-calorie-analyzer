@@ -19,8 +19,18 @@ def normalize_name(name: str) -> str:
 def safe_float(v, default=0):
     try:
         return float(v)
-    except:
+    except (TypeError, ValueError):
         return default
+
+
+def escape_like(value: str) -> str:
+    """Экранирует спецсимволы LIKE/ILIKE (%, _, \\) в пользовательском вводе,
+    чтобы «%%%» не превращался в полный скан с совпадением всего."""
+    return (
+        value.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
 
 
 def get_user_by_email_sync(db: Session, email: str) -> Optional[models.User]:
@@ -125,6 +135,19 @@ def list_weight_history(
     if end:
         q = q.filter(models.WeightRecord.recorded_on <= end)
     return q.order_by(models.WeightRecord.recorded_on.asc()).all()
+
+
+def list_recent_weights(db: Session, user_id: int, n: int = 30) -> List[models.WeightRecord]:
+    """Последние n взвешиваний (по возрастанию даты) — LIMIT в SQL,
+    вместо выгрузки всей истории в Python."""
+    rows = (
+        db.query(models.WeightRecord)
+        .filter(models.WeightRecord.user_id == user_id)
+        .order_by(models.WeightRecord.recorded_on.desc())
+        .limit(n)
+        .all()
+    )
+    return list(reversed(rows))
 
 
 # Обхваты тела, которые можно записать вместе с весом (см).
@@ -747,8 +770,9 @@ def search_exercises(db: Session, query: str = "", limit: int = 60) -> List[mode
     Пустой запрос — весь список по алфавиту."""
     q = db.query(models.Exercise)
     query = (query or "").strip().lower()
+    limit = max(1, min(limit, 100))
     for word in query.split():
-        q = q.filter(models.Exercise.name.ilike(f"%{word}%"))
+        q = q.filter(models.Exercise.name.ilike(f"%{escape_like(word)}%", escape="\\"))
     return q.order_by(models.Exercise.name.asc()).limit(limit).all()
 
 
@@ -812,8 +836,10 @@ def search_products(db: Session, query: str, limit: int = 20) -> List[models.Pro
 
     words = q.split()
     for word in words:
-        base = base.filter(models.Product.name.ilike(f"%{word}%"))
-    matches = base.all()
+        base = base.filter(models.Product.name.ilike(f"%{escape_like(word)}%", escape="\\"))
+    # Кап на выборку: ранжируем в Python не более 300 кандидатов,
+    # а не всю таблицу (она растёт со временем).
+    matches = base.limit(300).all()
 
     # Ранжирование в Python: точное совпадение > совпадение фразы с начала
     # названия > все слова запроса совпадают с началами слов названия >
@@ -849,7 +875,12 @@ def get_product_sync(db: Session, product_id: int) -> Optional[models.Product]:
 
 def learn_products_from_feedback(db: Session, predicted: dict, corrected_food: str):
     """
-    Обучаем KBJU базу на основе предсказания
+    Обучаем KBJU базу на основе предсказания.
+
+    ВНИМАНИЕ: сейчас НЕ вызывается из create_feedback_sync намеренно —
+    функция записывает продукты с ВЫДУМАННЫМИ КБЖУ (100/5/5/10), что
+    замусоривает справочник products и искажает расчёты calc_kbju.
+    Прежде чем включать обратно, нужно брать реальные нутриенты.
     """
 
     if not predicted:
@@ -916,37 +947,26 @@ def create_feedback_sync(
     db.commit()
     db.refresh(feedback)
 
-    # 🔥 ВАЖНО: обучаемся на основе исправления
-    try:
-        # Берём ингредиенты из предсказания если они есть, иначе создаём простой
-        ingredients_to_learn = []
-        
-        if predicted_result and "ingredients" in predicted_result:
-            ingredients_to_learn = predicted_result["ingredients"]
-        else:
-            # Fallback: один ингредиент - само блюдо
-            ingredients_to_learn = [{
-                "name": corrected_food,
-                "weight_g": corrected_weight,
-                "type": "carb"
-            }]
-
-        from .ml_service import learn_from_feedback
-        learn_from_feedback(corrected_food, ingredients_to_learn)
-        
-    except Exception as e:
-        logger.warning(f"Learning failed: {e}")
-
-    # Проверяем, нужно ли retrain модель
+    # Ретрейн модели по накопленным фидбекам. ВАЖНО: без guard'а каждый
+    # фидбек после десятого ставил бы в очередь НОВУЮ тяжёлую задачу
+    # (pending_count не падает ниже 10, пока фидбеки не отмечены used) —
+    # очередь Celery забивалась бы ретрейнами и анализ фото вставал.
+    # Redis-флаг retrain:queued (SET NX + TTL) гарантирует максимум одну
+    # задачу ретрейна в очереди/работе одновременно.
     try:
         pending_count = db.query(models.Feedback).filter(
             models.Feedback.status == models.FeedbackStatus.PENDING
         ).count()
 
-        if pending_count >= 10:  # retrain каждые 10 feedback
-            logger.info(f"Triggering model retraining: {pending_count} pending feedbacks")
-            from .tasks import retrain_model_task
-            retrain_model_task.delay()
+        if pending_count >= 10:
+            from .ml_service import get_redis_client
+            acquired = get_redis_client().set(
+                "retrain:queued", "1", nx=True, ex=3600
+            )
+            if acquired:
+                logger.info(f"Triggering model retraining: {pending_count} pending feedbacks")
+                from .tasks import retrain_model_task
+                retrain_model_task.delay()
     except Exception as e:
         logger.warning(f"Retraining trigger failed: {e}")
 

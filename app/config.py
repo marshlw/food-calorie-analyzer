@@ -11,6 +11,12 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "postgresql://fooduser:foodpass@postgres:5432/fooddb"
 
+    # Пул соединений с БД на ПРОЦЕСС (uvicorn-воркер / celery-процесс).
+    # Итоговый максимум коннектов = (кол-во процессов) * (POOL_SIZE + MAX_OVERFLOW):
+    # при росте нагрузки поднимайте вместе с max_connections Postgres или ставьте PgBouncer.
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+
     REDIS_URL: str = "redis://redis:6379/0"
     DEEPSEEK_API_KEY: Optional[str] = None
     DEEPSEEK_VISION_API_URL: Optional[str] = None
@@ -49,9 +55,16 @@ class Settings(BaseSettings):
     ENABLE_DOCS: bool = False
 
     SECRET_KEY: str = "change-this-in-production"
+    # Разрешить запуск с плейсхолдером в SECRET_KEY. ТОЛЬКО для локальной
+    # разработки/тестов: в проде приложение с дефолтным ключом не стартует.
+    ALLOW_INSECURE_SECRET_KEY: bool = False
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # Доп. доверенные прокси (запятая-разделитель) для X-Forwarded-For.
+    # Приватные/loopback адреса доверяются автоматически (nginx в docker-сети).
+    TRUSTED_PROXIES: str = ""
 
     # ===================== RATE LIMITING =====================
 
@@ -78,6 +91,12 @@ class Settings(BaseSettings):
 
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10 MB
 
+    # Срок жизни подписанной ссылки на фото (/uploads/... с HMAC-подписью)
+    UPLOAD_URL_TTL: int = 24 * 3600
+
+    # Удалять оригинал фото после успешного анализа (превью перестанет работать)
+    DELETE_UPLOAD_AFTER_ANALYSIS: bool = False
+
     # Увеличили для лучшего распознавания
     MAX_IMAGE_SIZE: int = 1600
     IMAGE_QUALITY: int = 95
@@ -103,6 +122,12 @@ class Settings(BaseSettings):
     # Доп. origins через env (запятая-разделитель): прод-домен, capacitor://localhost и т.п.
     # Пример: ALLOWED_ORIGINS_EXTRA="https://myapp.ru,capacitor://localhost"
     ALLOWED_ORIGINS_EXTRA: str = ""
+
+    # ===================== ADVISOR =====================
+
+    # Сколько LLM-вызовов советчика может идти одновременно (свой пул потоков,
+    # чтобы не занимать общий threadpool FastAPI и не подвешивать API).
+    ADVISOR_MAX_CONCURRENCY: int = 8
 
     # ===================== CACHE =====================
 
@@ -156,11 +181,16 @@ class Settings(BaseSettings):
         )
         key_lower = self.SECRET_KEY.lower()
         if any(m in key_lower for m in _placeholder_markers):
-            logger.critical(
+            message = (
                 "SECRET_KEY looks like a placeholder! Generate a strong value: "
                 "python3 -c \"import secrets; print(secrets.token_urlsafe(48))\" "
                 "and set it in .env before deploying."
             )
+            if not self.ALLOW_INSECURE_SECRET_KEY:
+                # Зная ключ, можно выпустить JWT любого пользователя —
+                # с дефолтным ключом приложение подниматься не должно.
+                raise RuntimeError(message)
+            logger.critical("%s (ALLOW_INSECURE_SECRET_KEY=true — запуск разрешён)", message)
         elif len(self.SECRET_KEY) < 32:
             logger.warning(
                 "SECRET_KEY is shorter than 32 chars — consider a longer random value."

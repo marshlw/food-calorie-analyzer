@@ -1,5 +1,14 @@
 # Docker Setup для AI Healthy
 
+> **Статус на момент последнего обновления этого файла:** `Dockerfile` и `requirements.txt` есть
+> в корне репозитория и соответствуют описанию ниже — `docker build -t ai-healthy:latest .`
+> должен работать как есть. Чего нет — `docker-compose.yml` и `docker-compose-prod.yml`
+> (проверено — см. [аудит кода](../architecture/code_audit.md)): команды `docker-compose ...`
+> ниже не заработают, пока эти файлы не будут добавлены. До этого — либо поднимайте контейнеры
+> вручную (`docker run`, с внешними PostgreSQL/Redis), либо запускайте проект локально без
+> Docker (раздел [«Локальный запуск без Docker»](#локальный-запуск-без-docker) ниже работает
+> уже сейчас).
+
 ## Требования
 
 - Docker 20.10+
@@ -197,4 +206,52 @@ docker-compose exec db pg_dump -U ai_healthy ai_healthy > backup.sql
 
 # Восстановление
 docker-compose exec -T db psql -U ai_healthy ai_healthy < backup.sql
+```
+
+---
+
+## Локальный запуск без Docker
+
+Работает уже сейчас, без файлов Docker-сборки. Нужны: Python 3.10+, Node.js 18+,
+локальные/удалённые PostgreSQL и Redis.
+
+### Backend
+
+```bash
+# Виртуальное окружение (в репозитории уже есть .venv — либо создайте своё)
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # Linux/macOS
+
+# requirements.txt уже есть в корне репозитория
+pip install -r requirements.txt
+
+# .env — минимум DATABASE_URL, REDIS_URL, SECRET_KEY (32+ случайных символов),
+# ADMIN_TOKEN, плюс ключи выбранного ML-провайдера (YANDEX_API_KEY/YANDEX_FOLDER_ID
+# для дефолтного MODEL_PROVIDER=yandex, либо GEMINI_API_KEY и т.д.)
+
+uvicorn app.main:app --reload --port 8000
+```
+
+### Celery worker (для асинхронного анализа фото)
+
+```bash
+celery -A app.celery_app worker --loglevel=info
+```
+
+### Telegram-бот (опционально)
+
+```bash
+set TELEGRAM_BOT_TOKEN=...   # Windows (или export на Linux/macOS)
+python -m app.telegram_bot
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev          # dev-сервер на http://localhost:5173, VITE_API_URL → http://localhost:8000
+# npm run build       # прод-сборка в frontend/dist — скопируйте в app/static/frontend,
+                       # чтобы FastAPI раздавал её сам (см. §7 architecture.md)
 ```

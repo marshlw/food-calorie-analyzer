@@ -10,12 +10,14 @@
 каждом открытии вкладки.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -23,6 +25,14 @@ from app import crud, models
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Отдельный пул потоков для LLM-вызовов советчика. НЕ общий threadpool
+# FastAPI: иначе несколько десятков одновременных запросов советчика
+# (по 10-40 секунд каждый) исчерпают общий пул и подвесят весь API.
+_llm_executor = ThreadPoolExecutor(
+    max_workers=max(1, getattr(settings, "ADVISOR_MAX_CONCURRENCY", 8)),
+    thread_name_prefix="advisor-llm",
+)
 
 ADVISOR_CACHE_TTL = 30 * 60        # 30 минут — для ответов LLM
 ADVISOR_RULES_CACHE_TTL = 2 * 60   # 2 минуты — для rules-фолбэка (чтобы ошибка не «залипала»)
@@ -369,15 +379,18 @@ def _cache_set(key: str, payload: Dict[str, Any]) -> None:
 
 # ===================== ПУБЛИЧНОЕ API МОДУЛЯ =====================
 
-def get_advice(db: Session, user: models.User) -> Dict[str, Any]:
-    """Советы для вкладки AI-советчика: LLM → (при ошибке) правила."""
+def prepare_advice(db: Session, user: models.User) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], str]:
+    """Быстрая часть (только БД): контекст дня + проверка кэша.
+    Возвращает (кэшированный ответ или None, контекст, ключ кэша).
+    Выполняется в обычном threadpool — БД-запросы занимают миллисекунды."""
     ctx = build_user_context(db, user)
-
     key = _cache_key(user.id, ctx)
-    cached = _cache_get(key)
-    if cached:
-        return cached
+    return _cache_get(key), ctx, key
 
+
+def generate_advice(ctx: Dict[str, Any], key: str) -> Dict[str, Any]:
+    """Медленная часть (LLM, БЕЗ БД — не держит коннект из пула на время
+    вызова модели). Запускается в выделенном _llm_executor."""
     prompt = "Данные пользователя за сегодня:\n" + json.dumps(ctx, ensure_ascii=False, indent=2)
     raw = _llm_complete(_ADVICE_INSTRUCTIONS, prompt)
     advice = _parse_llm_advice(raw)
@@ -390,6 +403,27 @@ def get_advice(db: Session, user: models.User) -> Dict[str, Any]:
     return advice
 
 
+def get_advice(db: Session, user: models.User) -> Dict[str, Any]:
+    """Советы для вкладки AI-советчика: LLM → (при ошибке) правила.
+    Синхронная версия (тесты/скрипты); эндпоинты используют get_advice_async."""
+    cached, ctx, key = prepare_advice(db, user)
+    if cached:
+        return cached
+    return generate_advice(ctx, key)
+
+
+async def get_advice_async(db: Session, user: models.User) -> Dict[str, Any]:
+    """Async-обёртка для эндпоинта: БД — в общем threadpool (быстро),
+    LLM — в выделенном пуле советчика (долго, но не мешает другим запросам)."""
+    from starlette.concurrency import run_in_threadpool
+
+    cached, ctx, key = await run_in_threadpool(prepare_advice, db, user)
+    if cached:
+        return cached
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_llm_executor, generate_advice, ctx, key)
+
+
 _ASK_INSTRUCTIONS = """
 Ты — советчик по питанию и тренировкам в приложении-дневнике Rasify.
 Пользователь задаёт вопрос; тебе также передают JSON с его данными за сегодня.
@@ -398,9 +432,9 @@ _ASK_INSTRUCTIONS = """
 """
 
 
-def ask(db: Session, user: models.User, question: str) -> Dict[str, str]:
-    """Свободный вопрос советчику («что съесть перед тренировкой?»)."""
-    ctx = build_user_context(db, user)
+def generate_answer(ctx: Dict[str, Any], question: str) -> Dict[str, str]:
+    """Медленная часть свободного вопроса (LLM, без БД).
+    Запускается в выделенном _llm_executor."""
     prompt = (
         f"Вопрос пользователя: {question}\n\n"
         "Данные за сегодня:\n" + json.dumps(ctx, ensure_ascii=False, indent=2)
@@ -421,3 +455,19 @@ def ask(db: Session, user: models.User, question: str) -> Dict[str, str]:
         "answer": "AI сейчас недоступен, вот сводка по вашим данным: " + " ".join(parts),
         "generated_by": "rules",
     }
+
+
+def ask(db: Session, user: models.User, question: str) -> Dict[str, str]:
+    """Свободный вопрос советчику («что съесть перед тренировкой?»).
+    Синхронная версия; эндпоинт использует ask_async."""
+    ctx = build_user_context(db, user)
+    return generate_answer(ctx, question)
+
+
+async def ask_async(db: Session, user: models.User, question: str) -> Dict[str, str]:
+    """Async-обёртка: контекст — в общем threadpool, LLM — в пуле советчика."""
+    from starlette.concurrency import run_in_threadpool
+
+    ctx = await run_in_threadpool(build_user_context, db, user)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_llm_executor, generate_answer, ctx, question)

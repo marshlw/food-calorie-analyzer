@@ -34,6 +34,10 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Версия токенов ("tv" в JWT). Инкремент мгновенно инвалидирует все
+    # ранее выданные access/refresh токены пользователя (смена пароля).
+    token_version = Column(Integer, nullable=False, default=0, server_default="0")
+
     # ---- Профиль (всё опционально, не блокирует регистрацию) ----
     # Рост меняется редко -> храним снимок прямо на пользователе.
     # Текущий вес НЕ дублируем здесь: источник правды -- последняя
@@ -165,13 +169,13 @@ class MealEntry(Base):
 
     @property
     def photo_url(self):
-        """URL фото записи для фронта (раздаётся через StaticFiles /uploads).
-        Приоритет: своё фото пользователя, затем фото AI-анализа."""
-        from pathlib import Path
+        """Подписанный URL фото записи (/uploads/<file>?exp=&sig=) — фото
+        не раздаются публично. Приоритет: своё фото, затем фото AI-анализа."""
+        from .utils import signed_upload_url
         if self.photo_path:
-            return f"/uploads/{Path(self.photo_path).name}"
+            return signed_upload_url(self.photo_path)
         if self.task_id and self.task and self.task.image_path:
-            return f"/uploads/{Path(self.task.image_path).name}"
+            return signed_upload_url(self.task.image_path)
         return None
 
     @property

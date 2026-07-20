@@ -6,11 +6,12 @@
 чтобы API не падал (лимиты тогда действуют в рамках одного процесса).
 """
 
+import ipaddress
 import logging
 import threading
 import time
 from datetime import date, datetime, timedelta
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from fastapi import HTTPException, Request
 
@@ -116,14 +117,32 @@ def _decr(key: str) -> None:
 
 # ---------- public API ----------
 
+def _is_trusted_proxy(host: str) -> bool:
+    """X-Forwarded-For можно верить только если запрос пришёл от нашего
+    reverse-proxy. Иначе клиент подменяет заголовок и обходит все лимиты."""
+    trusted_extra = {
+        h.strip() for h in settings.TRUSTED_PROXIES.split(",") if h.strip()
+    }
+    if host in trusted_extra:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        return False
+
+
 def get_client_ip(request: Request) -> str:
-    """IP клиента. За reverse-proxy берём первый адрес из X-Forwarded-For."""
+    """IP клиента. X-Forwarded-For учитывается ТОЛЬКО от доверенного прокси
+    (приватный/loopback адрес или из TRUSTED_PROXIES) — иначе заголовок
+    можно подделать и обойти брутфорс-защиту."""
+    peer = request.client.host if request.client else "unknown"
     forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
+    if forwarded and _is_trusted_proxy(peer):
         first = forwarded.split(",")[0].strip()
         if first:
             return first
-    return request.client.host if request.client else "unknown"
+    return peer
 
 
 def enforce(key: str, limit: int, window: int, detail: str) -> None:
@@ -160,16 +179,20 @@ def check_register_ip_limit(request: Request) -> None:
     )
 
 
-def _failed_login_key(email: str) -> str:
-    return f"auth:fail:{email.strip().lower()}"
+def _failed_login_key(email: str, ip: Optional[str]) -> str:
+    # Счётчик по (email + IP), а не только по email: иначе злоумышленник
+    # пятью неверными паролями блокирует вход ЖЕРТВЕ (DoS чужого аккаунта).
+    return f"auth:fail:{email.strip().lower()}:{ip or 'unknown'}"
 
 
-def check_failed_login_block(email: str) -> None:
-    """До проверки пароля: если по email уже слишком много неудачных попыток — 429.
-    Проверка без инкремента, чтобы легитимный вход не блокировал сам себя."""
+def check_failed_login_block(email: str, request: Optional[Request] = None) -> None:
+    """До проверки пароля: если по (email, IP) уже слишком много неудачных
+    попыток — 429. Проверка без инкремента, чтобы легитимный вход
+    не блокировал сам себя."""
     if not settings.RATE_LIMIT_ENABLED or not email:
         return
-    if _get(_failed_login_key(email)) >= settings.AUTH_FAILED_ATTEMPTS_LIMIT:
+    ip = get_client_ip(request) if request else None
+    if _get(_failed_login_key(email, ip)) >= settings.AUTH_FAILED_ATTEMPTS_LIMIT:
         raise HTTPException(
             status_code=429,
             detail="Слишком много неудачных попыток входа. Попробуйте позже.",
@@ -177,18 +200,20 @@ def check_failed_login_block(email: str) -> None:
         )
 
 
-def register_failed_login(email: str) -> None:
-    """После неудачной проверки пароля — увеличить счётчик по email."""
+def register_failed_login(email: str, request: Optional[Request] = None) -> None:
+    """После неудачной проверки пароля — увеличить счётчик по (email, IP)."""
     if not settings.RATE_LIMIT_ENABLED or not email:
         return
-    _incr(_failed_login_key(email), settings.AUTH_FAILED_ATTEMPTS_WINDOW)
+    ip = get_client_ip(request) if request else None
+    _incr(_failed_login_key(email, ip), settings.AUTH_FAILED_ATTEMPTS_WINDOW)
 
 
-def reset_failed_login(email: str) -> None:
+def reset_failed_login(email: str, request: Optional[Request] = None) -> None:
     """Успешный вход сбрасывает счётчик неудач."""
     if not email:
         return
-    _delete(_failed_login_key(email))
+    ip = get_client_ip(request) if request else None
+    _delete(_failed_login_key(email, ip))
 
 
 # ---------- дневной лимит AI-анализа ----------

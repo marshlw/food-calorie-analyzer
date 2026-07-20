@@ -58,45 +58,45 @@ npm run build
 
 ## Структура проекта
 
+> Ниже — фактическая структура `src/` (68 файлов на момент последнего обновления этого файла),
+> заметно шире, чем в первой версии фронтенда — добавились тренировки, AI-советчик, вода,
+> штрих-коды и т.д.
+
 ```
 src/
-├── api/                    # API клиент и запросы
-│   ├── axios.ts           # Конфигурация axios с интерцепторами
-│   ├── auth.ts            # Авторизация
-│   ├── meals.ts           # Приемы пищи
-│   └── tasks.ts           # Анализы фото
-├── components/            # Переиспользуемые компоненты
-│   ├── ProtectedRoute.tsx # Защищенные маршруты
-│   ├── LoadingSpinner.tsx # Загрузка
-│   ├── ErrorAlert.tsx     # Ошибки
-│   ├── MealCard.tsx       # Карточка приема пищи
-│   ├── MealForm.tsx       # Форма приема пищи
-│   ├── DailyStats.tsx     # Ежедневная статистика
-│   └── Modal.tsx          # Модальное окно
-├── context/               # Context API
-│   └── AuthContext.tsx    # Контекст авторизации
-├── hooks/                 # Пользовательские hooks
-│   ├── useAuth.ts        # Авторизация
-│   ├── useApi.ts         # API запросы
-│   └── useLocalStorage.ts # localStorage
-├── pages/                 # Страницы приложения
-│   ├── Login.tsx         # Логин
-│   ├── Register.tsx      # Регистрация
-│   ├── Dashboard.tsx     # Главная страница
-│   ├── MealDiary.tsx     # Пищевой дневник
-│   ├── AnalysisHistory.tsx # История анализов
-│   ├── TaskDetail.tsx    # Детали анализа
-│   └── Profile.tsx       # Профиль
-├── types/                 # TypeScript типы
-│   └── index.ts
-├── styles/                # Глобальные стили
-│   └── globals.css
-├── App.tsx               # Главное приложение
-└── main.tsx              # Точка входа
+├── api/                    # API клиент и запросы (по одному файлу на группу эндпоинтов)
+│   ├── axios.ts           # Конфигурация axios: base URL, JWT-интерцепторы, refresh-on-401
+│   ├── auth.ts             # Авторизация
+│   ├── profile.ts          # Профиль, вес, ручные нормы
+│   ├── meals.ts            # Приёмы пищи (дневник)
+│   ├── tasks.ts             # Анализы фото
+│   ├── water.ts             # Вода
+│   ├── workouts.ts          # Тренировки
+│   ├── exercises.ts         # Справочник упражнений
+│   ├── products.ts          # Поиск продуктов
+│   ├── barcode.ts           # Штрих-коды
+│   └── advisor.ts           # AI-советчик
+├── components/              # Переиспользуемые компоненты (30 файлов), в т.ч. подпапка profile/:
+│   │                         # ChangePasswordForm, WeightChart, TargetsForm, ProfileForm,
+│   │                         # WeightHistoryList, AddWeightModal
+│   └── ProtectedRoute.tsx, LoadingSpinner.tsx, ErrorAlert.tsx, MealCard.tsx, MealForm.tsx, ...
+├── context/                 # Context API (без внешнего state-менеджера — Redux/Zustand не используются)
+│   ├── AuthContext.tsx      # Авторизация
+│   └── DiaryContext.tsx     # Состояние дневника питания
+├── hooks/                   # Пользовательские hooks
+│   ├── useAuth.ts, useLocalStorage.ts, useApi.ts, useAiLimit.ts, useFoodAnalysis.ts
+├── pages/                   # Страницы приложения (11)
+│   ├── Login.tsx, Register.tsx, Dashboard.tsx, MealDiary.tsx, DiaryPage.tsx,
+│   │   AnalysisHistory.tsx, TaskDetail.tsx, Profile.tsx, Workouts.tsx, Advisor.tsx
+├── utils/                   # errors, dates, mealTypes, text, protein
+├── types/                   # TypeScript типы (index.ts)
+├── styles/                  # globals.css
+├── App.tsx                 # Главное приложение
+└── main.tsx                 # Точка входа
 
 public/
-├── manifest.json         # PWA манифест
-└── sw.js                 # Service Worker
+├── manifest.json           # PWA манифест
+└── sw.js                    # Service Worker (руками написанный, без vite-plugin-pwa)
 ```
 
 ## Функциональность
@@ -150,19 +150,12 @@ public/
 
 ### Основные endpoints
 
-- **POST** `/api/v1/register` - Регистрация
-- **POST** `/api/v1/login` - Логин
-- **POST** `/api/v1/token` - Обновление токена
-- **GET** `/api/v1/me` - Текущий пользователь
-- **POST** `/api/v1/analyze` - Загрузка фото
-- **GET** `/api/v1/task/{id}` - Статус анализа
-- **GET** `/api/v1/tasks` - История анализов
-- **GET** `/api/v1/daily-log` - Дневник за день
-- **POST** `/api/v1/meals` - Добавить прием пищи
-- **PATCH** `/api/v1/meals/{id}` - Редактировать
-- **DELETE** `/api/v1/meals/{id}` - Удалить
-- **POST** `/api/v1/meals/from-analysis` - Добавить из анализа
-- **POST** `/api/v1/feedback` - Отправить исправление
+Полный и актуальный список — [сводка эндпоинтов](../api/api-endpoints-summary.md). Кратко, по
+разделам фронтенда: авторизация (`register`/`login`/`token`/`me`/`change-password`), профиль и
+вес (`profile`, `profile/weight*`), анализ фото (`analyze`, `analyze/limit`, `task/{id}`,
+`tasks`), дневник (`meals*`, `daily-log`), вода (`water`), тренировки (`workouts*`,
+`exercises`), продукты и штрих-коды (`products`, `barcode/*`), AI-советчик (`advisor`,
+`advisor/ask`), обратная связь (`feedback`).
 
 ## PWA Поддержка
 

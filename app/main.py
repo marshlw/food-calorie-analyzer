@@ -56,6 +56,10 @@ async def log_requests(request: Request, call_next):
             "duration": elapsed,
         },
     )
+    # Базовые security-заголовки (HSTS/CSP добавляются на reverse-proxy)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
     return response
 
 
@@ -330,13 +334,13 @@ def login(request: Request, auth_data: schemas.AuthRequest = Depends(_get_auth_r
     if auth_data.grant_type != "password":
         raise HTTPException(status_code=400, detail="Unsupported grant_type")
 
-    # Брутфорс-защита: лимит по IP + блокировка email после серии неудач
+    # Брутфорс-защита: лимит по IP + блокировка (email, IP) после серии неудач
     rate_limit.check_auth_ip_limit(request)
-    rate_limit.check_failed_login_block(auth_data.email)
+    rate_limit.check_failed_login_block(auth_data.email, request)
 
     user = auth.authenticate_user_sync(db, auth_data.email, auth_data.password)
     if not user:
-        rate_limit.register_failed_login(auth_data.email)
+        rate_limit.register_failed_login(auth_data.email, request)
         logger.warning(f"Failed login attempt for email: {auth_data.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -344,10 +348,11 @@ def login(request: Request, auth_data: schemas.AuthRequest = Depends(_get_auth_r
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    rate_limit.reset_failed_login(auth_data.email)
+    rate_limit.reset_failed_login(auth_data.email, request)
+    claims = auth.token_claims_for(user)
     return {
-        "access_token": auth.create_access_token(data={"sub": user.email}),
-        "refresh_token": auth.create_refresh_token(data={"sub": user.email}),
+        "access_token": auth.create_access_token(data=claims),
+        "refresh_token": auth.create_refresh_token(data=claims),
         "token_type": "bearer",
     }
 
@@ -363,34 +368,37 @@ def token(request: Request, auth_data: schemas.AuthRequest = Depends(_get_auth_r
         if not auth_data.refresh_token:
             raise HTTPException(status_code=400, detail="refresh_token is required")
 
-        email = auth.verify_refresh_token(auth_data.refresh_token)
-        user = crud.get_user_by_email_sync(db, email)
-        if not user:
+        payload = auth.verify_refresh_token(auth_data.refresh_token)
+        user = crud.get_user_by_email_sync(db, payload.get("sub"))
+        # Refresh, выданный до смены пароля (bump token_version), недействителен
+        if not user or int(payload.get("tv") or 0) != int(user.token_version or 0):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+        claims = auth.token_claims_for(user)
         return {
-            "access_token": auth.create_access_token(data={"sub": user.email}),
-            "refresh_token": auth.create_refresh_token(data={"sub": user.email}),
+            "access_token": auth.create_access_token(data=claims),
+            "refresh_token": auth.create_refresh_token(data=claims),
             "token_type": "bearer",
         }
 
     if auth_data.grant_type != "password":
         raise HTTPException(status_code=400, detail="Unsupported grant_type")
 
-    rate_limit.check_failed_login_block(auth_data.email)
+    rate_limit.check_failed_login_block(auth_data.email, request)
 
     user = auth.authenticate_user_sync(db, auth_data.email, auth_data.password)
     if not user:
-        rate_limit.register_failed_login(auth_data.email)
+        rate_limit.register_failed_login(auth_data.email, request)
         logger.warning(f"Failed token attempt for email: {auth_data.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    rate_limit.reset_failed_login(auth_data.email)
+    rate_limit.reset_failed_login(auth_data.email, request)
+    claims = auth.token_claims_for(user)
     return {
-        "access_token": auth.create_access_token(data={"sub": user.email}),
-        "refresh_token": auth.create_refresh_token(data={"sub": user.email}),
+        "access_token": auth.create_access_token(data=claims),
+        "refresh_token": auth.create_refresh_token(data=claims),
         "token_type": "bearer",
     }
 
@@ -402,28 +410,40 @@ async def get_me(current_user: models.User = Depends(auth.get_current_user)):
 
 # ===================== CHANGE PASSWORD =====================
 
-@app.post("/api/v1/change-password", status_code=status.HTTP_204_NO_CONTENT)
+@app.post("/api/v1/change-password", response_model=schemas.Token)
 def change_password(
+    request: Request,
     payload: schemas.ChangePasswordRequest,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
 ):
     # Брутфорс-защита: перебор текущего пароля через смену пароля
-    rate_limit.check_failed_login_block(current_user.email)
+    rate_limit.check_failed_login_block(current_user.email, request)
 
     if not auth.verify_password(payload.current_password, current_user.hashed_password):
-        rate_limit.register_failed_login(current_user.email)
+        rate_limit.register_failed_login(current_user.email, request)
         raise HTTPException(status_code=400, detail="Неверный текущий пароль")
 
-    rate_limit.reset_failed_login(current_user.email)
+    rate_limit.reset_failed_login(current_user.email, request)
 
     if payload.current_password == payload.new_password:
         raise HTTPException(status_code=400, detail="Новый пароль совпадает с текущим")
 
+    # bump token_version: ВСЕ ранее выданные access/refresh токены (в т.ч.
+    # у злоумышленника, укравшего их) мгновенно перестают действовать.
     current_user.hashed_password = auth.get_password_hash(payload.new_password)
+    current_user.token_version = (current_user.token_version or 0) + 1
     db.add(current_user)
     db.commit()
     logger.info(f"Password changed for user: {current_user.email}")
+
+    # Отдаём свежую пару токенов, чтобы текущая сессия не разлогинилась
+    claims = auth.token_claims_for(current_user)
+    return {
+        "access_token": auth.create_access_token(data=claims),
+        "refresh_token": auth.create_refresh_token(data=claims),
+        "token_type": "bearer",
+    }
 
 
 # ===================== PROFILE =====================
@@ -431,8 +451,9 @@ def change_password(
 def _build_profile(db: Session, user: models.User) -> dict:
     """Собирает ProfileResponse: текущий вес = последняя запись истории,
     плюс производные BMR и суточные нормы КБЖУ."""
-    # Для графика на профиле достаточно последних ~30 записей.
-    recent = crud.list_weight_history(db, user.id)[-30:]
+    # Для графика на профиле достаточно последних ~30 записей —
+    # ограничиваем в SQL, а не грузим всю историю в Python.
+    recent = crud.list_recent_weights(db, user.id, 30)
     t = crud.compute_nutrition_targets(db, user)
     # Текущие обхваты = последняя запись истории (тот же источник, что и вес).
     latest = crud.get_latest_weight(db, user.id)
@@ -667,6 +688,9 @@ async def get_user_tasks(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    # Клэмп пагинации: ?limit=1000000 не должен выгружать всю таблицу
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
     return crud.get_tasks_by_user_sync(db, current_user.id, limit, offset)
 
 
@@ -680,8 +704,9 @@ async def add_meal(
         logger.info(f"Adding meal for user {current_user.id}: {meal.food_name}, type={meal.meal_type}")
         return crud.add_meal_entry(db, current_user.id, meal, target_date=meal.date, task_id=meal.task_id)
     except Exception as e:
+        # Текст исключения наружу не отдаём (может содержать SQL/пути)
         logger.error(f"Error adding meal: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Не удалось сохранить приём пищи")
 
 
 # Дневной порядок приёмов: завтрак → обед → ужин — фиксированно,
@@ -845,8 +870,9 @@ async def add_meal_from_analysis(
     try:
         return crud.add_meal_entry(db, current_user.id, meal_data, task_id=task.id)
     except Exception as e:
-        logger.error(f"Error creating meal from analysis: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Текст исключения наружу не отдаём (может содержать SQL/пути)
+        logger.error(f"Error creating meal from analysis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Не удалось сохранить приём пищи")
 
 
 @app.post("/api/v1/feedback", response_model=schemas.FeedbackResponse, status_code=status.HTTP_201_CREATED)
@@ -1071,22 +1097,26 @@ async def search_exercises(
 
 # ===================== AI-СОВЕТЧИК (кнопка ✦ по центру) =====================
 
-# ВАЖНО: эндпоинты советчика — обычные def, НЕ async. Внутри — синхронный
-# вызов LLM на десятки секунд; в async он блокировал бы event loop целого
-# uvicorn-воркера (все запросы, включая /login, висели бы). Обычный def
-# FastAPI выполняет в threadpool — API остаётся отзывчивым.
+# ВАЖНО: LLM-вызов (десятки секунд) выполняется в ОТДЕЛЬНОМ пуле потоков
+# советчика (advisor._llm_executor, размер ADVISOR_MAX_CONCURRENCY), а не в
+# общем threadpool FastAPI. Иначе ~40 одновременных запросов советчика
+# исчерпали бы общий пул и подвесили ВЕСЬ API, включая /login и /health.
+# Быстрая часть (запросы к БД для контекста) идёт через run_in_threadpool.
+
+from starlette.concurrency import run_in_threadpool
+
 
 @app.get("/api/v1/advisor", response_model=schemas.AdvisorResponse)
-def get_advisor(
+async def get_advisor(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
 ):
     """Советы дня: LLM (Yandex Cloud) с фолбэком на правила. Кэшируется."""
-    return advisor.get_advice(db, current_user)
+    return await advisor.get_advice_async(db, current_user)
 
 
 @app.post("/api/v1/advisor/ask", response_model=schemas.AdvisorAskResponse)
-def ask_advisor(
+async def ask_advisor(
     payload: schemas.AdvisorAskRequest,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
@@ -1094,13 +1124,14 @@ def ask_advisor(
     """Свободный вопрос советчику (поле «Спросить...» на вкладке)."""
     # Каждый вопрос = платный LLM-вызов и занятый поток на десятки секунд —
     # ограничиваем, чтобы один пользователь не сжёг бюджет токенов.
-    rate_limit.enforce(
+    await run_in_threadpool(
+        rate_limit.enforce,
         f"advisor:ask:{current_user.id}:{date.today().isoformat()}",
-        limit=30,
-        window=86400 + 3600,
-        detail="Дневной лимит вопросов советчику исчерпан. Попробуйте завтра.",
+        30,
+        86400 + 3600,
+        "Дневной лимит вопросов советчику исчерпан. Попробуйте завтра.",
     )
-    return advisor.ask(db, current_user, payload.question)
+    return await advisor.ask_async(db, current_user, payload.question)
 
 
 # ==================== ADMIN ====================
@@ -1127,6 +1158,9 @@ async def list_feedback(
     x_admin_token: str = Header(..., alias="X-Admin-Token")
 ):
     _require_admin(x_admin_token)
+
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
 
     db = SessionLocal()
     try:
@@ -1195,9 +1229,31 @@ async def update_feedback_status(
 
 # ==================== UPLOADS ====================
 
-# Раздаём загруженные изображения, чтобы фронтенд мог показывать превью
-# (TaskResponse.image_path возвращает путь вида /uploads/<filename>)
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+# Фото пользователей НЕ раздаются публичной статикой: каждая ссылка
+# подписана HMAC(SECRET_KEY) и ограничена по времени (utils.signed_upload_url).
+# API отдаёт клиенту уже подписанные URL в photo_url / image_path.
+
+from fastapi.responses import FileResponse
+
+
+@app.get("/uploads/{filename}")
+async def get_upload(filename: str, exp: int = 0, sig: str = ""):
+    # Защита от path traversal: принимаем только «голое» имя файла
+    if filename != Path(filename).name or filename.startswith("."):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if not utils.verify_upload_signature(filename, exp, sig):
+        raise HTTPException(status_code=403, detail="Invalid or expired link")
+
+    file_path = UPLOAD_DIR / filename
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # Ссылка временная, но сам файл неизменяем — браузеру можно кэшировать
+    return FileResponse(
+        str(file_path),
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 # ==================== FRONTEND ====================

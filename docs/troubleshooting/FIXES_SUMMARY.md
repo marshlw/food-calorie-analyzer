@@ -1,5 +1,8 @@
 # Исправления: API & Frontend Integration
 
+> Исторический журнал исправлений — оставлен как есть. Текущее состояние CORS/конфига описано в
+> [architecture.md](../architecture/architecture.md#configuration-appconfigpy).
+
 ## 🔧 Что было исправлено
 
 ### Backend (app/main.py)

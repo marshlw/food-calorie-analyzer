@@ -132,7 +132,12 @@ _last_calls: dict[str, float] = {}
 
 
 def get_http_client(timeout_seconds: Optional[float] = None) -> httpx.Client:
-    """Thread-safe lazy HTTP client with optional custom timeout."""
+    """Thread-safe lazy HTTP client (общий на процесс).
+
+    ВАЖНО: раньше при нестандартном timeout_seconds на каждый вызов
+    создавался НОВЫЙ httpx.Client, который никогда не закрывался —
+    утечка сокетов. Теперь всегда возвращаем общий клиент; кастомный
+    таймаут передавайте per-request: client.post(..., timeout=...)."""
     global _http_client
     with _resource_lock:
         if _http_client is None:
@@ -140,11 +145,6 @@ def get_http_client(timeout_seconds: Optional[float] = None) -> httpx.Client:
             _http_client = httpx.Client(
                 timeout=httpx.Timeout(default_timeout, connect=5.0),
                 limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-            )
-        if timeout_seconds and timeout_seconds != getattr(settings, "MODEL_TIMEOUT_SECONDS", 30):
-            return httpx.Client(
-                timeout=httpx.Timeout(timeout_seconds, connect=5.0),
-                limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
             )
         return _http_client
 
@@ -596,58 +596,23 @@ class YandexProvider(BaseProvider):
             )
 
         # ==========================
-        # Логируем ответ полностью
+        # Диагностика ответа: только DEBUG и с обрезкой.
+        # Полный дамп на INFO/ERROR при каждом анализе = гигабайты логов
+        # и лишний I/O под нагрузкой.
         # ==========================
 
         try:
-
-            logger.info(
-                "YANDEX RAW RESPONSE:\n%s",
-                response.model_dump_json(
-                    indent=2
+            if logger.isEnabledFor(logging.DEBUG):
+                dump = response.model_dump()
+                logger.debug(
+                    "YANDEX status=%s error=%s incomplete=%s output=%s",
+                    dump.get("status"),
+                    json.dumps(dump.get("error"), ensure_ascii=False)[:500],
+                    json.dumps(dump.get("incomplete_details"), ensure_ascii=False)[:500],
+                    json.dumps(dump.get("output"), ensure_ascii=False)[:2000],
                 )
-            )
-            dump = response.model_dump()
-
-            logger.error(
-                "YANDEX STATUS=%s VALID=%s",
-                dump.get("status"),
-                dump.get("valid")
-            )
-
-            logger.error(
-                "YANDEX ERROR=%s",
-                json.dumps(
-                    dump.get("error"),
-                    ensure_ascii=False,
-                    indent=2
-                )
-            )
-
-            logger.error(
-                "YANDEX INCOMPLETE=%s",
-                json.dumps(
-                    dump.get("incomplete_details"),
-                    ensure_ascii=False,
-                    indent=2
-                )
-            )
-
-            logger.error(
-                "YANDEX OUTPUT=%s",
-                json.dumps(
-                    dump.get("output"),
-                    ensure_ascii=False,
-                    indent=2
-                )[:5000]
-            )
-
         except Exception:
-
-            logger.info(
-                "YANDEX RESPONSE OBJECT:\n%s",
-                repr(response)
-            )
+            logger.debug("YANDEX RESPONSE OBJECT: %r", response)
 
         # ==========================
         # Новый API
@@ -659,7 +624,7 @@ class YandexProvider(BaseProvider):
 
             if text and text.strip():
 
-                logger.info(
+                logger.debug(
                     "YANDEX OUTPUT_TEXT:\n%s",
                     text[:2000]
                 )
@@ -696,7 +661,7 @@ class YandexProvider(BaseProvider):
 
                         if text and text.strip():
 
-                            logger.info(
+                            logger.debug(
                                 "YANDEX OUTPUT CONTENT:\n%s",
                                 text[:2000]
                             )
@@ -1027,14 +992,18 @@ def get_product(session, name: str):
 
     # 3) частичное вхождение: имя продукта целиком содержится в строке ингредиента.
     # Только для имён от 4 символов — короткие (рис, суп, лук) дают ложные срабатывания.
-    candidates = [
-        pr for pr in session.query(models.Product).all()
-        if len(pr.name) >= 4 and pr.name in norm
-    ]
-    if candidates:
-        return max(candidates, key=lambda pr: len(pr.name))
-
-    return None
+    # ВАЖНО: фильтруем на стороне SQL (norm LIKE '%'||name||'%'), а не грузим
+    # ВСЮ таблицу products в Python на каждый ингредиент каждого анализа —
+    # с ростом справочника это делало каждый анализ всё медленнее.
+    from sqlalchemy import func, literal
+    product = (
+        session.query(models.Product)
+        .filter(func.length(models.Product.name) >= 4)
+        .filter(literal(norm).like('%' + models.Product.name + '%'))
+        .order_by(func.length(models.Product.name).desc())
+        .first()
+    )
+    return product
 
 
 def _estimate_by_type(ing_type: str) -> dict:
@@ -1171,6 +1140,7 @@ def analyze_image_sync(path: str) -> dict:
     start_time = time.perf_counter()
     session = SessionLocal()
     models_tried: List[str] = []
+    img: Optional[str] = None
 
     try:
         cache_key = f"{settings.CACHE_PREFIX}:{PROMPT_VERSION}:{get_hash(path)}"
@@ -1251,6 +1221,14 @@ def analyze_image_sync(path: str) -> dict:
         }
     finally:
         session.close()
+        # Обработанная копия (p_*.jpg) нужна только на время вызова модели —
+        # удаляем, иначе каждый анализ оставляет второй файл и диск растёт
+        # вдвое быстрее.
+        if img and img != path:
+            try:
+                Path(img).unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 async def analyze_image_async(path: str) -> dict:

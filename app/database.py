@@ -15,15 +15,15 @@ def configure_database(url: str | None = None):
     """Configure the database engine and session factory."""
     global engine, SessionLocal
     database_url = url or settings.DATABASE_URL
-    # Пул на ПРОЦЕСС: 2 uvicorn-воркера + 4 celery-процесса = 6 пулов.
-    # При 20+10 на процесс под нагрузкой это до 180 коннектов — больше
-    # дефолтного max_connections=100 у Postgres. 5+5 на процесс (до 60)
-    # безопасно и с запасом покрывает ~10-50 активных пользователей.
+    # Пул на ПРОЦЕСС, размер задаётся в .env (DB_POOL_SIZE / DB_MAX_OVERFLOW).
+    # Итоговый максимум коннектов = процессы * (pool_size + max_overflow):
+    # следите, чтобы он не превышал max_connections Postgres (или используйте
+    # PgBouncer). Дефолт 10+20 рассчитан на сотни одновременных пользователей.
     engine = create_engine(
         database_url,
         echo=False,
-        pool_size=5,
-        max_overflow=5,
+        pool_size=settings.DB_POOL_SIZE,
+        max_overflow=settings.DB_MAX_OVERFLOW,
         pool_recycle=1800,
         pool_pre_ping=True,
     )
@@ -72,6 +72,9 @@ _PROFILE_COLUMNS = {
     "custom_fat_g": "FLOAT",
     "custom_carbs_g": "FLOAT",
     "custom_water_ml": "FLOAT",
+    # Версия токенов: инкремент инвалидирует все выданные JWT пользователя
+    # (смена пароля, компрометация). См. auth.get_current_user.
+    "token_version": "INTEGER DEFAULT 0",
 }
 
 # Разделение белка на животный/растительный (появилось после первого create_all).

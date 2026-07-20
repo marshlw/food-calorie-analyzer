@@ -274,12 +274,12 @@ class TaskResponse(BaseModel):
 
     @validator('image_path')
     def to_image_url(cls, v):
-        # Бэкенд хранит абсолютный путь на диске; наружу отдаём URL,
-        # который раздаётся через StaticFiles на /uploads.
+        # Бэкенд хранит абсолютный путь на диске; наружу отдаём подписанный
+        # временный URL (/uploads/<file>?exp=&sig=) — фото не публичные.
         if not v:
             return v
-        from pathlib import Path
-        return f"/uploads/{Path(v).name}"
+        from app.utils import signed_upload_url
+        return signed_upload_url(v)
 
     class Config:
         from_attributes = True

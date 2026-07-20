@@ -190,6 +190,24 @@ class APIClient:
     async def get_current_user(self, user_id: int) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         return await self._request(user_id, "GET", "/api/v1/me")
 
+    async def change_password(
+        self, user_id: int, current_password: str, new_password: str
+    ) -> Tuple[bool, Optional[str]]:
+        """Смена пароля от имени залогиненного пользователя. Бэкенд в ответ
+        отдаёт свежую пару токенов (старые инвалидируются token_version'ом)."""
+        result, error = await self._request(
+            user_id,
+            "POST",
+            "/api/v1/change-password",
+            json={
+                "current_password": current_password,
+                "new_password": new_password,
+            },
+        )
+        if result is not None and result.get("access_token"):
+            self.token_saver(user_id, result["access_token"], result.get("refresh_token") or "")
+        return result is not None, error
+
 
 _client: Optional[APIClient] = None
 

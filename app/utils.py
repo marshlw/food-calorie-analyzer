@@ -1,4 +1,6 @@
 import hashlib
+import hmac
+import time
 from pathlib import Path
 from PIL import Image
 import magic
@@ -7,6 +9,36 @@ from datetime import date
 import os
 import logging
 logger = logging.getLogger(__name__)
+
+
+# ==================== ПОДПИСАННЫЕ ССЫЛКИ НА ФОТО ====================
+
+# Фото пользователей НЕ раздаются публичной статикой: каждая ссылка
+# /uploads/<file>?exp=...&sig=... подписана HMAC(SECRET_KEY) и живёт
+# ограниченное время. Без валидной подписи файл не отдаётся.
+
+def _upload_signature(filename: str, exp: int) -> str:
+    from .config import settings
+    return hmac.new(
+        settings.SECRET_KEY.encode("utf-8"),
+        f"{filename}:{exp}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def signed_upload_url(path_or_name: str, ttl: Optional[int] = None) -> str:
+    """Подписанный URL для файла из UPLOAD_DIR (по имени файла)."""
+    from .config import settings
+    name = Path(path_or_name).name
+    exp = int(time.time()) + int(ttl or settings.UPLOAD_URL_TTL)
+    return f"/uploads/{name}?exp={exp}&sig={_upload_signature(name, exp)}"
+
+
+def verify_upload_signature(filename: str, exp: int, sig: str) -> bool:
+    """Проверка подписи и срока действия ссылки на файл."""
+    if exp < time.time():
+        return False
+    return hmac.compare_digest(_upload_signature(filename, exp), sig or "")
 
 
 # ==================== BMR / НОРМА КАЛОРИЙ ====================

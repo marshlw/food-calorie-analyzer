@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import secrets as _secrets
 import sys
 
 import httpx
@@ -88,12 +89,67 @@ def _pop_tokens(user_id: int) -> None:
 api_client = APIClient(API_URL, _get_tokens, _store_tokens, _pop_tokens)
 
 
+# ==================== ПАРОЛИ TG-АККАУНТОВ ====================
+#
+# БЕЗОПАСНОСТЬ: раньше паролем был str(user_id). Telegram ID не секрет —
+# любой мог залогиниться в аккаунт любого пользователя бота через обычный
+# /api/v1/login. Теперь пароль — случайный секрет, который знает только бот
+# (хранится в Redis). Старые аккаунты мигрируются на случайный пароль при
+# первом обращении (_migrate_legacy_account).
+
+def _password_key(user_id: int) -> str:
+    return f"tg_pwd:{user_id}"
+
+
+def _get_password(user_id: int) -> str | None:
+    return redis_client.get(_password_key(user_id))
+
+
+def _set_password(user_id: int, password: str) -> None:
+    redis_client.set(_password_key(user_id), password)
+
+
+def _email_for(user_id: int) -> str:
+    return f"{user_id}@tg.local"
+
+
+async def _migrate_legacy_account(user_id: int) -> bool:
+    """Миграция старого аккаунта (пароль = user_id): логинимся легаси-паролем
+    и сразу меняем его на случайный. Возвращает True, если вход выполнен."""
+    email = _email_for(user_id)
+    legacy_password = str(user_id)
+
+    success, error = await api_client.login(user_id, email, legacy_password)
+    if not success:
+        logger.error("Legacy login failed", extra={"user_id": user_id, "error": error})
+        return False
+
+    new_password = _secrets.token_urlsafe(24)
+    changed, change_error = await api_client.change_password(
+        user_id, legacy_password, new_password
+    )
+    if changed:
+        _set_password(user_id, new_password)
+        logger.info("Legacy account migrated to random password", extra={"user_id": user_id})
+    else:
+        # Вход выполнен, но пароль сменить не удалось — попробуем при
+        # следующем логине. Аккаунт пока остаётся на легаси-пароле.
+        logger.warning(
+            "Legacy password rotation failed, will retry next login",
+            extra={"user_id": user_id, "error": change_error},
+        )
+    return True
+
+
 async def register_user(user_id: int) -> bool:
-    email = f"{user_id}@tg.local"
-    password = str(user_id)
+    email = _email_for(user_id)
+    password = _get_password(user_id)
+    if password is None:
+        password = _secrets.token_urlsafe(24)
 
     success, error = await api_client.register(user_id, email, password)
     if success:
+        _set_password(user_id, password)
         logger.info("User registered successfully", extra={"user_id": user_id})
         return True
 
@@ -106,15 +162,21 @@ async def register_user(user_id: int) -> bool:
 
 
 async def login_user(user_id: int) -> bool:
-    email = f"{user_id}@tg.local"
-    password = str(user_id)
+    email = _email_for(user_id)
 
-    success, error = await api_client.login(user_id, email, password)
-    if success:
-        logger.info("User logged in successfully", extra={"user_id": user_id})
+    password = _get_password(user_id)
+    if password:
+        success, error = await api_client.login(user_id, email, password)
+        if success:
+            logger.info("User logged in successfully", extra={"user_id": user_id})
+            return True
+        logger.warning("Stored-password login failed", extra={"user_id": user_id, "error": error})
+
+    # Старый аккаунт с паролем = user_id → мигрируем на случайный пароль
+    if await _migrate_legacy_account(user_id):
         return True
 
-    logger.error("Login failed", extra={"user_id": user_id, "error": error})
+    logger.error("Login failed", extra={"user_id": user_id})
     return False
 
 

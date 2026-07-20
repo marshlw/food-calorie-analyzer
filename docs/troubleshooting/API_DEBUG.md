@@ -1,5 +1,11 @@
 # API & Frontend Integration - Troubleshooting Guide
 
+> Актуальные значения по умолчанию: base URL `http://localhost:8000` (dev — `VITE_API_URL` в
+> `frontend/.env.local`), auth-эндпоинты и коды ошибок — см.
+> [api-endpoints-summary.md](../api/api-endpoints-summary.md). Часть команд ниже подразумевает
+> docker-compose, которого в репозитории сейчас нет — см.
+> [DOCKER.md](../setup/DOCKER.md#локальный-запуск-без-docker) для локального запуска.
+
 ## Проблемы и Решения
 
 ### 1. Ошибка 400 и Network Error при авторизации

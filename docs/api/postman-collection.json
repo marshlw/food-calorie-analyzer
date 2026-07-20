@@ -2,7 +2,7 @@
   "info": {
     "name": "AI Healthy API",
     "_postman_id": "ai-healthy-api-collection-v1",
-    "description": "Полная коллекция API AI Healthy, соответствующая swagger.yaml (OpenAPI 3.0). Перед использованием задайте переменные окружения: base_url, email, password. Токены (access_token, refresh_token) и id ресурсов сохраняются автоматически тестовыми скриптами.",
+    "description": "Полная коллекция API AI Healthy (40 запросов), соответствующая текущему app/main.py. Перед использованием задайте переменные окружения: base_url, email, password. Токены (access_token, refresh_token) и id ресурсов (task_id, meal_id, feedback_id, workout_id) сохраняются автоматически тестовыми скриптами. Актуальная машиночитаемая OpenAPI-схема доступна на живом сервере по /openapi.json (Swagger UI — /docs, если ENABLE_DOCS=true).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -20,7 +20,9 @@
     { "key": "admin_token", "value": "change-me-in-production" },
     { "key": "task_id", "value": "" },
     { "key": "meal_id", "value": "" },
-    { "key": "feedback_id", "value": "" }
+    { "key": "feedback_id", "value": "" },
+    { "key": "workout_id", "value": "" },
+    { "key": "barcode", "value": "4600494001313" }
   ],
   "item": [
     {
@@ -190,6 +192,38 @@
             "description": "Текущий пользователь (требует Bearer-токен)."
           },
           "response": []
+        },
+        {
+          "name": "Change Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "if (json.access_token) { pm.collectionVariables.set('access_token', json.access_token); }",
+                  "if (json.refresh_token) { pm.collectionVariables.set('refresh_token', json.refresh_token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"{{password}}\",\n  \"new_password\": \"{{password}}New1\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/change-password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "change-password"]
+            },
+            "description": "Смена пароля. Инвалидирует все ранее выданные токены (token_version++) и возвращает свежую пару access/refresh."
+          },
+          "response": []
         }
       ]
     },
@@ -269,6 +303,20 @@
     {
       "name": "Analysis",
       "item": [
+        {
+          "name": "Get Analyze Limit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/analyze/limit",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "analyze", "limit"]
+            },
+            "description": "Сколько AI-анализов осталось у пользователя сегодня (дневной лимит, по умолчанию 5)."
+          },
+          "response": []
+        },
         {
           "name": "Analyze Image",
           "event": [
@@ -422,6 +470,40 @@
           "response": []
         },
         {
+          "name": "Upload Meal Photo",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": [], "description": "Фото блюда (jpg/jpeg/png/webp, ≤ 10 МБ)" }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/meals/{{meal_id}}/photo",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "meals", "{{meal_id}}", "photo"]
+            },
+            "description": "Прикрепить/заменить фото записи приёма пищи. Своё фото приоритетнее фото AI-анализа в photo_url."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Meal Photo",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/meals/{{meal_id}}/photo",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "meals", "{{meal_id}}", "photo"]
+            },
+            "description": "Удалить своё фото записи. Если запись создана из AI-анализа, photo_url вернётся к фото анализа."
+          },
+          "response": []
+        },
+        {
           "name": "Delete Meal",
           "request": {
             "method": "DELETE",
@@ -506,6 +588,201 @@
               "path": ["api", "v1", "water"]
             },
             "description": "Произвольный объём за конкретную дату. Будущая дата → 400."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Products & Barcode",
+      "item": [
+        {
+          "name": "Search Products",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products?q=курица&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"],
+              "query": [
+                { "key": "q", "value": "курица" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Поиск продукта по названию (справочник КБЖУ на 100 г) для автодополнения."
+          },
+          "response": []
+        },
+        {
+          "name": "Scan Barcode",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": [], "description": "Фото упаковки со штрих-кодом" }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/barcode/scan",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "barcode", "scan"]
+            },
+            "description": "Декодирует штрих-код с фото и ищет продукт в Open Food Facts. Дневной лимит 100 сканирований."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Product By Barcode",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/barcode/{{barcode}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "barcode", "{{barcode}}"]
+            },
+            "description": "Поиск продукта по уже известному штрих-коду (ручной ввод цифр с упаковки)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Workouts",
+      "item": [
+        {
+          "name": "Get Workouts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/workouts?date_str=2026-06-17",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "workouts"],
+              "query": [ { "key": "date_str", "value": "2026-06-17" } ]
+            },
+            "description": "Тренировки за дату + сводка (сожжённые калории, длительность) + недельная полоска активности."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Workout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+                  "var json = pm.response.json();",
+                  "if (json.id) { pm.collectionVariables.set('workout_id', json.id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workout_type\": \"strength\",\n  \"title\": \"Силовая тренировка\",\n  \"duration_min\": 45,\n  \"calories_burned\": 320,\n  \"date\": \"2026-06-17\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/workouts",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "workouts"]
+            },
+            "description": "Добавить тренировку. workout_type ∈ {strength,cardio,stretching,sport,other}. Сохраняет workout_id."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Workout",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workout_type\": \"strength\",\n  \"title\": \"Силовая тренировка (обновлено)\",\n  \"duration_min\": 50,\n  \"calories_burned\": 350,\n  \"date\": \"2026-06-17\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/workouts/{{workout_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "workouts", "{{workout_id}}"]
+            },
+            "description": "Редактировать тренировку (полная замена упражнений/итогов)."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Workout",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/workouts/{{workout_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "workouts", "{{workout_id}}"]
+            },
+            "description": "Удалить тренировку."
+          },
+          "response": []
+        },
+        {
+          "name": "Search Exercises",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/exercises?q=жим&limit=60",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "exercises"],
+              "query": [
+                { "key": "q", "value": "жим" },
+                { "key": "limit", "value": "60" }
+              ]
+            },
+            "description": "Справочник упражнений с расходом калорий (ккал/мин, ~70 кг) для авторасчёта в форме тренировки."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Advisor",
+      "item": [
+        {
+          "name": "Get Advisor Tips",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/advisor",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "advisor"]
+            },
+            "description": "Советы дня (LLM Yandex Cloud с фолбэком на правила), кэшируются в Redis."
+          },
+          "response": []
+        },
+        {
+          "name": "Ask Advisor",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Хватит ли мне белка сегодня?\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/advisor/ask",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "advisor", "ask"]
+            },
+            "description": "Свободный вопрос советчику. Дневной лимит 30 вопросов на пользователя."
           },
           "response": []
         }

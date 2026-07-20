@@ -1,3 +1,8 @@
+> **Исторический документ.** Фиксирует состояние фронтенда на момент первичного скаффолдинга
+> (страницы Login/Register/Dashboard/MealDiary/AnalysisHistory/TaskDetail/Profile). С тех пор
+> добавились Workouts, Advisor, DiaryPage, вода, штрих-коды и т.д. — актуальную структуру и
+> список эндпоинтов см. в [README.md](README.md). Оставлено как есть для истории проекта.
+
 ## AI Healthy Frontend - Project Setup Complete ✨
 
 Полнофункциональное одностраничное мобильное веб-приложение для учета питания создано!
