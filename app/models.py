@@ -64,7 +64,6 @@ class User(Base):
     custom_carbs_g = Column(Float, nullable=True)
     custom_water_ml = Column(Float, nullable=True)
 
-    meals = relationship("Meal", back_populates="user", cascade="all, delete-orphan")
     tasks = relationship("Task", back_populates="user")
     daily_logs = relationship("DailyLog", back_populates="user", cascade="all, delete-orphan")
     weight_records = relationship(
@@ -307,77 +306,6 @@ class Exercise(Base):
     def kcal_per_30min(self) -> int:
         # Удобная цифра для UI: «Жим лёжа · 30 мин ≈ 180 ккал»
         return round((self.kcal_per_min or 0) * 30)
-
-
-# ==================== MEALS ====================
-
-class Meal(Base):
-    __tablename__ = "meals"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    date = Column(DateTime(timezone=True), server_default=func.now())
-    meal_type = Column(String, default="meal")
-    notes = Column(Text, nullable=True)
-
-    # 👉 добавили агрегаты (очень важно для аналитики)
-    total_calories = Column(Float, default=0)
-    total_protein = Column(Float, default=0)
-    # Разделение суммарного белка приёма на животный/растительный.
-    total_protein_animal = Column(Float, default=0)
-    total_protein_plant = Column(Float, default=0)
-    total_fat = Column(Float, default=0)
-    total_carbs = Column(Float, default=0)
-
-    user = relationship("User", back_populates="meals")
-    items = relationship("MealItem", back_populates="meal", cascade="all, delete-orphan")
-
-
-class MealItem(Base):
-    __tablename__ = "meal_items"
-
-    id = Column(Integer, primary_key=True, index=True)
-    meal_id = Column(Integer, ForeignKey("meals.id"), nullable=False)
-
-    food_name = Column(String, nullable=False)
-    quantity_g = Column(Float, nullable=False)
-
-    calories = Column(Float, nullable=False)
-    protein_g = Column(Float, nullable=False)
-    # Разделение белка позиции на животный/растительный (г).
-    protein_animal_g = Column(Float, nullable=False, default=0)
-    protein_plant_g = Column(Float, nullable=False, default=0)
-    fat_g = Column(Float, nullable=False)
-    carbs_g = Column(Float, nullable=False)
-
-    source = Column(String, default="ml")  # ml / manual / corrected
-    confidence = Column(Float, nullable=True)
-    note = Column(Text, nullable=True)
-
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    meal = relationship("Meal", back_populates="items")
-    photo = relationship("Photo", uselist=False, back_populates="meal_item", cascade="all, delete-orphan")
-
-
-# ==================== PHOTOS ====================
-
-class Photo(Base):
-    __tablename__ = "photos"
-
-    id = Column(Integer, primary_key=True, index=True)
-    meal_item_id = Column(Integer, ForeignKey("meal_items.id"), unique=True, nullable=False)
-
-    storage_path = Column(String, nullable=False)
-    thumbnail_path = Column(String, nullable=True)
-
-    file_hash = Column(String, index=True, nullable=False)
-    original_filename = Column(String, nullable=True)
-    file_size = Column(Integer, nullable=True)
-
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    meal_item = relationship("MealItem", back_populates="photo")
 
 
 # ==================== TASKS ====================

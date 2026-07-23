@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     # Разрешить запуск с плейсхолдером в SECRET_KEY. ТОЛЬКО для локальной
     # разработки/тестов: в проде приложение с дефолтным ключом не стартует.
     ALLOW_INSECURE_SECRET_KEY: bool = False
+
+    # Разрешить запуск со слабым паролем БД в DATABASE_URL (foodpass/adminpass/...).
+    # ТОЛЬКО для локальной разработки/тестов: в проде с таким паролем приложение
+    # не стартует (по аналогии с ALLOW_INSECURE_SECRET_KEY). В .env.dev/.env.test
+    # ставим true, в прод-.env — не задаём.
+    ALLOW_INSECURE_DB_PASSWORD: bool = False
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -195,6 +201,28 @@ class Settings(BaseSettings):
             logger.warning(
                 "SECRET_KEY is shorter than 32 chars — consider a longer random value."
             )
+
+        # Не даём молча уехать в prod со слабым паролем БД. Порт наружу не
+        # публикуется, но пароль по словарю — вторая линия обороны при любой
+        # ошибке в сети/файрволе. Список — типовые заглушки из этого проекта.
+        _weak_db_passwords = {
+            "foodpass", "adminpass", "postgres", "password", "devpass",
+            "testpass", "changeme", "admin", "",
+        }
+        try:
+            db_password = urlparse(self.DATABASE_URL).password
+        except Exception:
+            db_password = None
+        # None => пароль в URL не задан (например, sqlite в тестах) — не проверяем.
+        if db_password is not None and db_password.lower() in _weak_db_passwords:
+            message = (
+                "DATABASE_URL uses a weak/default password! Generate a strong value: "
+                "python3 -c \"import secrets; print(secrets.token_urlsafe(32))\" "
+                "and set it in .env (APP_DB_PASSWORD + DATABASE_URL) before deploying."
+            )
+            if not self.ALLOW_INSECURE_DB_PASSWORD:
+                raise RuntimeError(message)
+            logger.critical("%s (ALLOW_INSECURE_DB_PASSWORD=true — запуск разрешён)", message)
 
         providers = {"gemini", "deepseek", "ollama", "yandex"}
         if self.MODEL_PROVIDER not in providers:

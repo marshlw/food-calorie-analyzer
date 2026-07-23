@@ -300,22 +300,6 @@ class AiLimitResponse(BaseModel):
     remaining: int
 
 
-class MealItemBase(BaseModel):
-    food_name: str
-    quantity_g: float = Field(..., gt=0)
-    calories: float = Field(..., ge=0)
-    protein_g: float = Field(..., ge=0)
-    fat_g: float = Field(..., ge=0)
-    carbs_g: float = Field(..., ge=0)
-    source: str = "ml"
-    confidence: Optional[float] = Field(None, ge=0, le=1)
-    note: Optional[str] = None
-
-
-class MealItemCreate(MealItemBase):
-    pass
-
-
 class MealEntryItemCreate(BaseModel):
     """Одно блюдо в составном приёме («гарнир + основное блюдо»)."""
     food_name: str = Field(..., min_length=1, max_length=200)
@@ -411,52 +395,6 @@ class DailyLogResponse(BaseModel):
 class AnalysisMealRequest(BaseModel):
     task_id: str
     meal_type: str = "snacks"
-
-
-class MealItem(MealItemBase):
-    id: int
-
-    class Config:
-        from_attributes = True
-
-
-class MealBase(BaseModel):
-    meal_type: str = "meal"
-    notes: Optional[str] = None
-    items: List[MealItemCreate] = []
-
-
-class MealCreate(MealBase):
-    pass
-
-
-class Meal(MealBase):
-    id: int
-    user_id: int
-    date: datetime
-    total_calories: float
-    total_protein: float
-    total_fat: float
-    total_carbs: float
-
-    @validator('total_calories', 'total_protein', 'total_fat', 'total_carbs', pre=True)
-    def round_totals(cls, v):
-        return round(v, 1)
-
-    class Config:
-        from_attributes = True
-
-
-class PhotoResponse(BaseModel):
-    id: int
-    storage_path: str
-    thumbnail_path: Optional[str]
-    original_filename: Optional[str]
-    file_size: Optional[int]
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # ==================== НОВЫЕ СХЕМЫ ДЛЯ ОБРАТНОЙ СВЯЗИ ====================

@@ -98,12 +98,6 @@ _ENSURE_COLUMNS = {
     "meal_entries": {"photo_path": "VARCHAR", **_PROTEIN_SPLIT_COLUMNS},
     # Разделение белка на блюдах составного приёма
     "meal_entry_items": dict(_PROTEIN_SPLIT_COLUMNS),
-    # Разделение белка в «старой» модели приёмов
-    "meals": {
-        "total_protein_animal": "FLOAT",
-        "total_protein_plant": "FLOAT",
-    },
-    "meal_items": dict(_PROTEIN_SPLIT_COLUMNS),
     # Тег источника белка продукта (animal|plant|mixed)
     "products": {"protein_type": "VARCHAR"},
     # Обхваты тела в истории замеров
@@ -117,7 +111,6 @@ _ENSURE_COLUMNS = {
 _ENSURE_INDEXES = (
     ("ix_meal_entries_daily_log_id", "meal_entries", "daily_log_id"),
     ("ix_tasks_user_id", "tasks", "user_id"),
-    ("ix_meals_user_id", "meals", "user_id"),
     ("ix_daily_logs_user_id", "daily_logs", "user_id"),
 )
 

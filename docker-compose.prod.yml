@@ -41,12 +41,17 @@ services:
     <<: *hardening
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-adminpass}
+      # Пароли обязательны и приходят из окружения/секретов. `:?` заставляет
+      # compose упасть с понятной ошибкой, если переменная не задана — это
+      # убирает прежний слабый дефолт adminpass.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — put a strong value in .env}
       POSTGRES_DB: fooddb
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      # Пароль прикладного пользователя fooduser (его использует api в DATABASE_URL).
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD is required — put a strong value in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./init.sh:/docker-entrypoint-initdb.d/init.sh:ro
     ports:
       - "127.0.0.1:5433:5432"
     healthcheck:
