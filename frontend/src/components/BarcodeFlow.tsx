@@ -1,5 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react'
-import { ScanBarcode, Image as ImageIcon } from 'lucide-react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { ScanBarcode, Image as ImageIcon, Zap, ZapOff } from 'lucide-react'
+import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser'
+import { BarcodeFormat, DecodeHintType } from '@zxing/library'
 import { barcodeApi } from '../api/barcode'
 import { LoadingSpinner } from './LoadingSpinner'
 import { ErrorAlert } from './ErrorAlert'
@@ -24,16 +26,28 @@ interface Props {
 
 type Phase = 'camera' | 'scanning' | 'error' | 'done'
 
-// Доля кадра, которую занимает рамка наведения (и область кадрирования).
-// Кадрируем с запасом чуть больше видимой рамки — пользователь не обязан
-// попадать в неё идеально.
+// Доля кадра, которую занимает рамка наведения.
 const FRAME_W = 0.85
 const FRAME_H = 0.45
-const CROP_W = 0.95
-const CROP_H = 0.6
 
-// Поток «блюдо по штрих-коду»: камера с рамкой наведения (или загрузка фото)
-// → поиск по коду в базе → выбор граммовки → расчёт КБЖУ → добавление.
+// Штрих-код распознаётся прямо в браузере из живого потока камеры — много
+// кадров в секунду, поэтому смазанный кадр не мешает: декодер просто берёт
+// следующий. Ограничиваем набор форматов розничными кодами еды (EAN/UPC) —
+// так распознавание быстрее и без ложных срабатываний.
+const buildHints = () => {
+  const hints = new Map<DecodeHintType, unknown>()
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+    BarcodeFormat.EAN_13,
+    BarcodeFormat.EAN_8,
+    BarcodeFormat.UPC_A,
+    BarcodeFormat.UPC_E,
+  ])
+  hints.set(DecodeHintType.TRY_HARDER, true)
+  return hints
+}
+
+// Поток «блюдо по штрих-коду»: живая камера с автораспознаванием (или загрузка
+// фото) → поиск по коду в базе → выбор граммовки → расчёт КБЖУ → добавление.
 export const BarcodeFlow: React.FC<Props> = ({ onConfirm, onCancel, saving }) => {
   const [phase, setPhase] = useState<Phase>('camera')
   const [product, setProduct] = useState<BarcodeProduct | null>(null)
@@ -43,40 +57,104 @@ export const BarcodeFlow: React.FC<Props> = ({ onConfirm, onCancel, saving }) =>
   const [manualCode, setManualCode] = useState('')
   const [cameraReady, setCameraReady] = useState(false)
   const [cameraFailed, setCameraFailed] = useState(false)
+  const [torchAvailable, setTorchAvailable] = useState(false)
+  const [torchOn, setTorchOn] = useState(false)
 
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
+  const controlsRef = useRef<IScannerControls | null>(null)
+  // Защита от повторной обработки: колбэк декодера может сработать несколько раз
+  const handledRef = useRef(false)
 
-  const stopCamera = () => {
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
+  const stopScanner = useCallback(() => {
+    controlsRef.current?.stop()
+    controlsRef.current = null
     setCameraReady(false)
-  }
+    setTorchAvailable(false)
+    setTorchOn(false)
+  }, [])
 
-  // Камера включается на фазе 'camera' и гасится при уходе с неё/размонтировании
+  // Код распознан на клиенте → ищем продукт по цифрам в базе (Open Food Facts).
+  // На бэкенд больше не шлём картинку — только готовый код через GET /barcode/{code}.
+  const handleCode = useCallback(
+    async (code: string) => {
+      if (handledRef.current) return
+      handledRef.current = true
+      // Короткая вибрация — тактильное подтверждение, что код пойман
+      // (navigator.vibrate есть в Android Chrome; iOS Safari его игнорирует)
+      navigator.vibrate?.(80)
+      stopScanner()
+      setPhase('scanning')
+      setError('')
+      try {
+        setProduct(await barcodeApi.lookup(code))
+        setPhase('done')
+      } catch (e) {
+        setError(extractErrorMessage(e))
+        setPhase('error')
+      }
+    },
+    [stopScanner]
+  )
+
+  // Живая камера + непрерывное декодирование на фазе 'camera'.
+  // Гасится при уходе с фазы/размонтировании.
   useEffect(() => {
     if (phase !== 'camera') return
+    handledRef.current = false
     let cancelled = false
+
+    const reader = new BrowserMultiFormatReader(buildHints(), {
+      delayBetweenScanAttempts: 120,
+      delayBetweenScanSuccess: 400,
+    })
+
+    // Просим у камеры высокое разрешение и непрерывный автофокус — это ключевое
+    // для iPhone, где на дефолтном потоке фокус «плавает» и код выходит смазанным.
+    const tuneTrack = async () => {
+      const stream = videoRef.current?.srcObject as MediaStream | null
+      const track = stream?.getVideoTracks?.()[0]
+      if (!track) return
+      const caps = (track.getCapabilities?.() ?? {}) as Record<string, unknown>
+      try {
+        const focusModes = caps.focusMode as string[] | undefined
+        if (focusModes?.includes('continuous')) {
+          await track.applyConstraints({
+            advanced: [{ focusMode: 'continuous' } as unknown as MediaTrackConstraintSet],
+          })
+        }
+      } catch {
+        // Управление фокусом доступно не на всех устройствах — не критично
+      }
+      if (caps.torch) setTorchAvailable(true)
+    }
 
     const start = async () => {
       setCameraFailed(false)
+      if (!videoRef.current) return
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
-        })
+        const controls = await reader.decodeFromConstraints(
+          {
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+            },
+            audio: false,
+          },
+          videoRef.current,
+          (result) => {
+            if (result) handleCode(result.getText())
+          }
+        )
         if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop())
+          controls.stop()
           return
         }
-        streamRef.current = stream
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          await videoRef.current.play()
-        }
+        controlsRef.current = controls
         setCameraReady(true)
+        tuneTrack()
       } catch {
-        // Нет камеры или нет разрешения — остаётся загрузка фото
+        // Нет камеры или нет разрешения — остаётся загрузка фото / ручной ввод
         if (!cancelled) setCameraFailed(true)
       }
     }
@@ -84,11 +162,29 @@ export const BarcodeFlow: React.FC<Props> = ({ onConfirm, onCancel, saving }) =>
     start()
     return () => {
       cancelled = true
-      stopCamera()
+      controlsRef.current?.stop()
+      controlsRef.current = null
     }
-  }, [phase])
+  }, [phase, handleCode])
 
+  // Вспышка (torch) помогает распознать код в тени/на глянцевой упаковке
+  const toggleTorch = async () => {
+    const stream = videoRef.current?.srcObject as MediaStream | null
+    const track = stream?.getVideoTracks?.()[0]
+    if (!track) return
+    try {
+      await track.applyConstraints({
+        advanced: [{ torch: !torchOn } as unknown as MediaTrackConstraintSet],
+      })
+      setTorchOn((v) => !v)
+    } catch {
+      // Устройство не поддерживает управление вспышкой
+    }
+  }
+
+  // Загрузка фото из галереи — декодирование на сервере (фолбэк к живой камере)
   const scan = async (file: File) => {
+    stopScanner()
     setPhase('scanning')
     setError('')
     try {
@@ -98,31 +194,6 @@ export const BarcodeFlow: React.FC<Props> = ({ onConfirm, onCancel, saving }) =>
       setError(extractErrorMessage(e))
       setPhase('error')
     }
-  }
-
-  // Снимок с камеры: кадрируем область вокруг рамки наведения —
-  // декодеру не мешает фон, а пользователю не нужен идеальный кадр
-  const capture = async () => {
-    const video = videoRef.current
-    if (!video || !video.videoWidth) return
-
-    const cw = Math.round(video.videoWidth * CROP_W)
-    const ch = Math.round(video.videoHeight * CROP_H)
-    const cx = Math.round((video.videoWidth - cw) / 2)
-    const cy = Math.round((video.videoHeight - ch) / 2)
-
-    const canvas = document.createElement('canvas')
-    canvas.width = cw
-    canvas.height = ch
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.drawImage(video, cx, cy, cw, ch, 0, 0, cw, ch)
-
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, 'image/jpeg', 0.92)
-    )
-    if (!blob) return
-    scan(new File([blob], 'barcode.jpg', { type: 'image/jpeg' }))
   }
 
   // Ручной ввод цифр кода, если сканирование не удалось
@@ -175,27 +246,46 @@ export const BarcodeFlow: React.FC<Props> = ({ onConfirm, onCancel, saving }) =>
         {!cameraFailed ? (
           <>
             <div className="relative overflow-hidden rounded-tile bg-black">
-              <video ref={videoRef} playsInline muted className="w-full h-64 object-cover" />
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                autoPlay
+                className="w-full h-64 object-cover"
+              />
               {/* Рамка наведения: подсвеченное окно, фон затемнён */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div
                   className="rounded-2xl border-2 border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"
                   style={{ width: `${FRAME_W * 100}%`, height: `${FRAME_H * 100}%` }}
-                />
+                >
+                  {/* Бегущая линия-«сканер», пока камера активна */}
+                  {cameraReady && (
+                    <div className="absolute inset-x-0 top-1/2 h-0.5 bg-red-500/80 shadow-[0_0_8px_2px_rgba(239,68,68,0.6)]" />
+                  )}
+                </div>
               </div>
+              {/* Кнопка вспышки — если устройство её поддерживает */}
+              {torchAvailable && (
+                <button
+                  type="button"
+                  onClick={toggleTorch}
+                  aria-label={torchOn ? 'Выключить вспышку' : 'Включить вспышку'}
+                  className="absolute top-2 right-2 rounded-full bg-black/50 p-2 text-white backdrop-blur"
+                >
+                  {torchOn ? (
+                    <ZapOff className="h-[18px] w-[18px]" />
+                  ) : (
+                    <Zap className="h-[18px] w-[18px]" />
+                  )}
+                </button>
+              )}
               <p className="absolute bottom-2 inset-x-0 text-center text-white/90 text-xs pointer-events-none">
-                Поместите штрих-код в рамку
+                {cameraReady
+                  ? 'Наведите штрих-код на рамку — распознаем автоматически'
+                  : 'Включаем камеру…'}
               </p>
             </div>
-            <button
-              type="button"
-              className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
-              onClick={capture}
-              disabled={!cameraReady}
-            >
-              <ScanBarcode className="h-[18px] w-[18px]" />
-              {cameraReady ? 'Сканировать' : 'Включаем камеру…'}
-            </button>
           </>
         ) : (
           <ErrorAlert
