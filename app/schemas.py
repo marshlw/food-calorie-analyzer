@@ -8,6 +8,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Допустимые значения цели/активности и границы темпа держим в одном месте —
+# в модуле расчёта (app/nutrition.py), чтобы валидация API и сама формула
+# не разъезжались.
+from .nutrition import MAX_INPUT_RATE_KG_PER_WEEK as MAX_RATE  # noqa: E402
+
+GoalLiteral = Literal["lose", "maintain", "gain"]
+ActivityLevel = Literal["sedentary", "light", "moderate", "active", "very_active"]
+
 
 class Token(BaseModel):
     access_token: str
@@ -49,6 +57,12 @@ class UserCreate(UserBase):
     # Пол и дата рождения (возраст) — для расчёта BMR/норм калорий.
     sex: Optional[Literal["male", "female"]] = None
     birth_date: Optional[_date] = None
+    # Уровень активности и цель — задаются на шаге «Ваша цель» при регистрации,
+    # чтобы новый пользователь сразу получил нормы под свою задачу.
+    activity_level: Optional[ActivityLevel] = None
+    goal: Optional[GoalLiteral] = None
+    goal_rate_kg_per_week: Optional[float] = Field(None, ge=0, le=MAX_RATE)
+    target_weight_kg: Optional[float] = Field(None, gt=0, lt=300)
     # Обхваты тела (см) — попадут в первую запись веса вместе с весом.
     waist_cm: Optional[float] = Field(None, gt=0, lt=300)      # талия
     chest_cm: Optional[float] = Field(None, gt=0, lt=300)      # грудь
@@ -123,9 +137,15 @@ class ProfileUpdate(BaseModel):
     weight_kg: Optional[float] = Field(None, gt=0, lt=300)
     sex: Optional[Literal["male", "female"]] = None
     birth_date: Optional[_date] = None
-    activity_level: Optional[Literal[
-        "sedentary", "light", "moderate", "active", "very_active"
-    ]] = None
+    activity_level: Optional[ActivityLevel] = None
+    # ---- Цель по весу ----
+    # goal: None = не менять. Меняет весь расчёт норм (дефицит/профицит + БЖУ).
+    goal: Optional[GoalLiteral] = None
+    # Темп: None = не менять, 0 = вернуть дефолтный темп для цели,
+    # >0 = задать свой (модуль; направление задаёт goal).
+    goal_rate_kg_per_week: Optional[float] = Field(None, ge=0, le=MAX_RATE)
+    # Целевой вес: None = не менять, 0 = убрать (цель без финишной точки).
+    target_weight_kg: Optional[float] = Field(None, ge=0, lt=300)
     # Обхваты тела (см) — все опциональны. Сохраняются в запись веса за сегодня
     # (тот же источник, что и модалка замера). None = не менять.
     waist_cm: Optional[float] = Field(None, gt=0, lt=300)      # талия
@@ -158,6 +178,30 @@ class NutritionTargets(BaseModel):
     carbs_g: Optional[float] = None
 
 
+class CalcWarning(BaseModel):
+    """Пояснение, почему расчёт отклонился от запрошенного пользователем
+    (например, темп ограничен или норма поднята до безопасного минимума)."""
+    code: str
+    message: str
+
+
+class GoalPlanResponse(BaseModel):
+    """Как цель превратилась в суточную поправку калорий + прогноз сроков."""
+    goal: GoalLiteral
+    # Что запросил пользователь и что реально применено после ограничителей.
+    requested_rate_kg_per_week: float
+    applied_rate_kg_per_week: float
+    target_weight_kg: Optional[float] = None
+    # Поправка к норме поддержания: <0 дефицит, >0 профицит.
+    calorie_delta: float = 0
+    calorie_delta_pct: Optional[float] = None
+    # Прогноз (есть только при заданном целевом весе).
+    remaining_kg: Optional[float] = None
+    weeks_to_goal: Optional[float] = None
+    eta_date: Optional[_date] = None
+    reached: bool = False
+
+
 class ProfileResponse(BaseModel):
     id: int
     email: EmailStr
@@ -174,6 +218,16 @@ class ProfileResponse(BaseModel):
     activity_level: Optional[str] = None
     recent_weights: List[WeightRecordResponse] = Field(default_factory=list)
     bmr: Optional[float] = None                 # базовый обмен веществ
+    # Норма поддержания веса (TDEE) — база, от которой цель даёт отклонение.
+    maintenance_calories: Optional[float] = None
+    bmi: Optional[float] = None
+    # ---- Цель и её план ----
+    goal: Optional[str] = None
+    goal_rate_kg_per_week: Optional[float] = None
+    target_weight_kg: Optional[float] = None
+    goal_plan: Optional[GoalPlanResponse] = None
+    # Почему расчёт мог отличаться от запрошенного (ограничители безопасности).
+    calc_warnings: List[CalcWarning] = Field(default_factory=list)
     daily_calorie_target: Optional[float] = None
     # Нормы макронутриентов (по аналогии с нормой калорий)
     protein_target_g: Optional[float] = None

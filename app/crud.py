@@ -45,6 +45,12 @@ def create_user_sync(db: Session, user: schemas.UserCreate, hashed_password: str
         height_cm=getattr(user, "height_cm", None),
         sex=getattr(user, "sex", None),
         birth_date=getattr(user, "birth_date", None),
+        # Активность и цель с шага «Ваша цель» при регистрации: без них новый
+        # пользователь увидел бы норму поддержания вместо нормы под задачу.
+        activity_level=getattr(user, "activity_level", None),
+        goal=getattr(user, "goal", None),
+        goal_rate_kg_per_week=getattr(user, "goal_rate_kg_per_week", None),
+        target_weight_kg=getattr(user, "target_weight_kg", None),
     )
     db.add(db_user)
     db.commit()
@@ -55,28 +61,48 @@ def create_user_sync(db: Session, user: schemas.UserCreate, hashed_password: str
 # ==================== PROFILE / WEIGHT ====================
 
 def compute_nutrition_targets(db: Session, user: models.User) -> Dict[str, Any]:
-    """Единый расчёт суточных норм (BMR, калории, БЖУ, вода). Используется
-    профилем, дневником, водой, советчиком и тренировками — цифры везде
-    совпадают. Текущий вес берётся из последней записи истории.
+    """Единый расчёт суточных норм (BMR, калории, БЖУ, вода) ПОД ЦЕЛЬ
+    пользователя. Используется профилем, дневником, водой, советчиком и
+    тренировками — цифры везде совпадают. Текущий вес берётся из последней
+    записи истории.
+
+    Сама формула живёт в app/nutrition.py (чистый модуль без БД): цель
+    (похудение/поддержание/набор) и желаемый темп превращаются в дефицит или
+    профицит калорий, БЖУ считаются от массы тела с учётом цели.
 
     Ручные нормы пользователя (custom_* в профиле, важно для атлетов)
     имеют приоритет над авторасчётом — поэтому, заданные один раз,
     они автоматически подхватываются во всех формах."""
-    from app import utils
+    from app import nutrition
 
     latest = get_latest_weight(db, user.id)
     weight = latest.weight_kg if latest else None
-    age = utils.calc_age(user.birth_date)
-    bmr = utils.calc_bmr(weight, user.height_cm, age, user.sex)
-    calories = utils.calc_daily_calorie_target(bmr, user.activity_level)
-    macros = utils.calc_macro_targets(calories)
-    water_ml = utils.calc_water_target(weight, user.activity_level)
+
+    plan = nutrition.build_plan(
+        weight_kg=weight,
+        height_cm=user.height_cm,
+        age=nutrition.calc_age(user.birth_date),
+        sex=user.sex,
+        activity_level=user.activity_level,
+        goal=user.goal,
+        goal_rate_kg_per_week=user.goal_rate_kg_per_week,
+        target_weight_kg=user.target_weight_kg,
+    )
+
+    bmr = plan.bmr
+    calories = plan.calories
+    macros = {"protein_g": plan.protein_g, "fat_g": plan.fat_g, "carbs_g": plan.carbs_g}
+    water_ml = plan.water_ml
 
     # Переопределения из профиля (NULL/0 = использовать авторасчёт)
     if getattr(user, "custom_calorie_target", None):
         calories = user.custom_calorie_target
-        # БЖУ по умолчанию следуют за ручной калорийностью…
-        macros = utils.calc_macro_targets(calories)
+        # БЖУ по умолчанию следуют за ручной калорийностью — пересчитываем их
+        # от этой калорийности, сохраняя профиль макросов под цель.
+        macros = nutrition.calc_macro_targets(
+            calories, weight_kg=weight, height_cm=user.height_cm,
+            goal=user.goal, activity_level=user.activity_level,
+        )
     # …но каждое из них тоже можно задать вручную по отдельности
     protein_g = getattr(user, "custom_protein_g", None) or macros["protein_g"]
     fat_g = getattr(user, "custom_fat_g", None) or macros["fat_g"]
@@ -99,6 +125,9 @@ def compute_nutrition_targets(db: Session, user: models.User) -> Dict[str, Any]:
 
     return {
         "bmr": bmr,
+        # Норма поддержания (TDEE) до применения цели — фронт показывает её
+        # рядом с итоговой нормой, чтобы дефицит/профицит был наглядным.
+        "maintenance_calories": plan.tdee,
         "calories": calories,
         "protein_g": protein_g,
         "protein_animal_g": protein_animal_g,
@@ -107,6 +136,9 @@ def compute_nutrition_targets(db: Session, user: models.User) -> Dict[str, Any]:
         "carbs_g": carbs_g,
         "water_ml": water_ml,
         "current_weight_kg": weight,
+        "bmi": plan.bmi,
+        "goal_plan": plan.goal_plan.as_dict() if plan.goal_plan else None,
+        "warnings": plan.warnings,
     }
 
 
@@ -280,6 +312,20 @@ def update_profile(db: Session, user: models.User, payload: schemas.ProfileUpdat
         db_user.birth_date = payload.birth_date
     if payload.activity_level is not None:
         db_user.activity_level = payload.activity_level
+
+    # Цель по весу. При СМЕНЕ цели сбрасываем ранее заданный темп (если новый
+    # не пришёл в том же запросе): «0.5 кг/нед» на похудении — умеренный темп,
+    # а на наборе — вдвое выше безопасного, переносить его между целями нельзя.
+    if payload.goal is not None:
+        if payload.goal != db_user.goal and payload.goal_rate_kg_per_week is None:
+            db_user.goal_rate_kg_per_week = None
+        db_user.goal = payload.goal
+
+    # Темп и целевой вес: None = не менять, 0 = сбросить (дефолт/без финиша).
+    for field in ("goal_rate_kg_per_week", "target_weight_kg"):
+        value = getattr(payload, field, None)
+        if value is not None:
+            setattr(db_user, field, value if value > 0 else None)
 
     # Ручные нормы КБЖУ/воды: None = не менять, 0 = сбросить на авторасчёт,
     # положительное значение = установить вручную.

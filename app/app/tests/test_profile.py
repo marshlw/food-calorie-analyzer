@@ -114,6 +114,113 @@ class TestProfile:
         assert all(r["weight_kg"] != 88 for r in hist2)
 
 
+class TestWeightGoal:
+    """Цель по весу через API: она меняет норму КБЖУ и даёт прогноз сроков."""
+
+    def _ready_user(self, client, email):
+        """Пользователь с полными данными тела — иначе нормы не считаются."""
+        h = _auth_headers(client, email=email, height_cm=180, weight_kg=80)
+        client.put("/api/v1/profile", headers=h,
+                   json={"sex": "male", "birth_date": "1994-01-01",
+                         "activity_level": "moderate"})
+        return h
+
+    def test_default_goal_is_maintenance(self, client):
+        h = self._ready_user(client, "goal_default@example.com")
+        p = client.get("/api/v1/profile", headers=h).json()
+        assert p["goal"] == "maintain"
+        # Без цели норма равна норме поддержания
+        assert p["daily_calorie_target"] == p["maintenance_calories"]
+
+    def test_lose_goal_lowers_calories(self, client):
+        h = self._ready_user(client, "goal_lose@example.com")
+        before = client.get("/api/v1/profile", headers=h).json()
+        after = client.put("/api/v1/profile", headers=h, json={
+            "goal": "lose", "goal_rate_kg_per_week": 0.5,
+        }).json()
+        assert after["daily_calorie_target"] < before["daily_calorie_target"]
+        assert after["goal_plan"]["calorie_delta"] < 0
+        # Белок при этом НЕ падает вместе с калориями — он привязан к массе
+        assert after["protein_target_g"] > before["protein_target_g"]
+
+    def test_gain_goal_raises_calories(self, client):
+        h = self._ready_user(client, "goal_gain@example.com")
+        before = client.get("/api/v1/profile", headers=h).json()
+        after = client.put("/api/v1/profile", headers=h, json={
+            "goal": "gain", "goal_rate_kg_per_week": 0.25,
+        }).json()
+        assert after["daily_calorie_target"] > before["daily_calorie_target"]
+        assert after["goal_plan"]["calorie_delta"] > 0
+
+    def test_target_weight_gives_forecast(self, client):
+        h = self._ready_user(client, "goal_forecast@example.com")
+        p = client.put("/api/v1/profile", headers=h, json={
+            "goal": "lose", "goal_rate_kg_per_week": 0.5, "target_weight_kg": 74,
+        }).json()
+        plan = p["goal_plan"]
+        assert plan["remaining_kg"] == 6.0
+        assert plan["weeks_to_goal"] is not None
+        assert plan["eta_date"] is not None
+
+    def test_changing_goal_resets_rate(self, client):
+        """0.5 кг/нед — умеренное похудение, но вдвое выше безопасного набора,
+        поэтому при смене цели темп возвращается к дефолтному."""
+        h = self._ready_user(client, "goal_reset@example.com")
+        client.put("/api/v1/profile", headers=h, json={
+            "goal": "lose", "goal_rate_kg_per_week": 0.5,
+        })
+        p = client.put("/api/v1/profile", headers=h, json={"goal": "gain"}).json()
+        assert p["goal_rate_kg_per_week"] is None
+        assert p["goal_plan"]["applied_rate_kg_per_week"] <= 0.4
+
+    def test_aggressive_rate_is_capped_with_warning(self, client):
+        h = self._ready_user(client, "goal_capped@example.com")
+        p = client.put("/api/v1/profile", headers=h, json={
+            "goal": "lose", "goal_rate_kg_per_week": 1.5,
+        }).json()
+        assert p["goal_plan"]["applied_rate_kg_per_week"] < 1.5
+        assert p["calc_warnings"]  # пользователю объясняем, почему темп снижен
+
+    def test_rate_out_of_range_rejected(self, client):
+        h = self._ready_user(client, "goal_range@example.com")
+        r = client.put("/api/v1/profile", headers=h,
+                       json={"goal": "lose", "goal_rate_kg_per_week": 5})
+        assert r.status_code == 422
+
+    def test_invalid_goal_rejected(self, client):
+        h = self._ready_user(client, "goal_invalid@example.com")
+        r = client.put("/api/v1/profile", headers=h, json={"goal": "teleport"})
+        assert r.status_code == 422
+
+    def test_reset_target_weight_with_zero(self, client):
+        h = self._ready_user(client, "goal_clear@example.com")
+        client.put("/api/v1/profile", headers=h, json={
+            "goal": "lose", "target_weight_kg": 74,
+        })
+        p = client.put("/api/v1/profile", headers=h,
+                       json={"target_weight_kg": 0}).json()
+        assert p["target_weight_kg"] is None
+        assert p["goal_plan"]["weeks_to_goal"] is None
+
+    def test_goal_from_registration_is_applied(self, client):
+        h = _auth_headers(client, email="goal_reg@example.com",
+                          height_cm=180, weight_kg=80, sex="male",
+                          birth_date="1994-01-01", activity_level="moderate",
+                          goal="lose", goal_rate_kg_per_week=0.5)
+        p = client.get("/api/v1/profile", headers=h).json()
+        assert p["goal"] == "lose"
+        assert p["daily_calorie_target"] < p["maintenance_calories"]
+
+    def test_custom_calorie_target_still_wins(self, client):
+        """Ручная норма атлета имеет приоритет над расчётом под цель."""
+        h = self._ready_user(client, "goal_custom@example.com")
+        p = client.put("/api/v1/profile", headers=h, json={
+            "goal": "lose", "goal_rate_kg_per_week": 0.5,
+            "custom_calorie_target": 3000,
+        }).json()
+        assert p["daily_calorie_target"] == 3000
+
+
 class TestBodyMeasurements:
     """Обхваты тела (талия/грудь/бёдра/плечи) на записи замера + edit/delete."""
 

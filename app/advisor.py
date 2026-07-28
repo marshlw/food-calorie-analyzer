@@ -65,9 +65,23 @@ def build_user_context(db: Session, user: models.User) -> Dict[str, Any]:
     if len(weights) >= 2:
         weight_trend = round(weights[-1].weight_kg - weights[0].weight_kg, 1)
 
+    # Цель пользователя: без неё советы получаются «средними по больнице» —
+    # один и тот же остаток калорий на похудении и на массе требует прямо
+    # противоположных рекомендаций.
+    goal_plan = targets.get("goal_plan") or {}
+
     return {
         "date": today.isoformat(),
         "name": (user.full_name or "").split(" ")[0] or None,
+        "goal": {
+            "goal": goal_plan.get("goal") or "maintain",
+            "rate_kg_per_week": goal_plan.get("applied_rate_kg_per_week"),
+            "target_weight_kg": goal_plan.get("target_weight_kg"),
+            "calorie_delta": goal_plan.get("calorie_delta"),
+            "remaining_kg": goal_plan.get("remaining_kg"),
+            "weeks_to_goal": goal_plan.get("weeks_to_goal"),
+            "maintenance_calories": targets.get("maintenance_calories"),
+        },
         "targets": {
             "calories": targets["calories"],
             "protein_g": targets["protein_g"],
@@ -106,15 +120,31 @@ def _pct(value: Optional[float], target: Optional[float]) -> Optional[int]:
     return round(value / target * 100) if value is not None else None
 
 
+# Подписи цели для текстов советов.
+GOAL_LABELS = {"lose": "снижение веса", "maintain": "поддержание веса", "gain": "набор массы"}
+
+
 def rule_based_advice(ctx: Dict[str, Any]) -> Dict[str, Any]:
     """Детерминированные советы из контекста. Без LLM, работает всегда."""
     t = ctx["targets"]
     e = ctx["eaten"]
+    g = ctx.get("goal") or {}
+    goal = g.get("goal") or "maintain"
     nutrition: List[Dict[str, str]] = []
     training: List[Dict[str, str]] = []
 
     headline_title = "Держите темп"
     headline_text = "Записывайте приёмы пищи и тренировки — так советы будут точнее."
+
+    # --- Цель: главный совет по умолчанию + прогноз ---
+    if goal != "maintain" and g.get("weeks_to_goal") and g.get("remaining_kg"):
+        verb = "сбросить" if goal == "lose" else "набрать"
+        headline_title = "Цель в графике"
+        headline_text = (
+            f"Осталось {verb} {g['remaining_kg']} кг. При текущем темпе "
+            f"{round(g['rate_kg_per_week'] * 1000)} г/нед это займёт около "
+            f"{round(g['weeks_to_goal'])} нед — держите норму калорий."
+        )
 
     # --- Белок ---
     if t["protein_g"]:
@@ -131,19 +161,37 @@ def rule_based_advice(ctx: Dict[str, Any]) -> Dict[str, Any]:
                 "tag": "protein",
             })
 
-    # --- Калории ---
+    # --- Калории (формулировки зависят от цели) ---
     if t["calories"]:
         remaining = round(t["calories"] + ctx["workout_calories_today"] - e["calories"])
         if remaining > 0:
+            texts = {
+                # На похудении остаток — это ресурс, который не обязательно
+                # «доедать»; на массе — недобор, который цель как раз тормозит.
+                "lose": "Хватит на полноценный ужин с белком и овощами. "
+                        "Добирать остаток «до нуля» необязательно.",
+                "maintain": "С учётом активности сегодня можно спокойно "
+                            "поужинать в пределах нормы.",
+                "gain": "Для набора этот остаток лучше закрыть: каша с орехами, "
+                        "сыр или второй ужин.",
+            }
             nutrition.append({
                 "title": f"Осталось ~{remaining} ккал на сегодня",
-                "text": "С учётом активности сегодня можно спокойно поужинать в пределах нормы.",
+                "text": texts.get(goal, texts["maintain"]),
                 "tag": "calories",
             })
         else:
+            texts = {
+                "lose": f"Превышение ~{abs(remaining)} ккал. Если захочется есть — "
+                        "вода и белковый перекус вместо сладкого.",
+                "maintain": "Если захочется есть — выбирайте лёгкие белковые "
+                            "перекусы и воду.",
+                "gain": "Норма закрыта — для набора это ровно то, что нужно. "
+                        "Следите, чтобы профицит был регулярным, а не рывками.",
+            }
             nutrition.append({
                 "title": "Норма калорий на сегодня закрыта",
-                "text": "Если захочется есть — выбирайте лёгкие белковые перекусы и воду.",
+                "text": texts.get(goal, texts["maintain"]),
                 "tag": "calories",
             })
 
@@ -187,13 +235,27 @@ def rule_based_advice(ctx: Dict[str, Any]) -> Dict[str, Any]:
             "tag": "training",
         })
 
-    # --- Вес ---
-    if ctx["weight_trend_kg"] is not None:
+    # --- Вес: динамика сверяется с направлением цели ---
+    if ctx["weight_trend_kg"] is not None and goal != "maintain":
         trend = ctx["weight_trend_kg"]
-        if trend < 0:
+        expected_sign = -1 if goal == "lose" else 1
+        if trend != 0 and (trend > 0) == (expected_sign > 0):
             training.append({
                 "title": "Динамика веса работает на цель",
-                "text": f"За последние записи {trend} кг. Темп умеренный — так и планировали.",
+                "text": (
+                    f"За последние записи {trend:+.1f} кг — направление верное "
+                    f"для цели «{GOAL_LABELS[goal]}»."
+                ),
+                "tag": "general",
+            })
+        elif trend != 0:
+            training.append({
+                "title": "Вес идёт против цели",
+                "text": (
+                    f"За последние записи {trend:+.1f} кг при цели "
+                    f"«{GOAL_LABELS[goal]}». Одна-две недели — ещё не тренд, "
+                    "но стоит проверить полноту записей в дневнике."
+                ),
                 "tag": "general",
             })
 
@@ -297,8 +359,17 @@ def _llm_complete(instructions: str, prompt: str) -> Optional[str]:
 
 _ADVICE_INSTRUCTIONS = """
 Ты — заботливый советчик по питанию и тренировкам в приложении-дневнике Rasify.
-Тебе дают JSON с данными пользователя за сегодня (нормы КБЖУ, съедено, вода,
-тренировки, динамика веса).
+Тебе дают JSON с данными пользователя за сегодня (цель по весу, нормы КБЖУ,
+съедено, вода, тренировки, динамика веса).
+
+Поле goal — главный ориентир. goal.goal = "lose" (снижение веса),
+"maintain" (поддержание) или "gain" (набор массы); goal.calorie_delta — на
+сколько ккал суточная норма уже отличается от нормы поддержания. Норма в
+targets УЖЕ учитывает цель — не предлагай «дополнительно урезать» или
+«добавить сверху». Советы должны соответствовать цели: при снижении веса —
+сытость, белок и объём пищи; при наборе — как добрать калории; при
+поддержании — стабильность и качество рациона. Если есть goal.weeks_to_goal,
+можешь упомянуть срок.
 
 Верни ТОЛЬКО JSON без markdown по схеме:
 {

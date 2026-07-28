@@ -16,6 +16,11 @@ export const authApi = {
       weight_kg: profile?.weight_kg,
       sex: profile?.sex,
       birth_date: profile?.birth_date,
+      // Активность и цель — норма КБЖУ считается под них сразу после регистрации
+      activity_level: profile?.activity_level,
+      goal: profile?.goal,
+      goal_rate_kg_per_week: profile?.goal_rate_kg_per_week,
+      target_weight_kg: profile?.target_weight_kg,
       waist_cm: profile?.waist_cm,
       chest_cm: profile?.chest_cm,
       hips_cm: profile?.hips_cm,

@@ -14,6 +14,7 @@
 | `FeedbackStatus` | `pending`, `used` | Статус обработки фидбека |
 | `sex` | `male`, `female` | Пол пользователя |
 | `activity_level` | `sedentary`, `light`, `moderate`, `active`, `very_active` | Уровень физической активности |
+| `goal` | `lose`, `maintain`, `gain` | Цель по весу: задаёт дефицит/профицит калорий и профиль БЖУ |
 | `meal_type` | `breakfast`, `lunch`, `dinner`, `snacks` | Тип приёма пищи |
 | `weight source` | `manual`, `registration`, `profile_edit` | Источник записи о взвешивании |
 | `workout_type` | `strength`, `cardio`, `stretching`, `sport`, `other` | Тип тренировки |
@@ -39,6 +40,9 @@
 | `sex` | string | nullable (`male`/`female`) |
 | `birth_date` | date | nullable |
 | `activity_level` | string | nullable |
+| `goal` | string | nullable (`lose`/`maintain`/`gain`); `NULL` = поддержание |
+| `goal_rate_kg_per_week` | float | nullable; желаемый темп (модуль, ≤1.5), `NULL` = дефолт для цели |
+| `target_weight_kg` | float | nullable; желаемый вес — нужен только для прогноза сроков |
 | `custom_calorie_target` | float | nullable; ручная норма калорий, `NULL` = авторасчёт |
 | `custom_protein_g` | float | nullable; ручная норма белка |
 | `custom_protein_animal_g` | float | nullable; ручное разделение нормы белка (животный) |
@@ -287,16 +291,30 @@
 ### Профиль и вес
 
 **`ProfileUpdate`** (PUT профиля) — все поля опциональны: `full_name`, `height_cm`, `weight_kg`,
-`sex`, `birth_date`, `activity_level`, `save_weight_as_record` (bool, по умолчанию `true`), плюс
+`sex`, `birth_date`, `activity_level`, `save_weight_as_record` (bool, по умолчанию `true`),
+цель `goal` / `goal_rate_kg_per_week` (0…1.5) / `target_weight_kg`, плюс
 ручные нормы `custom_calorie_target`, `custom_protein_g`, `custom_protein_animal_g`,
 `custom_protein_plant_g`, `custom_fat_g`, `custom_carbs_g`, `custom_water_ml`.
+Для `goal_rate_kg_per_week`, `target_weight_kg` и всех `custom_*` действует соглашение:
+`null` = не менять, `0` = вернуть значение по умолчанию, `>0` = установить.
 
 **`ProfileResponse`** — `id`, `email`, `full_name`, `height_cm`, `current_weight_kg`,
 `current_waist_cm`/`current_chest_cm`/`current_hips_cm`/`current_shoulders_cm`, `sex`,
 `birth_date`, `activity_level`, `recent_weights` (последние ~30 `WeightRecordResponse`), `bmr`,
+`bmi`, `maintenance_calories` (норма поддержания, база для цели),
 `daily_calorie_target`, `protein_target_g`, `protein_animal_target_g`, `protein_plant_target_g`,
-`fat_target_g`, `carbs_target_g`, `water_target_ml`, плюс эхо всех `custom_*` полей (что задано
-вручную — для формы «Мои нормы»).
+`fat_target_g`, `carbs_target_g`, `water_target_ml`, цель `goal` / `goal_rate_kg_per_week` /
+`target_weight_kg` и её план `goal_plan`, список `calc_warnings`, плюс эхо всех `custom_*` полей
+(что задано вручную — для формы «Мои нормы»).
+
+**`GoalPlanResponse`** (`ProfileResponse.goal_plan`) — `goal`, `requested_rate_kg_per_week`,
+`applied_rate_kg_per_week` (после ограничителей безопасности), `target_weight_kg`,
+`calorie_delta` (<0 дефицит, >0 профицит), `calorie_delta_pct`, `remaining_kg`,
+`weeks_to_goal`, `eta_date`, `reached`. См. [BR-03A](business-rules.md).
+
+**`CalcWarning`** (`ProfileResponse.calc_warnings[]`) — `code`, `message`. Коды: `rate_capped`,
+`deficit_capped`, `surplus_capped`, `below_bmr`, `absolute_floor`, `goal_reached`,
+`target_conflicts_goal`, `missing_data`.
 
 **`WeightRecordCreate`** — `weight_kg` (`0<x<300`, обязательный), `recorded_on` (опц., по
 умолчанию сегодня, не может быть в будущем), `note` (опц., ≤200 симв.), `waist_cm`/`chest_cm`/

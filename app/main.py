@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.celery_app import celery_app
 from app.database import SessionLocal, get_db
-from app import models, schemas, crud, auth, ml_service, utils, rate_limit, advisor
+from app import models, schemas, crud, auth, ml_service, utils, rate_limit, advisor, nutrition
 from app.tasks import analyze_image_task
 
 # В prod (ENABLE_DOCS=false) Swagger/OpenAPI выключены — не светим схему API
@@ -491,6 +491,15 @@ def _build_profile(db: Session, user: models.User) -> dict:
         "activity_level": user.activity_level,
         "recent_weights": recent,
         "bmr": t["bmr"],
+        "bmi": t["bmi"],
+        # Норма поддержания веса — база, от которой цель даёт отклонение.
+        "maintenance_calories": t["maintenance_calories"],
+        # Цель и её план (дефицит/профицит, прогноз сроков).
+        "goal": user.goal or nutrition.DEFAULT_GOAL,
+        "goal_rate_kg_per_week": user.goal_rate_kg_per_week,
+        "target_weight_kg": user.target_weight_kg,
+        "goal_plan": t["goal_plan"],
+        "calc_warnings": t["warnings"],
         "daily_calorie_target": t["calories"],
         "protein_target_g": t["protein_g"],
         "protein_animal_target_g": t["protein_animal_g"],

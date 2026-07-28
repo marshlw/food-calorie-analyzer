@@ -68,6 +68,11 @@ _PROFILE_COLUMNS = {
     "sex": "VARCHAR",
     "birth_date": "DATE",
     "activity_level": "VARCHAR",
+    # Цель по весу: lose|maintain|gain + желаемый темп и целевой вес.
+    # NULL = поддержание с дефолтным темпом (см. app/nutrition.py).
+    "goal": "VARCHAR",
+    "goal_rate_kg_per_week": "FLOAT",
+    "target_weight_kg": "FLOAT",
     # Ручные нормы КБЖУ/воды (NULL = авторасчёт)
     "custom_calorie_target": "FLOAT",
     "custom_protein_g": "FLOAT",

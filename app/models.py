@@ -49,6 +49,17 @@ class User(Base):
     birth_date = Column(Date, nullable=True)
     activity_level = Column(String, nullable=True)  # sedentary|light|moderate|active|very_active
 
+    # ---- Цель по весу (определяет дефицит/профицит калорий и профиль БЖУ) ----
+    # NULL = поддержание (см. nutrition.DEFAULT_GOAL): норма считается как TDEE.
+    goal = Column(String, nullable=True)                  # lose|maintain|gain
+    # Желаемый темп изменения веса, кг/нед. NULL = дефолт по цели
+    # (nutrition.DEFAULT_RATE). Хранится модуль числа, знак задаёт goal.
+    # Из темпа считается суточная поправка калорий (7700 ккал ~ 1 кг жира),
+    # поэтому прогноз сроков согласован с выданной нормой.
+    goal_rate_kg_per_week = Column(Float, nullable=True)
+    # Желаемый вес, кг. NULL = цель без финишной точки (прогноза сроков нет).
+    target_weight_kg = Column(Float, nullable=True)
+
     # ---- Ручные нормы (для атлетов и особых рационов) ----
     # NULL = авторасчёт из веса/роста/возраста/активности; значение —
     # переопределяет расчёт везде (дневник, вода, советчик, тренировки).

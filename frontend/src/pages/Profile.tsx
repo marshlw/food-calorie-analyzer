@@ -14,8 +14,10 @@ import { WeightHistoryList } from '../components/profile/WeightHistoryList'
 import { AddWeightModal } from '../components/profile/AddWeightModal'
 import { ChangePasswordForm } from '../components/profile/ChangePasswordForm'
 import { TargetsForm } from '../components/profile/TargetsForm'
+import { GoalForm } from '../components/profile/GoalForm'
+import { GOAL_LABELS, formatRate, formatCalorieDelta } from '../utils/goal'
 
-type SettingsSection = 'personal' | 'targets' | 'password' | null
+type SettingsSection = 'personal' | 'goal' | 'targets' | 'password' | null
 
 export const Profile: React.FC = () => {
   const { user, logout } = useAuth()
@@ -149,6 +151,48 @@ export const Profile: React.FC = () => {
             </div>
           )}
 
+          {/* Цель по весу: что именно даёт текущая норма калорий */}
+          <button
+            onClick={() => toggleSection('goal')}
+            className="card w-full text-left px-5 py-[18px] mb-3"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[11px] text-tertiary">Моя цель</div>
+                <div className="font-display font-bold text-lg mt-0.5">
+                  {GOAL_LABELS[profile.goal ?? 'maintain']}
+                </div>
+              </div>
+              <div className="text-right">
+                {profile.goal_plan && profile.goal_plan.goal !== 'maintain' ? (
+                  <>
+                    <div className="font-display font-bold text-lg">
+                      {formatCalorieDelta(profile.goal_plan.calorie_delta)}
+                    </div>
+                    <div className="text-[11px] text-tertiary mt-0.5">
+                      {formatRate(profile.goal_plan.applied_rate_kg_per_week)}
+                      {profile.maintenance_calories != null &&
+                        ` · поддержание ${Math.round(profile.maintenance_calories)}`}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-[13px] text-secondary">
+                    норма = суточный расход
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* Прогноз сроков — только когда задан целевой вес */}
+            {profile.goal_plan?.weeks_to_goal != null &&
+              profile.goal_plan.remaining_kg != null && (
+                <div className="text-[12px] text-secondary mt-2.5 pt-2.5 border-t border-divider dark:border-line-dark">
+                  Осталось {profile.goal_plan.remaining_kg} кг до{' '}
+                  {profile.goal_plan.target_weight_kg} кг — примерно{' '}
+                  {Math.round(profile.goal_plan.weeks_to_goal)} нед
+                </div>
+              )}
+          </button>
+
           {/* Ключевые цифры */}
           <div className="grid grid-cols-3 gap-2.5 mb-3">
             <div className="card-tile p-3.5 text-center">
@@ -277,6 +321,17 @@ export const Profile: React.FC = () => {
             {openSection === 'personal' && (
               <div className="px-5 pb-5 border-b border-divider dark:border-line-dark">
                 <ProfileForm profile={profile} onSave={handleSaveProfile} />
+              </div>
+            )}
+
+            <SettingsRow
+              label="Цель по весу"
+              onClick={() => toggleSection('goal')}
+              expanded={openSection === 'goal'}
+            />
+            {openSection === 'goal' && (
+              <div className="px-5 pb-5 border-b border-divider dark:border-line-dark">
+                <GoalForm profile={profile} onSave={handleSaveProfile} />
               </div>
             )}
 

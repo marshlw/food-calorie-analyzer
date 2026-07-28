@@ -194,6 +194,32 @@ export interface BarcodeProduct {
 export type Sex = 'male' | 'female'
 export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active'
 
+// Цель по весу: определяет дефицит/профицит калорий и профиль БЖУ.
+export type Goal = 'lose' | 'maintain' | 'gain'
+
+// Пояснение, почему расчёт отклонился от запрошенного пользователем
+// (темп ограничен, норма поднята до безопасного минимума и т.п.).
+export interface CalcWarning {
+  code: string
+  message: string
+}
+
+// Как цель превратилась в поправку калорий + прогноз сроков.
+export interface GoalPlan {
+  goal: Goal
+  requested_rate_kg_per_week: number
+  // Фактический темп после ограничителей безопасности; может быть меньше запрошенного.
+  applied_rate_kg_per_week: number
+  target_weight_kg?: number | null
+  // Поправка к норме поддержания: < 0 дефицит, > 0 профицит.
+  calorie_delta: number
+  calorie_delta_pct?: number | null
+  remaining_kg?: number | null
+  weeks_to_goal?: number | null
+  eta_date?: string | null // YYYY-MM-DD
+  reached: boolean
+}
+
 export interface WeightRecord {
   id: number
   weight_kg: number
@@ -223,6 +249,15 @@ export interface Profile {
   activity_level?: ActivityLevel | null
   recent_weights: WeightRecord[]
   bmr?: number | null
+  bmi?: number | null
+  // Норма поддержания веса (TDEE) — база, от которой цель даёт отклонение.
+  maintenance_calories?: number | null
+  // Цель и её план
+  goal?: Goal | null
+  goal_rate_kg_per_week?: number | null
+  target_weight_kg?: number | null
+  goal_plan?: GoalPlan | null
+  calc_warnings?: CalcWarning[]
   daily_calorie_target?: number | null
   protein_target_g?: number | null
   // Разделение нормы белка на животный/растительный.
@@ -248,6 +283,11 @@ export interface ProfileUpdate {
   sex?: Sex
   birth_date?: string
   activity_level?: ActivityLevel
+  // Цель: undefined = не менять. Смена цели сбрасывает темп на дефолтный.
+  goal?: Goal
+  // Темп и целевой вес: undefined = не менять, 0 = сбросить, >0 = задать.
+  goal_rate_kg_per_week?: number
+  target_weight_kg?: number
   // Обхваты тела (см) — все опциональны, сохраняются в запись веса за сегодня.
   waist_cm?: number
   chest_cm?: number
@@ -403,6 +443,12 @@ export interface RegisterProfile {
   weight_kg?: number
   sex?: Sex
   birth_date?: string // YYYY-MM-DD
+  // Активность и цель — шаг «Ваша цель» при регистрации: с ними новый
+  // пользователь сразу получает норму под задачу, а не норму поддержания.
+  activity_level?: ActivityLevel
+  goal?: Goal
+  goal_rate_kg_per_week?: number
+  target_weight_kg?: number
   // Обхваты тела (см) — попадут в первую запись веса (нужен вес).
   waist_cm?: number
   chest_cm?: number
