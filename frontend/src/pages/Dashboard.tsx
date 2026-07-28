@@ -148,7 +148,7 @@ export const Dashboard: React.FC = () => {
       {(addMealError || updateMealError || deleteMealError) && (
         <div className="mb-4">
           <ErrorAlert
-            message={addMealError || updateMealError || deleteMealError}
+            message={addMealError || updateMealError || deleteMealError || ''}
             onClose={() => {}}
           />
         </div>
