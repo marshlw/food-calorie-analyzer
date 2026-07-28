@@ -261,11 +261,11 @@ def delete_weight_record(db: Session, rec: models.WeightRecord) -> None:
 
 
 def update_profile(db: Session, user: models.User, payload: schemas.ProfileUpdate) -> models.User:
-    # ВАЖНО: current_user приходит из сессии auth.get_current_user
-    # (database.get_db), а эндпоинты работают через свою сессию (main.get_db).
-    # Это РАЗНЫЕ сессии, поэтому коммит/refresh переданного объекта падает с
-    # "not persistent within this Session". Перечитываем пользователя в
-    # рабочей сессии db и мутируем уже его.
+    # Исторически auth.get_current_user и эндпоинты использовали РАЗНЫЕ
+    # сессии, из-за чего коммит переданного объекта падал с "not persistent
+    # within this Session". Сейчас зависимость get_db одна (app.database) и
+    # сессия общая, но перечитывание оставлено как защита от передачи
+    # detached-объекта (например, из фонового кода или тестов).
     db_user = db.query(models.User).filter(models.User.id == user.id).first()
     if db_user is None:
         raise ValueError(f"User {user.id} not found")

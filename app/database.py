@@ -26,6 +26,11 @@ def configure_database(url: str | None = None):
         max_overflow=settings.DB_MAX_OVERFLOW,
         pool_recycle=1800,
         pool_pre_ping=True,
+        # Пул меньше, чем threadpool FastAPI, поэтому под пиком запросы будут
+        # ждать соединение. Ждать 30 с (дефолт) бессмысленно: клиент уже
+        # отвалился по таймауту. Падаем быстро — запрос вернёт 500, но воркер
+        # не будет держать зависшие потоки.
+        pool_timeout=10,
     )
     SessionLocal = sessionmaker(
         autocommit=False,

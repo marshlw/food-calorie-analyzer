@@ -39,6 +39,14 @@ services:
   postgres:
     image: postgres:15
     <<: *hardening
+    # Бюджет коннектов при DB_POOL_SIZE=5 / DB_MAX_OVERFLOW=5:
+    #   api    2 воркера  * 10 = 20
+    #   celery 4 процесса * 10 = 40
+    #   + psql/бэкапы/мониторинг
+    # Дефолтных 100 хватает впритык, поднимаем до 150 с запасом. Выше на ВМ с
+    # 2 ГБ RAM нет смысла: каждый backend Postgres — это отдельный процесс.
+    # При 5000 DAU правильное решение — PgBouncer в режиме transaction.
+    command: postgres -c max_connections=150
     environment:
       POSTGRES_USER: postgres
       # Пароли обязательны и приходят из окружения/секретов. `:?` заставляет
@@ -82,7 +90,13 @@ services:
     image: ai-healthy:prod
     <<: *hardening
     working_dir: /app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '*'
+    # --forwarded-allow-ips: ТОЛЬКО статический IP caddy в сети web.
+    # С '*' uvicorn переписывал request.client.host любым присланным
+    # X-Forwarded-For ещё до нашего кода — вся brute-force защита и лимиты
+    # по IP обходились подстановкой случайного заголовка.
+    # uvicorn 0.27 сравнивает адреса строкой, CIDR не поддерживает,
+    # поэтому IP caddy зафиксирован в сети web (см. networks внизу файла).
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '172.29.0.10'
     volumes:
       - uploads_data:/app/app/uploads
     env_file:
@@ -157,7 +171,10 @@ services:
       api:
         condition: service_healthy
     networks:
-      - web
+      web:
+        # Статический IP: его же указываем в --forwarded-allow-ips у api,
+        # чтобы uvicorn доверял X-Forwarded-For только от нашего reverse-proxy.
+        ipv4_address: 172.29.0.10
 
 volumes:
   postgres_data:
@@ -172,5 +189,10 @@ networks:
   # наружу (Yandex API, api.telegram.org).
   backend:
     driver: bridge
+  # Подсеть web зафиксирована, чтобы caddy получал предсказуемый IP
+  # (нужен для --forwarded-allow-ips у api).
   web:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24

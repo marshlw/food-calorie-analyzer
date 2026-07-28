@@ -12,10 +12,14 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://fooduser:foodpass@postgres:5432/fooddb"
 
     # Пул соединений с БД на ПРОЦЕСС (uvicorn-воркер / celery-процесс).
-    # Итоговый максимум коннектов = (кол-во процессов) * (POOL_SIZE + MAX_OVERFLOW):
-    # при росте нагрузки поднимайте вместе с max_connections Postgres или ставьте PgBouncer.
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
+    # Итоговый максимум коннектов = (кол-во процессов) * (POOL_SIZE + MAX_OVERFLOW).
+    # Текущий бюджет при max_connections=200:
+    #   api    2 воркера  * (5 + 5)  = 20
+    #   celery 4 процесса * (5 + 5)  = 40
+    # Запас оставлен под psql/бэкапы и рост числа воркеров.
+    # Под 5000 DAU правильное решение — PgBouncer в режиме transaction.
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
 
     REDIS_URL: str = "redis://redis:6379/0"
     DEEPSEEK_API_KEY: Optional[str] = None

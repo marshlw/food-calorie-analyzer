@@ -6,6 +6,7 @@ import { MealForm } from '../components/MealForm'
 import { MealDetail } from '../components/MealDetail'
 import { AnalysisFlow } from '../components/AnalysisFlow'
 import { BarcodeFlow } from '../components/BarcodeFlow'
+import { MealCard } from '../components/MealCard'
 import { Modal } from '../components/Modal'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { SuccessAlert } from '../components/SuccessAlert'
@@ -15,11 +16,9 @@ import { useAiLimit } from '../hooks/useAiLimit'
 import { useAuth } from '../hooks/useAuth'
 import { mealsApi } from '../api/meals'
 import { DailyLog, MealEntry, MealEntryCreate } from '../types'
-import { MEAL_TYPE_META, kbjuLine } from '../utils/mealTypes'
-import { capitalize as cap } from '../utils/text'
 import { Plus, Camera, ScanBarcode } from 'lucide-react'
 
-type ModalKind = 'none' | 'manual' | 'photo' | 'barcode' | 'view'
+type ModalKind = 'none' | 'manual' | 'edit' | 'photo' | 'barcode' | 'view'
 
 // Приветствие по времени суток («Добрый день, Анна» из дизайна)
 const greeting = (): string => {
@@ -36,6 +35,7 @@ export const Dashboard: React.FC = () => {
   const [modal, setModal] = useState<ModalKind>('none')
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [viewing, setViewing] = useState<MealEntry | null>(null)
+  const [editing, setEditing] = useState<MealEntry | null>(null)
   const [successMessage, setSuccessMessage] = useState('')
   const { aiLimit, aiExhausted, refreshAiLimit } = useAiLimit()
 
@@ -53,6 +53,26 @@ export const Dashboard: React.FC = () => {
     },
   })
 
+  // Update meal
+  const { isLoading: isUpdatingMeal, error: updateMealError, execute: executeUpdateMeal } =
+    useApi<any>({
+      onSuccess: () => {
+        setSuccessMessage('Запись обновлена!')
+        setModal('none')
+        setEditing(null)
+        loadDailyLog(() => mealsApi.getDailyLog())
+      },
+    })
+
+  // Delete meal
+  const { isLoading: isDeletingMeal, error: deleteMealError, execute: executeDeleteMeal } =
+    useApi<any>({
+      onSuccess: () => {
+        setSuccessMessage('Запись удалена!')
+        loadDailyLog(() => mealsApi.getDailyLog())
+      },
+    })
+
   useEffect(() => {
     loadDailyLog(() => mealsApi.getDailyLog())
   }, [])
@@ -61,10 +81,27 @@ export const Dashboard: React.FC = () => {
     await executeAddMeal(() => mealsApi.addMeal(data))
   }
 
+  const handleEditMeal = (meal: MealEntry) => {
+    setEditing(meal)
+    setModal('edit')
+  }
+
+  const handleUpdateMeal = async (data: MealEntryCreate): Promise<void> => {
+    if (!editing) return
+    await executeUpdateMeal(() => mealsApi.updateMeal(editing.id, data))
+  }
+
+  const handleDeleteMeal = (meal: MealEntry) => {
+    if (window.confirm('Удалить запись?')) {
+      executeDeleteMeal(() => mealsApi.deleteMeal(meal.id))
+    }
+  }
+
   const close = () => {
     setModal('none')
     setPhotoFile(null)
     setViewing(null)
+    setEditing(null)
     // Загрузка фото расходует лимит даже без сохранения — обновляем счётчик
     refreshAiLimit()
   }
@@ -108,9 +145,12 @@ export const Dashboard: React.FC = () => {
           <SuccessAlert message={successMessage} onClose={() => setSuccessMessage('')} />
         </div>
       )}
-      {addMealError && (
+      {(addMealError || updateMealError || deleteMealError) && (
         <div className="mb-4">
-          <ErrorAlert message={addMealError} onClose={() => {}} />
+          <ErrorAlert
+            message={addMealError || updateMealError || deleteMealError}
+            onClose={() => {}}
+          />
         </div>
       )}
 
@@ -182,51 +222,18 @@ export const Dashboard: React.FC = () => {
       </div>
 
       {dailyLog && dailyLog.meals.length > 0 ? (
-        <div className="flex flex-col gap-2.5">
-          {dailyLog.meals.map((meal) => {
-            const meta = MEAL_TYPE_META[meal.meal_type]
-            return (
-              <div
-                key={meal.id}
-                onClick={() => openView(meal)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    openView(meal)
-                  }
-                }}
-                className="card-tile px-4 py-3.5 cursor-pointer hover:border-primary-500/40 transition-colors"
-              >
-                <div className="flex items-center justify-between gap-2.5 mb-2">
-                  <span className={`chip ${meta.chip}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                    {meta.label}
-                  </span>
-                  {meal.task_id && <span className="chip-ai">AI</span>}
-                </div>
-                <div className="text-[15px] font-semibold">{cap(meal.food_name)}</div>
-                <div className="text-xs text-secondary mt-0.5">{kbjuLine(meal)}</div>
-                {/* Блюда составного приёма */}
-                {meal.items && meal.items.length > 1 && (
-                  <div className="mt-1.5 flex flex-col gap-0.5">
-                    {meal.items.map((item, idx) => (
-                      <div
-                        key={item.id ?? idx}
-                        className="flex justify-between items-baseline text-[11px]"
-                      >
-                        <span className="text-tertiary truncate pr-2">{cap(item.food_name)}</span>
-                        <span className="text-tertiary flex-shrink-0">
-                          {Math.round(item.weight_g)} г · {Math.round(item.calories)} ккал
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+        <div>
+          {dailyLog.meals.map((meal) => (
+            <MealCard
+              key={meal.id}
+              meal={meal}
+              showTypeChip
+              onView={() => openView(meal)}
+              onEdit={() => handleEditMeal(meal)}
+              onDelete={() => handleDeleteMeal(meal)}
+              isLoading={isDeletingMeal}
+            />
+          ))}
         </div>
       ) : (
         !isLoadingLog && (
@@ -244,6 +251,18 @@ export const Dashboard: React.FC = () => {
       {/* Add Meal Modal (ручной) */}
       <Modal isOpen={modal === 'manual'} onClose={close} title="Добавить приём пищи">
         <MealForm onSubmit={handleAddMeal} isLoading={isAddingMeal} />
+      </Modal>
+
+      {/* Edit Meal Modal */}
+      <Modal isOpen={modal === 'edit'} onClose={close} title="Редактировать">
+        {editing && (
+          <MealForm
+            initialData={editing}
+            onSubmit={handleUpdateMeal}
+            isLoading={isUpdatingMeal}
+            submitLabel="Сохранить"
+          />
+        )}
       </Modal>
 
       {/* Photo analysis Modal: фото → состав → КБЖУ → выбор приёма → сохранить */}

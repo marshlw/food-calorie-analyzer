@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.celery_app import celery_app
-from app.database import SessionLocal, engine
+from app.database import SessionLocal, get_db
 from app import models, schemas, crud, auth, ml_service, utils, rate_limit, advisor
 from app.tasks import analyze_image_task
 
@@ -81,6 +81,17 @@ ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
 
 @app.on_event("startup")
 async def startup_event():
+    # Синхронные эндпоинты (обычные def) FastAPI выполняет в threadpool anyio.
+    # Дефолт — 40 потоков на процесс; фиксируем явно, чтобы значение не уехало
+    # при обновлении anyio. Больше ставить нельзя: пул соединений с БД
+    # (DB_POOL_SIZE + DB_MAX_OVERFLOW) заметно меньше, и лишние потоки просто
+    # выстроятся в очередь за соединением, съедая память под стеки.
+    try:
+        from anyio import to_thread
+        to_thread.current_default_thread_limiter().total_tokens = 40
+    except Exception as exc:
+        logger.warning("Unable to configure anyio thread limiter", exc_info=exc)
+
     try:
         # ensure_schema() = create_all() + добор недостающих колонок профиля
         # в существующей таблице users (create_all сам колонки не добавляет).
@@ -195,12 +206,10 @@ def _save_upload_file_securely(upload_file: UploadFile) -> Path:
 
 # ===================== DB =====================
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# ВАЖНО: используем ОДНУ зависимость get_db из app.database — ту же, что и
+# auth.get_current_user. Раньше здесь был дубликат, из-за которого на каждый
+# HTTP-запрос бралось ДВА соединения из пула (одно для аутентификации, одно
+# для эндпоинта). Общая зависимость кэшируется FastAPI в рамках запроса.
 
 
 async def _get_auth_request(request: Request) -> schemas.AuthRequest:
@@ -243,16 +252,25 @@ async def health():
     return {"status": "ok"}
 
 
+# ПРАВИЛО ДЛЯ ВСЕХ ЭНДПОИНТОВ НИЖЕ:
+# если внутри есть синхронный ввод-вывод (SQLAlchemy/psycopg2, redis-py,
+# чтение-запись файлов, PIL, bcrypt) — эндпоинт объявляется обычным `def`.
+# FastAPI сам выполнит его в threadpool. В `async def` тот же код блокирует
+# event loop, и воркер перестаёт принимать любые другие запросы, пока идёт
+# обращение к БД.
+# `async def` оставляем только там, где действительно есть `await`:
+# /health, /me (нет I/O) и советчик (run_in_threadpool + отдельный пул LLM).
+
 # ===================== ANALYZE (теперь требует аутентификации) =====================
 
 @app.get("/api/v1/analyze/limit", response_model=schemas.AiLimitResponse)
-async def get_analyze_limit(current_user: models.User = Depends(auth.get_current_user)):
+def get_analyze_limit(current_user: models.User = Depends(auth.get_current_user)):
     """Сколько AI-анализов осталось у пользователя на сегодня (для UI)."""
     return rate_limit.get_ai_daily_usage(current_user.id)
 
 
 @app.post("/api/v1/analyze", response_model=schemas.TaskCreatedResponse, status_code=status.HTTP_201_CREATED)
-async def analyze(
+def analyze(
     file: UploadFile = File(...),
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
@@ -492,7 +510,7 @@ def _build_profile(db: Session, user: models.User) -> dict:
 
 
 @app.get("/api/v1/profile", response_model=schemas.ProfileResponse)
-async def get_profile(
+def get_profile(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -500,7 +518,7 @@ async def get_profile(
 
 
 @app.put("/api/v1/profile", response_model=schemas.ProfileResponse)
-async def update_profile(
+def update_profile(
     payload: schemas.ProfileUpdate,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
@@ -514,7 +532,7 @@ async def update_profile(
     response_model=schemas.WeightRecordResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def add_weight_record(
+def add_weight_record(
     payload: schemas.WeightRecordCreate,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
@@ -537,7 +555,7 @@ async def add_weight_record(
     "/api/v1/profile/weight/{record_id}",
     response_model=schemas.WeightRecordResponse,
 )
-async def update_weight_record(
+def update_weight_record(
     record_id: int,
     payload: schemas.WeightRecordUpdate,
     current_user: models.User = Depends(auth.get_current_user),
@@ -561,7 +579,7 @@ async def update_weight_record(
     "/api/v1/profile/weight/{record_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-async def delete_weight_record(
+def delete_weight_record(
     record_id: int,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
@@ -576,7 +594,7 @@ async def delete_weight_record(
     "/api/v1/profile/weight-history",
     response_model=List[schemas.WeightRecordResponse],
 )
-async def get_weight_history(
+def get_weight_history(
     start: Optional[date] = None,
     end: Optional[date] = None,
     current_user: models.User = Depends(auth.get_current_user),
@@ -588,7 +606,7 @@ async def get_weight_history(
 # ===================== PRODUCTS (справочник КБЖУ) =====================
 
 @app.get("/api/v1/products", response_model=List[schemas.ProductResponse])
-async def search_products(
+def search_products(
     q: str = "",
     limit: int = 20,
     current_user: models.User = Depends(auth.get_current_user),
@@ -668,7 +686,7 @@ def get_barcode_product(
 # ===================== TASK STATUS =====================
 
 @app.get("/api/v1/task/{task_id}", response_model=schemas.TaskResponse)
-async def get_task(
+def get_task(
     task_id: str,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
@@ -682,7 +700,7 @@ async def get_task(
 # ===================== USER TASKS HISTORY =====================
 
 @app.get("/api/v1/tasks", response_model=List[schemas.TaskResponse])
-async def get_user_tasks(
+def get_user_tasks(
     limit: int = 50,
     offset: int = 0,
     current_user: models.User = Depends(auth.get_current_user),
@@ -695,14 +713,27 @@ async def get_user_tasks(
 
 
 @app.post("/api/v1/meals", response_model=schemas.MealEntryResponse, status_code=status.HTTP_201_CREATED)
-async def add_meal(
+def add_meal(
     meal: schemas.MealEntryCreate,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    # ВАЖНО: task_id приходит из тела запроса — обязательно проверяем владение.
+    # Без этого чужой task_id даёт подписанную ссылку на фото другого
+    # пользователя через MealEntry.photo_url (см. models.MealEntry).
+    # Несуществующий id иначе роняет FK-констрейнт в 500.
+    task_id = None
+    if meal.task_id:
+        task = crud.get_task_by_id_sync(db, meal.task_id)
+        if not task or task.user_id != current_user.id:
+            raise HTTPException(status_code=404, detail="Task not found")
+        task_id = task.id
+
     try:
         logger.info(f"Adding meal for user {current_user.id}: {meal.food_name}, type={meal.meal_type}")
-        return crud.add_meal_entry(db, current_user.id, meal, target_date=meal.date, task_id=meal.task_id)
+        return crud.add_meal_entry(db, current_user.id, meal, target_date=meal.date, task_id=task_id)
+    except HTTPException:
+        raise
     except Exception as e:
         # Текст исключения наружу не отдаём (может содержать SQL/пути)
         logger.error(f"Error adding meal: {e}", exc_info=True)
@@ -739,7 +770,7 @@ def _sort_meal_entries(entries: list) -> list:
 
 
 @app.get("/api/v1/daily-log", response_model=schemas.DailyLogResponse)
-async def get_daily_log(
+def get_daily_log(
     date_str: Optional[str] = None,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
@@ -807,7 +838,7 @@ def _build_water_payload(db: Session, user: models.User, date_value: date) -> di
 
 
 @app.get("/api/v1/water", response_model=schemas.WaterResponse)
-async def get_water(
+def get_water(
     date_str: Optional[str] = None,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
@@ -820,7 +851,7 @@ async def get_water(
 
 
 @app.post("/api/v1/water", response_model=schemas.WaterResponse)
-async def update_water(
+def update_water(
     payload: schemas.WaterUpdate,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
@@ -835,7 +866,7 @@ async def update_water(
 
 
 @app.post("/api/v1/meals/from-analysis", response_model=schemas.MealEntryResponse, status_code=status.HTTP_201_CREATED)
-async def add_meal_from_analysis(
+def add_meal_from_analysis(
     payload: schemas.AnalysisMealRequest,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
@@ -876,7 +907,7 @@ async def add_meal_from_analysis(
 
 
 @app.post("/api/v1/feedback", response_model=schemas.FeedbackResponse, status_code=status.HTTP_201_CREATED)
-async def submit_feedback(
+def submit_feedback(
     feedback: schemas.FeedbackRequest,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
@@ -906,7 +937,7 @@ async def submit_feedback(
 
 
 @app.patch("/api/v1/meals/{meal_id}", response_model=schemas.MealEntryResponse)
-async def edit_meal_entry(
+def edit_meal_entry(
     meal_id: int,
     update: schemas.MealEntryCreate,
     current_user: models.User = Depends(auth.get_current_user),
@@ -929,7 +960,7 @@ def _get_owned_meal_entry(db: Session, meal_id: int, user: models.User) -> model
 
 
 @app.post("/api/v1/meals/{meal_id}/photo", response_model=schemas.MealEntryResponse)
-async def upload_meal_photo(
+def upload_meal_photo(
     meal_id: int,
     file: UploadFile = File(...),
     current_user: models.User = Depends(auth.get_current_user),
@@ -955,7 +986,7 @@ async def upload_meal_photo(
 
 
 @app.delete("/api/v1/meals/{meal_id}/photo", response_model=schemas.MealEntryResponse)
-async def delete_meal_photo(
+def delete_meal_photo(
     meal_id: int,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
@@ -977,7 +1008,7 @@ async def delete_meal_photo(
 
 
 @app.delete("/api/v1/meals/{meal_id}")
-async def delete_meal_entry(
+def delete_meal_entry(
     meal_id: int,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
@@ -1036,7 +1067,7 @@ def _build_workouts_payload(db: Session, user: models.User, date_value: date) ->
 
 
 @app.get("/api/v1/workouts", response_model=schemas.WorkoutsResponse)
-async def get_workouts(
+def get_workouts(
     date_str: Optional[str] = None,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
@@ -1045,7 +1076,7 @@ async def get_workouts(
 
 
 @app.post("/api/v1/workouts", response_model=schemas.WorkoutResponse, status_code=status.HTTP_201_CREATED)
-async def add_workout(
+def add_workout(
     payload: schemas.WorkoutCreate,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
@@ -1056,7 +1087,7 @@ async def add_workout(
 
 
 @app.put("/api/v1/workouts/{workout_id}", response_model=schemas.WorkoutResponse)
-async def update_workout(
+def update_workout(
     workout_id: int,
     payload: schemas.WorkoutCreate,
     current_user: models.User = Depends(auth.get_current_user),
@@ -1073,7 +1104,7 @@ async def update_workout(
 
 
 @app.delete("/api/v1/workouts/{workout_id}")
-async def delete_workout(
+def delete_workout(
     workout_id: int,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
@@ -1084,7 +1115,7 @@ async def delete_workout(
 
 
 @app.get("/api/v1/exercises", response_model=List[schemas.ExerciseResponse])
-async def search_exercises(
+def search_exercises(
     q: str = "",
     limit: int = 60,
     current_user: models.User = Depends(auth.get_current_user),
@@ -1151,7 +1182,7 @@ def _require_admin(x_admin_token: str) -> None:
 
 
 @app.get("/api/v1/admin/feedback", response_model=List[schemas.FeedbackListItem])
-async def list_feedback(
+def list_feedback(
     limit: int = 100,
     offset: int = 0,
     status: Optional[str] = None,
@@ -1185,7 +1216,7 @@ async def list_feedback(
 
 
 @app.get("/api/v1/admin/feedback/{feedback_id}", response_model=schemas.FeedbackListItem)
-async def get_feedback(
+def get_feedback(
     feedback_id: int,
     x_admin_token: str = Header(..., alias="X-Admin-Token")
 ):
@@ -1202,7 +1233,7 @@ async def get_feedback(
 
 
 @app.patch("/api/v1/admin/feedback/{feedback_id}/status")
-async def update_feedback_status(
+def update_feedback_status(
     feedback_id: int,
     status: str,
     x_admin_token: str = Header(..., alias="X-Admin-Token")

@@ -23,14 +23,9 @@
       href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <!-- Тема до рендера — чтобы тёмная тема не «мигала» светлой -->
-    <script>
-      try {
-        if (localStorage.getItem('theme') === 'dark') {
-          document.documentElement.classList.add('dark')
-        }
-      } catch (e) {}
-    </script>
+    <!-- Тема до рендера — чтобы тёмная тема не «мигала» светлой.
+         Отдельный файл, а не inline: на проде CSP запрещает inline-скрипты. -->
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,7 +1,15 @@
 # Домен берётся из переменной окружения DOMAIN (см. .env).
 # Caddy сам получит и будет продлевать TLS-сертификат Let's Encrypt.
 {$DOMAIN} {
-	reverse_proxy api:8000
+	reverse_proxy api:8000 {
+		# ВАЖНО: XFF ПЕРЕЗАПИСЫВАЕМ, а не дополняем. По умолчанию Caddy
+		# добавляет реальный IP к присланному клиентом заголовку, и подделанное
+		# значение доехало бы до приложения. uvicorn доверяет только IP caddy
+		# (--forwarded-allow-ips в docker-compose.prod.yml), но заголовок должен
+		# содержать ровно один — настоящий — адрес.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Real-IP {remote_host}
+	}
 
 	# Загрузка фото может быть крупной
 	request_body {
@@ -22,6 +30,17 @@
 		Referrer-Policy "strict-origin-when-cross-origin"
 		# Отключаем ненужные браузерные API
 		Permissions-Policy "camera=(self), geolocation=(), microphone=()"
+		# Content-Security-Policy: главная защита при XSS — токены лежат в
+		# localStorage, поэтому чужой скрипт не должен иметь шанса выполниться.
+		#   script-src 'self'      — только бандлы Vite; inline-скриптов нет
+		#                            (тема вынесена в /theme.js)
+		#   style-src ... unsafe-inline — Tailwind/React ставят inline-стили
+		#   font-src/style-src fonts.* — Manrope и Golos Text из Google Fonts
+		#   img-src blob:          — предпросмотр фото до отправки (createObjectURL)
+		#   img-src *.openfoodfacts.* — фото товара по штрих-коду
+		#     (OFF отдаёт image_front_small_url то с .org, то с .net)
+		#   connect-src 'self'     — фронт и API на одном origin
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://images.openfoodfacts.org https://images.openfoodfacts.net https://static.openfoodfacts.org; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 		# Не светим версию сервера
 		-Server
 	}
