@@ -75,6 +75,17 @@ class User(Base):
     custom_carbs_g = Column(Float, nullable=True)
     custom_water_ml = Column(Float, nullable=True)
 
+    # ---- Геймификация («Цели» / вкладка «Путь») ----
+    # Заморозки — расходуемый «щит» для серии: день без записей засчитывается
+    # сохранённым. Начисляются за вехи серии (goals.REWARDS), тратятся вручную.
+    goal_freezes_available = Column(Integer, nullable=False, default=2, server_default="2")
+    # Рекорд серии за всё время. Хранится отдельно от расчёта по goal_days,
+    # чтобы бейджи не «отбирались» после срыва серии.
+    goal_best_streak = Column(Integer, nullable=False, default=0, server_default="0")
+    # Коды уже выданных наград ("week,two_weeks"): защита от повторного
+    # начисления бонусных заморозок при каждом пересчёте.
+    goal_rewards_granted = Column(String, nullable=True)
+
     tasks = relationship("Task", back_populates="user")
     daily_logs = relationship("DailyLog", back_populates="user", cascade="all, delete-orphan")
     weight_records = relationship(
@@ -90,6 +101,11 @@ class User(Base):
     )
     workouts = relationship(
         "Workout",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    goal_days = relationship(
+        "GoalDay",
         back_populates="user",
         cascade="all, delete-orphan",
     )
@@ -243,6 +259,51 @@ class WaterLog(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "date", name="uq_water_user_date"),
+    )
+
+
+# ==================== GOALS (геймификация дневника) ====================
+
+class GoalDay(Base):
+    """Снимок «Цели дня» за конкретную дату. Одна строка на (пользователь +
+    дата) — upsert, как в weight_records/water_logs.
+
+    Зачем хранить, если всё считается из meal_entries/water_logs: смена норм
+    в профиле не должна переписывать историю. Закрытый в марте день остаётся
+    закрытым, даже если в июле пользователь поднял норму белка. Плюс статус
+    `frozen` вообще не выводится из данных — это явное действие пользователя.
+
+    Строки создаются лениво: при первом обращении к «Пути» за нужный период
+    (см. crud.sync_goal_days). Дни в будущем не сохраняются.
+    """
+
+    __tablename__ = "goal_days"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True, server_default=func.current_date())
+
+    # closed | partial | frozen | missed (см. app/goals.py)
+    status = Column(String, nullable=False, default="missed")
+    # Искры, начисленные за день (сумма наград выполненных целей).
+    sparks = Column(Integer, nullable=False, default=0)
+
+    # Какие именно цели дня были выполнены — для карточки «Цель дня»
+    # за прошлые даты и для аналитики.
+    meals_done = Column(Boolean, nullable=False, default=False)
+    water_done = Column(Boolean, nullable=False, default=False)
+    protein_done = Column(Boolean, nullable=False, default=False)
+
+    # Явная заморозка. Липкая: пересчёт по данным её не снимает.
+    frozen = Column(Boolean, nullable=False, default=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", back_populates="goal_days")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_goal_day_user_date"),
     )
 
 

@@ -6,6 +6,7 @@ import { barcodeApi } from '../api/barcode'
 import { LoadingSpinner } from './LoadingSpinner'
 import { ErrorAlert } from './ErrorAlert'
 import { extractErrorMessage } from '../utils/errors'
+import { UPLOAD_ACCEPT } from '../utils/image'
 import { BarcodeProduct, MealEntryCreate, MealType } from '../types'
 
 const round1 = (v: number) => Math.round(v * 10) / 10
@@ -219,7 +220,7 @@ export const BarcodeFlow: React.FC<Props> = ({ onConfirm, onCancel, saving }) =>
       <ImageIcon className="h-[18px] w-[18px]" /> Загрузить фото штрих-кода
       <input
         type="file"
-        accept="image/*"
+        accept={UPLOAD_ACCEPT}
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0]

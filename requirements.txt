@@ -12,6 +12,9 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-magic==0.4.27
 pillow==10.2.0
+# Декодер HEIC/HEIF — формат по умолчанию для камеры iPhone (режим «Высокая
+# эффективность»). Без него Pillow не может открыть фото с iOS.
+pillow-heif==0.15.0
 opencv-python-headless==4.9.0.80
 ollama==0.1.6
 google-genai>=0.3.0

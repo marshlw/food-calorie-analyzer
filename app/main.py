@@ -9,20 +9,21 @@ import json
 import logging
 import tempfile
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List, Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
+from PIL import Image, ImageOps
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.celery_app import celery_app
 from app.database import SessionLocal, get_db
-from app import models, schemas, crud, auth, ml_service, utils, rate_limit, advisor, nutrition
+from app import models, schemas, crud, auth, ml_service, utils, rate_limit, advisor, nutrition, imaging
+from app import goals as goals_rules
 from app.tasks import analyze_image_task
 
 # В prod (ENABLE_DOCS=false) Swagger/OpenAPI выключены — не светим схему API
@@ -76,7 +77,17 @@ async def internal_server_error(request: Request, exc: Exception):
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
+# Регистрация HEIC-декодера живёт в app.imaging (импортируется выше вместе
+# с остальными модулями приложения) — она должна произойти до Image.open().
+ALLOWED_IMAGE_FORMATS = imaging.SUPPORTED_INPUT_FORMATS
+
+# Все загрузки приводятся к JPEG: ML-провайдеры получают байты «как есть»
+# и помечают их как image/jpeg, поэтому хранить что-то другое небезопасно.
+NORMALIZED_EXTENSION = ".jpg"
+
+UNSUPPORTED_IMAGE_DETAIL = (
+    "Не удалось прочитать изображение. Поддерживаются JPEG, PNG, WEBP и HEIC."
+)
 
 
 @app.on_event("startup")
@@ -154,25 +165,91 @@ async def shutdown_event():
         logger.warning("Shutdown cleanup failed", exc_info=exc)
 
 
-def _validate_uploaded_image(path: Path) -> None:
+def _validate_uploaded_image(path: Path) -> str:
+    """Проверяет, что файл действительно изображение разрешённого формата.
+    Возвращает опознанный Pillow формат."""
     try:
         with Image.open(path) as img:
-            img.verify()
-            if not img.format or img.format.upper() not in ALLOWED_IMAGE_FORMATS:
-                raise ValueError("Unsupported image format")
+            fmt = (img.format or "").upper()
+            width, height = img.size
+            img.verify()  # после verify() объект непригоден для чтения пикселей
     except Exception as exc:
         logger.warning("Invalid upload image", extra={"path": str(path), "error": str(exc)})
-        raise HTTPException(status_code=400, detail="Uploaded file is not a valid image") from exc
+        raise HTTPException(status_code=400, detail=UNSUPPORTED_IMAGE_DETAIL) from exc
+
+    if fmt not in ALLOWED_IMAGE_FORMATS:
+        logger.warning("Unsupported image format", extra={"path": str(path), "format": fmt})
+        raise HTTPException(status_code=400, detail=UNSUPPORTED_IMAGE_DETAIL)
+
+    # Размеры читаются из заголовка, до декодирования пикселей — отсекаем
+    # «бомбы сжатия» прежде, чем они займут сотни МБ памяти
+    if width * height > settings.MAX_IMAGE_PIXELS:
+        logger.warning(
+            "Image resolution too high",
+            extra={"path": str(path), "width": width, "height": height},
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Слишком большое разрешение фото. Уменьшите снимок и попробуйте снова.",
+        )
+    return fmt
 
 
-def _save_upload_file_securely(upload_file: UploadFile) -> Path:
+def _normalize_uploaded_image(src: Path, dest: Path, max_side: Optional[int]) -> None:
+    """Приводит загруженное фото к JPEG: разворачивает по EXIF-ориентации,
+    убирает альфа-канал и метаданные, при необходимости ужимает.
+
+    Нужно по двум причинам: HEIC с iPhone не понимают vision-провайдеры,
+    а снимки с телефона почти всегда содержат EXIF Orientation — без
+    разворота модель видит блюдо повёрнутым на 90°.
+    """
+    with Image.open(src) as img:
+        img = ImageOps.exif_transpose(img)  # разворот до отбрасывания EXIF
+
+        if img.mode not in ("RGB", "L"):
+            # RGBA/P/LA/CMYK -> RGB; JPEG не умеет альфа-канал
+            img = img.convert("RGB")
+
+        if max_side and max(img.size) > max_side:
+            img.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+
+        # copy() отсекает info/EXIF исходника, не перебирая пиксели вручную
+        clean = img.copy()
+        clean.info = {}
+        clean.save(
+            dest,
+            "JPEG",
+            quality=settings.IMAGE_QUALITY,
+            optimize=True,
+            progressive=True,
+            subsampling=0,
+        )
+
+
+def _save_upload_file_securely(
+    upload_file: UploadFile,
+    max_side: Optional[int] = None,
+) -> Path:
+    """Сохраняет загруженный файл в UPLOAD_DIR, нормализовав его в JPEG.
+
+    max_side ограничивает большую сторону; None — оставить исходный размер
+    (нужно сканеру штрих-кода, ему важна детализация).
+    """
     filename = upload_file.filename or ""
     extension = Path(filename).suffix.lower()
+
+    # Расширение — только подсказка, решает содержимое файла
+    # (_validate_uploaded_image). Встроенные браузеры на iOS нередко
+    # присылают снимок вообще без расширения или как "image.jpg" при
+    # реальном HEIC внутри, поэтому жёсткая проверка по имени отсекала
+    # валидные фото. Итоговый файл всё равно сохраняется как <uuid>.jpg,
+    # так что имя от пользователя никуда не попадает.
     if extension not in settings.ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="Unsupported file type")
+        extension = ".upload"
 
     upload_file.file.seek(0)
     temp_path = None
+    target_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=extension, dir=str(UPLOAD_DIR)) as tmp:
             temp_path = Path(tmp.name)
@@ -183,19 +260,30 @@ def _save_upload_file_securely(upload_file: UploadFile) -> Path:
                     break
                 total_bytes += len(chunk)
                 if total_bytes > settings.MAX_UPLOAD_SIZE:
-                    raise HTTPException(status_code=413, detail="Uploaded file is too large")
+                    limit_mb = settings.MAX_UPLOAD_SIZE // (1024 * 1024)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Файл слишком большой. Максимальный размер — {limit_mb} МБ.",
+                    )
                 tmp.write(chunk)
 
         _validate_uploaded_image(temp_path)
 
-        target_path = UPLOAD_DIR / f"{uuid.uuid4()}{extension}"
-        os.replace(str(temp_path), str(target_path))
+        target_path = UPLOAD_DIR / f"{uuid.uuid4()}{NORMALIZED_EXTENSION}"
+        _normalize_uploaded_image(temp_path, target_path, max_side)
         return target_path
     except HTTPException:
+        if target_path is not None:
+            Path(target_path).unlink(missing_ok=True)
         raise
     except Exception as exc:
+        if target_path is not None:
+            Path(target_path).unlink(missing_ok=True)
         logger.warning("Upload save failed", extra={"filename": filename, "error": str(exc)})
-        raise HTTPException(status_code=400, detail="Uploaded file is not a valid image") from exc
+        raise HTTPException(status_code=400, detail=UNSUPPORTED_IMAGE_DETAIL) from exc
+    finally:
+        if temp_path is not None:
+            Path(temp_path).unlink(missing_ok=True)
     finally:
         if temp_path is not None and temp_path.exists():
             try:
@@ -279,7 +367,7 @@ def analyze(
     rate_limit.check_ai_daily_limit(current_user.id)
 
     try:
-        file_path = _save_upload_file_securely(file)
+        file_path = _save_upload_file_securely(file, max_side=settings.MAX_IMAGE_SIZE)
     except HTTPException:
         # Невалидный файл не должен расходовать дневной лимит
         rate_limit.refund_ai_daily(current_user.id)
@@ -650,6 +738,8 @@ def scan_barcode(
         detail="Дневной лимит сканирований штрих-кодов исчерпан. Попробуйте завтра.",
     )
 
+    # Без max_side: сканеру штрих-кода важна исходная детализация,
+    # уменьшённые копии он делает сам (см. barcode_service.scan_image).
     file_path = _save_upload_file_securely(file)
     try:
         product = barcode_service.scan_image(str(file_path))
@@ -874,6 +964,199 @@ def update_water(
     return _build_water_payload(db, current_user, date_value)
 
 
+# ===================== GOALS («Цель дня», серия, «Путь») =====================
+#
+# Правила геймификации — в app/goals.py, доступ к данным — в crud.
+# Здесь только сборка ответов, как у воды и тренировок.
+
+_WEEKDAY_SHORT = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
+
+# Насколько глубоко смотрим назад, чтобы понять длину серии на первый день
+# показываемого месяца (веха «месяц» = 30 дней, берём с запасом).
+_PATH_LOOKBACK_DAYS = 90
+
+
+def _week_bounds(day: date) -> tuple:
+    """Понедельник и воскресенье недели, содержащей day."""
+    monday = day - timedelta(days=day.weekday())
+    return monday, monday + timedelta(days=6)
+
+
+def _day_status(
+    day: date, statuses: dict, today: date
+) -> str:
+    if day > today:
+        return goals_rules.STATUS_FUTURE
+    return statuses.get(day, goals_rules.STATUS_MISSED)
+
+
+def _build_goals_today_payload(db: Session, user: models.User, day: date) -> dict:
+    """«Цель дня» + серия на выбранную дату (по умолчанию — сегодня)."""
+    today = date.today()
+    monday, sunday = _week_bounds(day)
+
+    targets = crud.compute_nutrition_targets(db, user)
+    progress = crud.refresh_goal_progress(
+        db, user, today=today, extra_start=monday, targets=targets
+    )
+    statuses = progress["statuses"]
+
+    day_goals = crud.build_day_goals(db, user, day, targets=targets)
+    available = [g for g in day_goals if g.available]
+    done = [g for g in available if g.done]
+
+    status = _day_status(day, statuses, today)
+    # Для СЕГОДНЯ статус берём из свежепосчитанных целей: строка goal_days
+    # могла ещё не появиться (день без активности), а цели уже видны.
+    if day <= today and day not in statuses:
+        status = goals_rules.resolve_status(day_goals, day=day, today=today)
+
+    rows = crud.list_goal_days(db, user.id, monday, sunday)
+    week = []
+    closed_in_week = 0
+    for i in range(7):
+        d = monday + timedelta(days=i)
+        d_status = _day_status(d, statuses, today)
+        if goals_rules.is_closed(d_status) or d_status == goals_rules.STATUS_FROZEN:
+            closed_in_week += 1
+        week.append(
+            {
+                "date": d,
+                "label": _WEEKDAY_SHORT[i],
+                "status": d_status,
+                "sparks": int(rows[d].sparks) if d in rows else 0,
+                "is_today": d == today,
+            }
+        )
+
+    streak = progress["streak"]
+    day_closed = goals_rules.is_closed(status)
+
+    return {
+        "date": day,
+        "goals": [g.as_dict() for g in day_goals],
+        "done_count": len(done),
+        "total_count": len(available),
+        "sparks": goals_rules.count_sparks(day_goals),
+        "status": status,
+        "day_closed": day_closed,
+        "streak": streak,
+        "best_streak": progress["best_streak"],
+        "freezes_available": int(user.goal_freezes_available or 0),
+        "streak_title": goals_rules.streak_title(streak),
+        "streak_hint": goals_rules.streak_hint(
+            day_closed=day_closed, goals_left=len(available) - len(done)
+        ),
+        "next_reward_hint": goals_rules.next_reward_hint(streak),
+        "week": week,
+        "week_progress": round(closed_in_week / 7, 3),
+    }
+
+
+def _month_bounds(month: str) -> tuple:
+    """'YYYY-MM' -> (первое число, последнее число). 400 при мусоре на входе."""
+    try:
+        first = datetime.strptime(month, "%Y-%m").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid month format, expected YYYY-MM")
+    # Первое число следующего месяца минус день.
+    if first.month == 12:
+        next_first = first.replace(year=first.year + 1, month=1)
+    else:
+        next_first = first.replace(month=first.month + 1)
+    return first, next_first - timedelta(days=1)
+
+
+def _build_goal_path_payload(db: Session, user: models.User, month: str) -> dict:
+    """«Путь месяца»: кружки по дням, награды, запас заморозок."""
+    today = date.today()
+    first, last = _month_bounds(month)
+
+    # Смотрим глубже начала месяца: длина серии на 1-е число зависит от
+    # предыдущих дней, иначе веха «месяц» никогда не появится на кружке.
+    lookback = first - timedelta(days=_PATH_LOOKBACK_DAYS)
+
+    progress = crud.refresh_goal_progress(db, user, today=today, extra_start=lookback)
+
+    rows = crud.list_goal_days(db, user.id, lookback, last)
+    statuses = {d: row.status for d, row in rows.items()}
+
+    days = []
+    closed_days = 0
+    run = 0
+    cursor = lookback
+    while cursor <= last:
+        status = _day_status(cursor, statuses, today)
+        run = run + 1 if status in goals_rules.STREAK_STATUSES else 0
+
+        if cursor >= first:
+            if goals_rules.is_closed(status):
+                closed_days += 1
+            days.append(
+                {
+                    "date": cursor,
+                    "day": cursor.day,
+                    "status": status,
+                    "sparks": int(rows[cursor].sparks) if cursor in rows else 0,
+                    "milestone": goals_rules.milestone_for(run),
+                    "is_today": cursor == today,
+                }
+            )
+        cursor += timedelta(days=1)
+
+    total_days = len(days)
+    return {
+        "month": month,
+        "days": days,
+        "closed_days": closed_days,
+        "total_days": total_days,
+        "summary": f"{closed_days} из {total_days}",
+        "streak": progress["streak"],
+        "best_streak": progress["best_streak"],
+        "freezes_available": int(user.goal_freezes_available or 0),
+        "rewards": goals_rules.build_rewards(progress["streak"], progress["best_streak"]),
+    }
+
+
+@app.get("/api/v1/goals/today", response_model=schemas.GoalsTodayResponse)
+def get_goals_today(
+    date_str: Optional[str] = None,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Цели дня и серия. Используется карточкой серии на «Дневнике»
+    и шапкой вкладки «Путь»."""
+    date_value = _parse_date_or_400(date_str)
+    return _build_goals_today_payload(db, current_user, date_value)
+
+
+@app.get("/api/v1/goals/path", response_model=schemas.GoalPathResponse)
+def get_goals_path(
+    month: Optional[str] = None,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """«Путь месяца»: кружки по дням + награды. month — 'YYYY-MM'
+    (по умолчанию текущий месяц)."""
+    month = month or date.today().strftime("%Y-%m")
+    return _build_goal_path_payload(db, current_user, month)
+
+
+@app.post("/api/v1/goals/freeze", response_model=schemas.GoalsTodayResponse)
+def use_goal_freeze(
+    payload: schemas.GoalFreezeRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Потратить заморозку и спасти серию. По умолчанию — вчерашний день."""
+    day = payload.date or (date.today() - timedelta(days=1))
+    try:
+        crud.apply_goal_freeze(db, current_user, day)
+    except crud.FreezeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _build_goals_today_payload(db, current_user, date.today())
+
+
 @app.post("/api/v1/meals/from-analysis", response_model=schemas.MealEntryResponse, status_code=status.HTTP_201_CREATED)
 def add_meal_from_analysis(
     payload: schemas.AnalysisMealRequest,
@@ -979,7 +1262,7 @@ def upload_meal_photo(
     Фото пользователя имеет приоритет над фото AI-анализа в photo_url."""
     meal_entry = _get_owned_meal_entry(db, meal_id, current_user)
 
-    saved_path = _save_upload_file_securely(file)
+    saved_path = _save_upload_file_securely(file, max_side=settings.MAX_IMAGE_SIZE)
 
     # Старое своё фото убираем с диска — оно больше нигде не используется
     if meal_entry.photo_path:

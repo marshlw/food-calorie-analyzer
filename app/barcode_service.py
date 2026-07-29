@@ -18,6 +18,8 @@ from typing import Optional
 import httpx
 from PIL import Image, ImageOps
 
+from . import imaging  # noqa: F401 - регистрирует HEIC-декодер Pillow
+
 from app.ml_service import get_http_client, get_redis_client
 
 logger = logging.getLogger(__name__)

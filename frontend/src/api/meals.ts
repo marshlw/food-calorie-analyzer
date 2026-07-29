@@ -1,6 +1,7 @@
 import { apiClient } from './axios'
 import { MealEntry, MealEntryCreate, DailyLog } from '../types'
 import { weekDays } from '../utils/dates'
+import { prepareImageForUpload } from '../utils/image'
 
 export const mealsApi = {
   addMeal: async (meal: MealEntryCreate): Promise<MealEntry> => {
@@ -29,8 +30,9 @@ export const mealsApi = {
   // Прикрепить/заменить фото записи (multipart). Бэкенд вернёт запись
   // с обновлённым photo_url.
   uploadMealPhoto: async (mealId: number, file: File): Promise<MealEntry> => {
+    const prepared = await prepareImageForUpload(file)
     const form = new FormData()
-    form.append('file', file)
+    form.append('file', prepared)
     const response = await apiClient.post<MealEntry>(`/api/v1/meals/${mealId}/photo`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })

@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { DiaryProvider, useDiary } from '../context/DiaryContext'
 import { WeekCalendar } from '../components/WeekCalendar'
 import { DayDetail } from '../components/DayDetail'
@@ -10,23 +11,50 @@ import { Modal } from '../components/Modal'
 import { SuccessAlert } from '../components/SuccessAlert'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { AiLimitBadge } from '../components/AiLimitBadge'
+import { SegmentedTabs } from '../components/goals/SegmentedTabs'
+import type { SegmentOption } from '../components/goals/SegmentedTabs'
+import { PathTab } from '../components/goals/PathTab'
 import { useApi } from '../hooks/useApi'
 import { useAiLimit } from '../hooks/useAiLimit'
+import { useGoals } from '../hooks/useGoals'
 import { mealsApi } from '../api/meals'
 import { MealEntry, MealEntryCreate } from '../types'
+import { UPLOAD_ACCEPT } from '../utils/image'
 import { AppHeader } from '../components/Brand'
 import { Plus, Camera, ScanBarcode } from 'lucide-react'
 
 type ModalKind = 'none' | 'manual' | 'edit' | 'photo' | 'barcode' | 'view'
+type DiaryTab = 'calendar' | 'path'
+
+const TABS: SegmentOption<DiaryTab>[] = [
+  { value: 'calendar', label: 'Календарь' },
+  { value: 'path', label: 'Путь' },
+]
 
 const DiaryInner: React.FC = () => {
   const { selectedDate, refreshDay } = useDiary()
+
+  // Вкладка живёт в URL (?tab=path): карточка серии на «Дневнике» ведёт
+  // сразу на «Путь», а назад/обновление страницы не сбрасывают выбор.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab: DiaryTab = searchParams.get('tab') === 'path' ? 'path' : 'calendar'
+  const setTab = (next: DiaryTab) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'calendar') params.delete('tab')
+    else params.set('tab', next)
+    setSearchParams(params, { replace: true })
+  }
+
   const [modal, setModal] = useState<ModalKind>('none')
   const [editing, setEditing] = useState<MealEntry | null>(null)
   const [viewing, setViewing] = useState<MealEntry | null>(null)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [toast, setToast] = useState('')
   const { aiLimit, aiExhausted, refreshAiLimit } = useAiLimit()
+
+  // Цели дня и серия: нужны вкладке «Путь». Записи еды/воды меняют прогресс,
+  // поэтому после каждой записи цели перечитываем.
+  const { goals, setGoals, isLoading: goalsLoading, refresh: refreshGoals } = useGoals()
 
   const close = () => {
     setModal('none')
@@ -46,6 +74,7 @@ const DiaryInner: React.FC = () => {
   const afterWrite = async (msg: string) => {
     setToast(msg)
     await refreshDay(selectedDate)
+    refreshGoals()
     close()
   }
 
@@ -81,6 +110,13 @@ const DiaryInner: React.FC = () => {
         <h1 className="font-display font-bold text-2xl tracking-tight">Дневник питания</h1>
       </div>
 
+      <SegmentedTabs
+        value={tab}
+        options={TABS}
+        onChange={setTab}
+        ariaLabel="Разделы дневника питания"
+      />
+
       {toast && (
         <div className="mb-4">
           <SuccessAlert message={toast} onClose={() => setToast('')} />
@@ -88,66 +124,73 @@ const DiaryInner: React.FC = () => {
       )}
       {writeError && (
         <div className="mb-4">
-          <ErrorAlert message={writeError} onClose={() => {}} />
+          <ErrorAlert key={writeError} message={writeError} onClose={() => {}} />
         </div>
       )}
 
-      <WeekCalendar />
+      {tab === 'path' ? (
+        <PathTab goals={goals} goalsLoading={goalsLoading} onGoalsChanged={setGoals} />
+      ) : (
+        <>
+          <WeekCalendar />
 
-      <div className="flex gap-3 mb-2">
-        <button
-          className="btn-primary flex-1 flex items-center justify-center gap-2"
-          onClick={() => setModal('manual')}
-        >
-          <Plus className="h-[18px] w-[18px]" /> Вручную
-        </button>
-        <label
-          className={`btn-secondary flex-1 flex items-center justify-center gap-2 ${
-            aiExhausted ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-          }`}
-        >
-          <Camera className="h-[18px] w-[18px]" /> Фото
-          <input
-            type="file"
-            accept="image/*"
-            className="hidden"
-            disabled={aiExhausted}
-            onChange={(e) => {
-              const f = e.target.files?.[0]
-              if (f) {
-                setPhotoFile(f)
-                setModal('photo')
-              }
-              e.target.value = '' // позволяет выбрать тот же файл повторно
+          <div className="flex gap-3 mb-2">
+            <button
+              className="btn-primary flex-1 flex items-center justify-center gap-2"
+              onClick={() => setModal('manual')}
+            >
+              <Plus className="h-[18px] w-[18px]" /> Вручную
+            </button>
+            <label
+              className={`btn-secondary flex-1 flex items-center justify-center gap-2 ${
+                aiExhausted ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+              }`}
+            >
+              <Camera className="h-[18px] w-[18px]" /> Фото
+              <input
+                type="file"
+                accept={UPLOAD_ACCEPT}
+                className="hidden"
+                disabled={aiExhausted}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) {
+                    setPhotoFile(f)
+                    setModal('photo')
+                  }
+                  e.target.value = '' // позволяет выбрать тот же файл повторно
+                }}
+              />
+            </label>
+            {/* Сканер штрих-кода — квадратная кнопка, прижата к правому краю */}
+            <button
+              type="button"
+              aria-label="Сканировать штрих-код"
+              title="Добавить по штрих-коду"
+              onClick={() => setModal('barcode')}
+              className="btn-secondary flex-shrink-0 !px-3.5 flex items-center justify-center"
+            >
+              <ScanBarcode className="h-[20px] w-[20px]" />
+            </button>
+          </div>
+
+          <AiLimitBadge aiLimit={aiLimit} />
+
+          <DayDetail
+            onEdit={(m) => {
+              setEditing(m)
+              setModal('edit')
             }}
+            onDelete={handleDelete}
+            onView={(m) => {
+              setViewing(m)
+              setModal('view')
+            }}
+            onWaterChanged={refreshGoals}
+            busy={del.isLoading}
           />
-        </label>
-        {/* Сканер штрих-кода — квадратная кнопка, прижата к правому краю */}
-        <button
-          type="button"
-          aria-label="Сканировать штрих-код"
-          title="Добавить по штрих-коду"
-          onClick={() => setModal('barcode')}
-          className="btn-secondary flex-shrink-0 !px-3.5 flex items-center justify-center"
-        >
-          <ScanBarcode className="h-[20px] w-[20px]" />
-        </button>
-      </div>
-
-      <AiLimitBadge aiLimit={aiLimit} />
-
-      <DayDetail
-        onEdit={(m) => {
-          setEditing(m)
-          setModal('edit')
-        }}
-        onDelete={handleDelete}
-        onView={(m) => {
-          setViewing(m)
-          setModal('view')
-        }}
-        busy={del.isLoading}
-      />
+        </>
+      )}
 
       <Modal isOpen={modal === 'manual'} onClose={close} title="Добавить приём пищи">
         <MealForm onSubmit={handleAdd} isLoading={add.isLoading} />

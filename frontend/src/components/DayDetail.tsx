@@ -19,11 +19,13 @@ interface Props {
   onEdit: (m: MealEntry) => void
   onDelete: (m: MealEntry) => void
   onView?: (m: MealEntry) => void
+  /** Вода изменилась — цель дня «Норма воды» могла закрыться/открыться. */
+  onWaterChanged?: () => void
   busy?: boolean
 }
 
 // Детальный вид выбранного дня с группировкой по типам приёмов. Smart.
-export const DayDetail: React.FC<Props> = ({ onEdit, onDelete, onView, busy }) => {
+export const DayDetail: React.FC<Props> = ({ onEdit, onDelete, onView, onWaterChanged, busy }) => {
   const { selectedDate, weekLogs } = useDiary()
   const { data, isLoading, execute } = useApi<DailyLog>()
 
@@ -54,7 +56,7 @@ export const DayDetail: React.FC<Props> = ({ onEdit, onDelete, onView, busy }) =
   return (
     <div>
       <DailyStats log={log} />
-      <WaterCard water={log.water} />
+      <WaterCard water={log.water} onChanged={onWaterChanged} />
       {log.meals.length === 0 ? (
         <div className="text-center py-10 text-secondary text-sm">
           Нет приёмов пищи за этот день

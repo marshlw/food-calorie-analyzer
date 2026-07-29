@@ -11,11 +11,14 @@ import { Modal } from '../components/Modal'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { SuccessAlert } from '../components/SuccessAlert'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { StreakCard } from '../components/goals/StreakCard'
 import { useApi } from '../hooks/useApi'
 import { useAiLimit } from '../hooks/useAiLimit'
 import { useAuth } from '../hooks/useAuth'
+import { useGoals } from '../hooks/useGoals'
 import { mealsApi } from '../api/meals'
 import { DailyLog, MealEntry, MealEntryCreate } from '../types'
+import { UPLOAD_ACCEPT } from '../utils/image'
 import { Plus, Camera, ScanBarcode } from 'lucide-react'
 
 type ModalKind = 'none' | 'manual' | 'edit' | 'photo' | 'barcode' | 'view'
@@ -38,6 +41,8 @@ export const Dashboard: React.FC = () => {
   const [editing, setEditing] = useState<MealEntry | null>(null)
   const [successMessage, setSuccessMessage] = useState('')
   const { aiLimit, aiExhausted, refreshAiLimit } = useAiLimit()
+  // Серия и цель дня: карточка ведёт на «Приёмы → Путь».
+  const { goals, refresh: refreshGoals } = useGoals()
 
   // Load daily log
   const { data: dailyLog, isLoading: isLoadingLog, execute: loadDailyLog } = useApi<DailyLog>()
@@ -49,6 +54,7 @@ export const Dashboard: React.FC = () => {
       setModal('none')
       setPhotoFile(null)
       loadDailyLog(() => mealsApi.getDailyLog())
+      refreshGoals()
       refreshAiLimit()
     },
   })
@@ -61,6 +67,7 @@ export const Dashboard: React.FC = () => {
         setModal('none')
         setEditing(null)
         loadDailyLog(() => mealsApi.getDailyLog())
+        refreshGoals()
       },
     })
 
@@ -70,6 +77,7 @@ export const Dashboard: React.FC = () => {
       onSuccess: () => {
         setSuccessMessage('Запись удалена!')
         loadDailyLog(() => mealsApi.getDailyLog())
+        refreshGoals()
       },
     })
 
@@ -139,6 +147,11 @@ export const Dashboard: React.FC = () => {
         </p>
       </div>
 
+      {/* Серия: кольцо недели + точки Пн–Вс, ведёт на «Приёмы → Путь» */}
+      {goals && (
+        <StreakCard goals={goals} onClick={() => navigate('/meals?tab=path')} />
+      )}
+
       {/* Alerts */}
       {successMessage && (
         <div className="mb-4">
@@ -179,7 +192,7 @@ export const Dashboard: React.FC = () => {
           Анализ фото
           <input
             type="file"
-            accept="image/*"
+            accept={UPLOAD_ACCEPT}
             className="hidden"
             disabled={aiExhausted}
             onChange={(e) => {

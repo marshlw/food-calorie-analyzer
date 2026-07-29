@@ -111,8 +111,16 @@ class Settings(BaseSettings):
     MAX_IMAGE_SIZE: int = 1600
     IMAGE_QUALITY: int = 95
 
+    # Потолок разрешения входного фото (защита от decompression bomb:
+    # 10 МБ PNG/HEIC могут развернуться в сотни МБ RSS при декодировании).
+    # 60 Мп с запасом покрывает 48-Мп камеры современных флагманов.
+    MAX_IMAGE_PIXELS: int = 60_000_000
+
+    # .heic/.heif — камера iPhone. Safari транскодирует их в JPEG не всегда
+    # (при выборе через «Файлы» и во встроенных WebView — нет), поэтому
+    # принимаем как есть и нормализуем на сервере.
     ALLOWED_EXTENSIONS: Set[str] = {
-        ".jpg", ".jpeg", ".png", ".webp"
+        ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"
     }
 
     # ===================== CORS =====================

@@ -85,6 +85,11 @@ _PROFILE_COLUMNS = {
     # Версия токенов: инкремент инвалидирует все выданные JWT пользователя
     # (смена пароля, компрометация). См. auth.get_current_user.
     "token_version": "INTEGER DEFAULT 0",
+    # Геймификация («Цели» / вкладка «Путь»): запас заморозок серии, рекорд
+    # серии и коды уже выданных наград. См. app/goals.py.
+    "goal_freezes_available": "INTEGER DEFAULT 2",
+    "goal_best_streak": "INTEGER DEFAULT 0",
+    "goal_rewards_granted": "VARCHAR",
 }
 
 # Разделение белка на животный/растительный (появилось после первого create_all).
@@ -122,6 +127,8 @@ _ENSURE_INDEXES = (
     ("ix_meal_entries_daily_log_id", "meal_entries", "daily_log_id"),
     ("ix_tasks_user_id", "tasks", "user_id"),
     ("ix_daily_logs_user_id", "daily_logs", "user_id"),
+    ("ix_goal_days_user_id", "goal_days", "user_id"),
+    ("ix_goal_days_date", "goal_days", "date"),
 )
 
 

@@ -1,5 +1,6 @@
 import { apiClient, API_BASE_URL } from './axios'
 import { AiAnalysisLimit, Task, TaskResponse } from '../types'
+import { prepareImageForUpload } from '../utils/image'
 
 // Бэкенд отдаёт image_path как относительный URL вида /uploads/<file>.
 // Превращаем его в абсолютный, т.к. фронтенд может работать на другом origin.
@@ -12,8 +13,10 @@ const resolveImageUrl = <T extends { image_path?: string }>(task: T): T => {
 
 export const tasksApi = {
   uploadImage: async (file: File): Promise<Task> => {
+    // HEIC с iPhone -> JPEG, разворот по EXIF и сжатие до отправки
+    const prepared = await prepareImageForUpload(file)
     const formData = new FormData()
-    formData.append('file', file)
+    formData.append('file', prepared)
 
     const response = await apiClient.post<Task>('/api/v1/analyze', formData, {
       headers: {

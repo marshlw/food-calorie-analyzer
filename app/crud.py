@@ -1,9 +1,10 @@
 # app/crud.py
 
+from sqlalchemy import func as sa_func
 from sqlalchemy.orm import selectinload, Session
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from . import models, schemas
 import logging
 
@@ -728,6 +729,295 @@ def adjust_water(
     db.commit()
     db.refresh(log)
     return log
+
+
+# ==================== GOALS (цель дня, серия, путь) ====================
+#
+# Правила живут в app/goals.py (чистый модуль без БД). Здесь — только доступ
+# к данным: агрегаты по дням, ленивый синк снимков goal_days и заморозки.
+
+# Сколько дней назад досинхронизировать при обычном запросе. Покрывает и
+# самую длинную реалистичную серию, и «дыры» у пользователей, заведённых до
+# появления фичи: строки создаются один раз, дальше запись почти не идёт.
+GOALS_SYNC_WINDOW_DAYS: int = 120
+
+
+def meal_day_aggregates(
+    db: Session, user_id: int, start: date, end: date
+) -> Dict[date, Tuple[int, float]]:
+    """Дата -> (число записей, суммарный белок, г) за период.
+    Один групповой запрос вместо N запросов дневника."""
+    rows = (
+        db.query(
+            models.DailyLog.date.label("day"),
+            sa_func.count(models.MealEntry.id).label("cnt"),
+            sa_func.coalesce(sa_func.sum(models.MealEntry.protein_g), 0.0).label("protein"),
+        )
+        .join(models.MealEntry, models.MealEntry.daily_log_id == models.DailyLog.id)
+        .filter(
+            models.DailyLog.user_id == user_id,
+            models.DailyLog.date >= start,
+            models.DailyLog.date <= end,
+        )
+        .group_by(models.DailyLog.date)
+        .all()
+    )
+    return {row.day: (int(row.cnt or 0), float(row.protein or 0)) for row in rows}
+
+
+def water_day_totals(db: Session, user_id: int, start: date, end: date) -> Dict[date, float]:
+    """Дата -> выпито мл за период."""
+    rows = (
+        db.query(models.WaterLog.date, models.WaterLog.total_ml)
+        .filter(
+            models.WaterLog.user_id == user_id,
+            models.WaterLog.date >= start,
+            models.WaterLog.date <= end,
+        )
+        .all()
+    )
+    return {row[0]: float(row[1] or 0) for row in rows}
+
+
+def list_goal_days(
+    db: Session, user_id: int, start: date, end: date
+) -> Dict[date, models.GoalDay]:
+    rows = (
+        db.query(models.GoalDay)
+        .filter(
+            models.GoalDay.user_id == user_id,
+            models.GoalDay.date >= start,
+            models.GoalDay.date <= end,
+        )
+        .all()
+    )
+    return {row.date: row for row in rows}
+
+
+def build_day_goals(
+    db: Session,
+    user: models.User,
+    day: date,
+    *,
+    targets: Optional[Dict[str, Any]] = None,
+) -> list:
+    """Цели дня (список goals.DailyGoal) по фактическим записям за дату."""
+    from . import goals as goals_rules
+
+    targets = targets if targets is not None else compute_nutrition_targets(db, user)
+    meals = meal_day_aggregates(db, user.id, day, day).get(day, (0, 0.0))
+    water_ml = water_day_totals(db, user.id, day, day).get(day, 0.0)
+
+    return goals_rules.build_daily_goals(
+        meals_count=meals[0],
+        water_ml=water_ml,
+        water_target_ml=targets.get("water_ml"),
+        protein_g=meals[1],
+        protein_target_g=targets.get("protein_g"),
+    )
+
+
+def sync_goal_days(
+    db: Session,
+    user: models.User,
+    start: date,
+    end: date,
+    *,
+    targets: Optional[Dict[str, Any]] = None,
+) -> Dict[date, models.GoalDay]:
+    """Пересчитывает и сохраняет снимки дней за период [start; end].
+
+    Строка создаётся ТОЛЬКО для дня с активностью (есть приёмы или вода) —
+    пустые дни выводятся как «пропуск» по отсутствию строки, поэтому таблица
+    не растёт на каждого молчащего пользователя. Уже существующие строки
+    обновляются, если пересчёт дал другие цифры; `frozen` при этом липкий.
+
+    Будущие дни не сохраняются: у них нет фактов, а статус `future` вычисляется
+    на лету.
+    """
+    from . import goals as goals_rules
+
+    today = date.today()
+    if end > today:
+        end = today
+    if start > end:
+        return {}
+
+    targets = targets if targets is not None else compute_nutrition_targets(db, user)
+    water_target = targets.get("water_ml")
+    protein_target = targets.get("protein_g")
+
+    meals = meal_day_aggregates(db, user.id, start, end)
+    water = water_day_totals(db, user.id, start, end)
+    existing = list_goal_days(db, user.id, start, end)
+
+    dirty = False
+    result: Dict[date, models.GoalDay] = {}
+
+    day = start
+    while day <= end:
+        row = existing.get(day)
+        meals_count, protein_g = meals.get(day, (0, 0.0))
+        water_ml = water.get(day, 0.0)
+        has_activity = meals_count > 0 or water_ml > 0
+
+        if row is None and not has_activity:
+            day += timedelta(days=1)
+            continue
+
+        day_goals = goals_rules.build_daily_goals(
+            meals_count=meals_count,
+            water_ml=water_ml,
+            water_target_ml=water_target,
+            protein_g=protein_g,
+            protein_target_g=protein_target,
+        )
+        by_id = {g.id: g for g in day_goals}
+        frozen = bool(row.frozen) if row is not None else False
+        status = goals_rules.resolve_status(day_goals, frozen=frozen, day=day, today=today)
+        sparks = goals_rules.count_sparks(day_goals)
+
+        if row is None:
+            row = models.GoalDay(user_id=user.id, date=day)
+            db.add(row)
+            dirty = True
+
+        new_values = {
+            "status": status,
+            "sparks": sparks,
+            "meals_done": by_id[goals_rules.GOAL_MEALS].done,
+            "water_done": by_id[goals_rules.GOAL_WATER].done,
+            "protein_done": by_id[goals_rules.GOAL_PROTEIN].done,
+        }
+        for field, value in new_values.items():
+            if getattr(row, field, None) != value:
+                setattr(row, field, value)
+                dirty = True
+
+        result[day] = row
+        day += timedelta(days=1)
+
+    if dirty:
+        db.commit()
+
+    return result
+
+
+def goal_status_map(
+    db: Session, user_id: int, start: date, end: date
+) -> Dict[date, str]:
+    """Дата -> статус для расчёта серии. Отсутствие строки = пропуск."""
+    return {d: row.status for d, row in list_goal_days(db, user_id, start, end).items()}
+
+
+def refresh_goal_progress(
+    db: Session,
+    user: models.User,
+    *,
+    today: Optional[date] = None,
+    extra_start: Optional[date] = None,
+    targets: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Досинхронизирует окно дней, считает серию/рекорд и выдаёт награды.
+
+    extra_start расширяет окно синка назад (нужно вкладке «Путь», когда
+    пользователь листает старый месяц).
+    Возвращает {'streak', 'best_streak', 'statuses', 'targets'}.
+    """
+    from . import goals as goals_rules
+
+    today = today or date.today()
+    targets = targets if targets is not None else compute_nutrition_targets(db, user)
+
+    start = today - timedelta(days=GOALS_SYNC_WINDOW_DAYS)
+    if extra_start and extra_start < start:
+        start = extra_start
+
+    sync_goal_days(db, user, start, today, targets=targets)
+    statuses = goal_status_map(db, user.id, start, today)
+
+    streak = goals_rules.compute_streak(statuses, today)
+    best_streak = max(int(user.goal_best_streak or 0), streak,
+                      goals_rules.compute_best_streak(statuses))
+
+    grant_goal_rewards(db, user, streak=streak, best_streak=best_streak)
+
+    return {
+        "streak": streak,
+        "best_streak": int(user.goal_best_streak or 0),
+        "statuses": statuses,
+        "targets": targets,
+    }
+
+
+def grant_goal_rewards(
+    db: Session, user: models.User, *, streak: int, best_streak: int
+) -> List[str]:
+    """Начисляет бонусные заморозки за впервые взятые вехи серии и
+    обновляет рекорд. Идемпотентно: коды выданных наград хранятся в
+    users.goal_rewards_granted, поэтому повторный пересчёт ничего не даёт."""
+    from . import goals as goals_rules
+
+    granted = {c for c in (user.goal_rewards_granted or "").split(",") if c}
+    newly: List[str] = []
+    bonus = 0
+
+    for rule in goals_rules.REWARDS:
+        if rule.code in granted:
+            continue
+        if max(streak, best_streak) >= rule.threshold:
+            granted.add(rule.code)
+            newly.append(rule.code)
+            bonus += rule.bonus_freezes
+
+    changed = False
+    if newly:
+        user.goal_rewards_granted = ",".join(sorted(granted))
+        changed = True
+    if bonus:
+        user.goal_freezes_available = int(user.goal_freezes_available or 0) + bonus
+        changed = True
+    if best_streak > int(user.goal_best_streak or 0):
+        user.goal_best_streak = best_streak
+        changed = True
+
+    if changed:
+        db.commit()
+        db.refresh(user)
+
+    return newly
+
+
+class FreezeError(Exception):
+    """Заморозку применить нельзя (нет запаса, день закрыт, слишком старый)."""
+
+
+def apply_goal_freeze(db: Session, user: models.User, day: date) -> models.GoalDay:
+    """Тратит одну заморозку и помечает день сохранённым.
+    Бросает FreezeError с человекочитаемым текстом, если это невозможно."""
+    from . import goals as goals_rules
+
+    today = date.today()
+    row = list_goal_days(db, user.id, day, day).get(day)
+    current_status = row.status if row else goals_rules.STATUS_MISSED
+
+    problem = goals_rules.can_freeze(
+        day, today, current_status, int(user.goal_freezes_available or 0)
+    )
+    if problem:
+        raise FreezeError(problem)
+
+    if row is None:
+        row = models.GoalDay(user_id=user.id, date=day, sparks=0)
+        db.add(row)
+
+    row.frozen = True
+    row.status = goals_rules.STATUS_FROZEN
+    user.goal_freezes_available = int(user.goal_freezes_available or 0) - 1
+
+    db.commit()
+    db.refresh(row)
+    return row
 
 
 # ==================== WORKOUTS ====================

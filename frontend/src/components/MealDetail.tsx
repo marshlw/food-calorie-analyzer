@@ -6,6 +6,7 @@ import { API_BASE_URL } from '../api/axios'
 import { MEAL_TYPE_META, kbjuLine } from '../utils/mealTypes'
 import { capitalize as cap } from '../utils/text'
 import { extractErrorMessage } from '../utils/errors'
+import { UPLOAD_ACCEPT } from '../utils/image'
 import { ProteinBreakdown } from './ProteinBreakdown'
 
 interface Props {
@@ -104,7 +105,7 @@ export const MealDetail: React.FC<Props> = ({ meal, onUpdated }) => {
       <input
         ref={fileRef}
         type="file"
-        accept="image/*"
+        accept={UPLOAD_ACCEPT}
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0]

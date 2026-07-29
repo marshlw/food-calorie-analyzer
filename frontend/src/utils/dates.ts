@@ -29,3 +29,20 @@ export const WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', '
 
 export const formatMonthYear = (weekStart: string): string =>
   new Date(weekStart).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
+
+/* ---------- Месяцы (вкладка «Путь») ---------- */
+
+// 'YYYY-MM' для даты. Локальный месяц, без сдвига часового пояса.
+export const toMonthKey = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+
+// Сдвиг месяца: shiftMonth('2026-01', -1) -> '2025-12'.
+export const shiftMonth = (month: string, delta: number): string => {
+  const [y, m] = month.split('-').map(Number)
+  // День 1 обязателен: new Date(y, m, 31) при переходе в короткий месяц
+  // «перепрыгнул» бы через него.
+  return toMonthKey(new Date(y, m - 1 + delta, 1))
+}
+
+// Строгое сравнение месяцев без парсинга дат: '2026-02' > '2026-01'.
+export const isMonthAfter = (a: string, b: string): boolean => a > b

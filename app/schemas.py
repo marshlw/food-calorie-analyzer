@@ -451,6 +451,100 @@ class AnalysisMealRequest(BaseModel):
     meal_type: str = "snacks"
 
 
+# ==================== GOALS (цель дня, серия, путь) ====================
+
+DayStatusLiteral = Literal["closed", "partial", "frozen", "missed", "future"]
+
+
+class DailyGoalItem(BaseModel):
+    """Одна цель дня. Закрывается автоматически по фактическим записям —
+    подписи (label/hint) считает бэкенд, чтобы правила жили в одном месте."""
+    id: str                      # meals | water | protein
+    label: str
+    hint: str
+    reward: int                  # искры за выполнение
+    done: bool
+    current: float
+    target: Optional[float] = None   # None = норма не задана в профиле
+    unit: str
+    # False = норма не задана: цель показывается, но не мешает закрыть день.
+    available: bool = True
+
+
+class GoalDayBrief(BaseModel):
+    """День недельной полоски на карточке серии."""
+    date: _date
+    label: str                   # «пн» … «вс»
+    status: DayStatusLiteral
+    sparks: int = 0
+    is_today: bool = False
+
+
+class GoalsTodayResponse(BaseModel):
+    """Состояние «Цели дня» + серии на выбранную дату.
+    Используется карточкой серии на «Дневнике» и вкладкой «Путь»."""
+    date: _date
+    goals: List[DailyGoalItem] = Field(default_factory=list)
+    done_count: int = 0
+    total_count: int = 0
+    sparks: int = 0
+    status: DayStatusLiteral = "missed"
+    day_closed: bool = False
+
+    streak: int = 0
+    best_streak: int = 0
+    freezes_available: int = 0
+
+    # Готовые тексты для UI (склонения считает бэкенд).
+    streak_title: str = ""
+    streak_hint: str = ""
+    next_reward_hint: str = ""
+
+    # Пн–Вс недели выбранной даты — точки под кольцом серии.
+    week: List[GoalDayBrief] = Field(default_factory=list)
+    # Доля закрытых дней недели (0..1) — заполнение кольца.
+    week_progress: float = 0.0
+
+
+class GoalPathDay(BaseModel):
+    """Кружок «Пути месяца»."""
+    date: _date
+    day: int                     # число месяца
+    status: DayStatusLiteral
+    sparks: int = 0
+    milestone: Optional[str] = None   # «7 дней», «2 недели», …
+    is_today: bool = False
+
+
+class GoalRewardItem(BaseModel):
+    code: str
+    threshold: int
+    mark: str                    # «7» / «14» / «30» — цифра в плитке
+    title: str
+    subtitle: str
+    reached: bool
+
+
+class GoalPathResponse(BaseModel):
+    """Вкладка «Путь»: месяц кружков, награды, запас заморозок."""
+    month: str                   # YYYY-MM
+    days: List[GoalPathDay] = Field(default_factory=list)
+    closed_days: int = 0
+    total_days: int = 0
+    summary: str = ""            # «12 из 31»
+
+    streak: int = 0
+    best_streak: int = 0
+    freezes_available: int = 0
+    rewards: List[GoalRewardItem] = Field(default_factory=list)
+
+
+class GoalFreezeRequest(BaseModel):
+    """Применить заморозку к дню. По умолчанию — вчера (типичный сценарий:
+    «вчера забыл записать, спасите серию»)."""
+    date: Optional[_date] = None
+
+
 # ==================== НОВЫЕ СХЕМЫ ДЛЯ ОБРАТНОЙ СВЯЗИ ====================
 
 class FeedbackRequest(BaseModel):

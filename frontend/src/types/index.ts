@@ -416,6 +416,87 @@ export interface Exercise {
   kcal_per_30min: number
 }
 
+// ==================== ЦЕЛИ («Цель дня», серия, «Путь») ====================
+
+// Статус дня на «Пути»: закрыт / частично / заморозка / пропуск / будущее.
+export type DayStatus = 'closed' | 'partial' | 'frozen' | 'missed' | 'future'
+
+// Одна цель дня. Закрывается автоматически по фактическим записям;
+// подписи (label/hint) приходят с бэкенда — правила живут в одном месте.
+export interface DailyGoalItem {
+  id: string // meals | water | protein
+  label: string
+  hint: string
+  reward: number // искры за выполнение
+  done: boolean
+  current: number
+  target?: number | null // null = норма не задана в профиле
+  unit: string
+  // false = норма не задана: цель видна, но не мешает закрыть день
+  available: boolean
+}
+
+export interface GoalDayBrief {
+  date: string // YYYY-MM-DD
+  label: string // «пн» … «вс»
+  status: DayStatus
+  sparks: number
+  is_today: boolean
+}
+
+export interface GoalsToday {
+  date: string
+  goals: DailyGoalItem[]
+  done_count: number
+  total_count: number
+  sparks: number
+  status: DayStatus
+  day_closed: boolean
+
+  streak: number
+  best_streak: number
+  freezes_available: number
+
+  // Готовые тексты (склонения считает бэкенд)
+  streak_title: string
+  streak_hint: string
+  next_reward_hint: string
+
+  week: GoalDayBrief[]
+  week_progress: number // 0..1 — заполнение кольца серии
+}
+
+export interface GoalPathDay {
+  date: string
+  day: number // число месяца
+  status: DayStatus
+  sparks: number
+  milestone?: string | null // «7 дней», «2 недели», …
+  is_today: boolean
+}
+
+export interface GoalReward {
+  code: string
+  threshold: number
+  mark: string // «7» / «14» / «30»
+  title: string
+  subtitle: string
+  reached: boolean
+}
+
+export interface GoalPath {
+  month: string // YYYY-MM
+  days: GoalPathDay[]
+  closed_days: number
+  total_days: number
+  summary: string // «12 из 31»
+
+  streak: number
+  best_streak: number
+  freezes_available: number
+  rewards: GoalReward[]
+}
+
 // ==================== AI-СОВЕТЧИК ====================
 
 export interface AdvisorTip {

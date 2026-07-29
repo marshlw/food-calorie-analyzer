@@ -7,12 +7,14 @@ import { extractErrorMessage } from '../utils/errors'
 
 interface Props {
   water?: WaterStatus | null
+  /** Вызывается после успешной записи: даёт странице обновить цели дня. */
+  onChanged?: () => void
 }
 
 // Трекер воды из дизайна Rasify: иконка-капля в голубой плитке, прогресс-бар
 // «1500 / 2000 мл» и круглые кнопки −/+ (один стакан).
 // Smart: сам пишет в API и обновляет день через DiaryContext.refreshDay.
-export const WaterCard: React.FC<Props> = ({ water }) => {
+export const WaterCard: React.FC<Props> = ({ water, onChanged }) => {
   const { selectedDate, refreshDay } = useDiary()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -29,6 +31,7 @@ export const WaterCard: React.FC<Props> = ({ water }) => {
     try {
       await waterApi.updateWater(deltaMl, selectedDate)
       await refreshDay(selectedDate)
+      onChanged?.()
     } catch (e) {
       setError(extractErrorMessage(e))
     } finally {

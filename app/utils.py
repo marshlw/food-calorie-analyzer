@@ -2,8 +2,10 @@ import hashlib
 import hmac
 import time
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageOps
 import magic
+
+from . import imaging  # noqa: F401 - регистрирует HEIC-декодер Pillow
 from typing import Tuple, Optional
 import os
 import logging
@@ -108,14 +110,18 @@ def process_image(
 
     try:
         with Image.open(input_path) as img:
-            # Конвертируем в RGB если нужно
-            if img.mode in ("RGBA", "P", "LA"):
+            # Разворачиваем по EXIF Orientation ДО удаления метаданных.
+            # Фото с телефона почти всегда снято «боком» и выпрямляется
+            # только этим тегом — без разворота картинка уедет на 90°.
+            img = ImageOps.exif_transpose(img)
+
+            # Конвертируем в RGB если нужно (JPEG не умеет альфа-канал)
+            if img.mode not in ("RGB", "L"):
                 img = img.convert("RGB")
 
             # Удаляем EXIF (создаем новое изображение без метаданных)
-            data = list(img.getdata())
-            img_without_exif = Image.new(img.mode, img.size)
-            img_without_exif.putdata(data)
+            img_without_exif = img.copy()
+            img_without_exif.info = {}
 
             # Ресайзим с сохранением пропорций
             img_without_exif.thumbnail(max_size, Image.Resampling.LANCZOS)
@@ -151,6 +157,9 @@ def generate_thumbnail(
 
     try:
         with Image.open(image_path) as img:
+            img = ImageOps.exif_transpose(img)
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
             img.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
             img.save(output_path, "JPEG", quality=75, optimize=True)
         return output_path

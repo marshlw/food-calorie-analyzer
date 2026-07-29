@@ -11,10 +11,11 @@ from typing import Optional, Any, List, Dict
 from openai import OpenAI
 import redis
 import httpx
-from PIL import Image
+from PIL import Image, ImageOps
 from pydantic import BaseModel, Field, StrictInt, StrictFloat, StrictStr, conlist, validator, ValidationError
 
 from .config import settings
+from . import imaging  # noqa: F401 - регистрирует HEIC-декодер Pillow
 from . import models
 from .database import SessionLocal
 
@@ -927,7 +928,10 @@ def preprocess(path: str) -> str:
     try:
         Image.MAX_IMAGE_PIXELS = getattr(settings, "MAX_IMAGE_PIXELS", 100000000)
         with Image.open(path) as src:
-            img = src.convert("RGB")
+            # Загрузки нормализуются ещё в API, но фото может прийти и другим
+            # путём — разворот по EXIF здесь идемпотентен и страхует от
+            # «повёрнутого» кадра, на котором модель ошибается
+            img = ImageOps.exif_transpose(src).convert("RGB")
             max_size = getattr(settings, "MAX_IMAGE_SIZE", 1600)
             quality = getattr(settings, "IMAGE_QUALITY", 90)
             img.thumbnail((max_size, max_size))
