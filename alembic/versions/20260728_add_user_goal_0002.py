@@ -33,13 +33,24 @@ _COLUMNS = (
 
 
 def _existing_columns() -> set:
+    """Колонки users; пустое множество, если таблицы ещё нет.
+
+    На ЧИСТОЙ базе таблицы создаёт миграция 0004_schema_baseline, которая
+    идёт ПОСЛЕ этой. Без проверки get_columns("users") бросал бы
+    NoSuchTableError и деплой на новом окружении падал бы целиком.
+    """
     bind = op.get_bind()
-    return {c["name"] for c in sa.inspect(bind).get_columns("users")}
+    inspector = sa.inspect(bind)
+    if "users" not in inspector.get_table_names():
+        return set()
+    return {c["name"] for c in inspector.get_columns("users")}
 
 
 def upgrade() -> None:
     # Идемпотентно: ensure_schema() мог долить колонки раньше миграции.
     existing = _existing_columns()
+    if not existing:
+        return  # чистая база — таблицу с этими колонками создаст 0004
     for name, type_ in _COLUMNS:
         if name not in existing:
             op.add_column("users", sa.Column(name, type_, nullable=True))

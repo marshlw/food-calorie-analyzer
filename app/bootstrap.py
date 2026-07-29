@@ -59,22 +59,39 @@ STEPS = (
 
 
 def main() -> int:
+    """Всегда возвращает 0 — и это осознанно.
+
+    Код запускается как `alembic upgrade head && python -m app.bootstrap` в
+    сервисе `migrate`, а от его кода возврата зависит, стартует ли вообще
+    api (`condition: service_completed_successfully`).
+
+    Схема — вещь обязательная: если упал alembic, поднимать приложение
+    нельзя, и `&&` это обеспечивает. А здесь подготовка ДАННЫХ: не
+    засеялся справочник продуктов или не отработал backfill — приложение
+    работает, просто автодополнение отдаёт меньше позиций. Ронять из-за
+    этого весь сайт несоразмерно.
+
+    Поэтому ошибки шумно логируются уровнем ERROR (их видно в
+    `docker compose logs migrate`), но деплой не блокируют.
+    """
     failed = []
     for label, step in STEPS:
         try:
             step()
         except Exception:
-            # Один упавший шаг не должен блокировать остальные и деплой:
-            # это подготовка ДАННЫХ, а не схемы. Но код возврата ставим
-            # ненулевой, чтобы CI/логи деплоя это заметили.
             logger.exception("Bootstrap step failed: %s", label)
             failed.append(label)
 
     if failed:
-        logger.error("Bootstrap finished with errors: %s", ", ".join(failed))
-        return 1
+        logger.error(
+            "Bootstrap finished with errors: %s. "
+            "Схема накачена, приложение стартует, но данные подготовлены "
+            "не полностью — разберитесь и перезапустите `python -m app.bootstrap`.",
+            ", ".join(failed),
+        )
+    else:
+        logger.info("Bootstrap finished successfully")
 
-    logger.info("Bootstrap finished successfully")
     return 0
 
 

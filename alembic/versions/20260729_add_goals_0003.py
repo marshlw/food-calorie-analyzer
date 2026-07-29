@@ -41,14 +41,30 @@ def _table_names() -> set:
 
 
 def _existing_columns(table: str) -> set:
+    """Колонки таблицы; пустое множество, если таблицы ещё нет.
+
+    На ЧИСТОЙ базе таблицы создаёт 0004_schema_baseline (идёт после),
+    поэтому get_columns() без проверки бросал бы NoSuchTableError.
+    """
     bind = op.get_bind()
-    return {c["name"] for c in sa.inspect(bind).get_columns(table)}
+    inspector = sa.inspect(bind)
+    if table not in inspector.get_table_names():
+        return set()
+    return {c["name"] for c in inspector.get_columns(table)}
 
 
 def upgrade() -> None:
+    tables = _table_names()
+
+    # На ЧИСТОЙ базе таблиц ещё нет — их целиком создаст 0004_schema_baseline.
+    # Пытаться создать goal_days здесь нельзя: FK ссылается на users.id,
+    # которого пока не существует, и миграция упадёт.
+    if "users" not in tables:
+        return
+
     # ---- Таблица снимков дня ----
     # Идемпотентно: create_all()/ensure_schema() мог создать таблицу раньше.
-    if "goal_days" not in _table_names():
+    if "goal_days" not in tables:
         op.create_table(
             "goal_days",
             sa.Column("id", sa.Integer(), primary_key=True, index=True),

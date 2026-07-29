@@ -76,16 +76,54 @@ def upgrade() -> None:
 
     # ---- 4. Триграммные индексы автодополнения (M-1) ----
     # Поиск идёт через ILIKE '%слово%' — B-tree бесполезен, нужен GIN+pg_trgm.
-    # Расширение обычно уже стоит (init.sh), здесь страховка для баз,
-    # поднятых до появления init.sh.
-    if bind.dialect.name == "postgresql":
-        op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+    if bind.dialect.name == "postgresql" and _ensure_pg_trgm(bind):
         for index_name, table, column in _TRGM_INDEXES:
             if table in tables:
                 op.execute(
                     f"CREATE INDEX IF NOT EXISTS {index_name} "
                     f"ON {table} USING gin ({column} gin_trgm_ops)"
                 )
+
+
+def _ensure_pg_trgm(bind) -> bool:
+    """Ставит расширение pg_trgm, если его нет. True — расширение доступно.
+
+    ВАЖНО, ДВА МОМЕНТА.
+
+    1. Прикладной пользователь (fooduser) обычно НЕ может создавать
+       расширения: init.sh выдаёт ему CREATE только на схему public, а
+       CREATE EXTENSION требует прав на БАЗУ. Основной путь установки —
+       init.sh под суперпользователем, но он отрабатывает лишь на чистом
+       томе postgres. На базе, поднятой раньше, расширения не будет.
+
+    2. Упавший оператор в Postgres переводит ВСЮ транзакцию в aborted, и
+       дальше падает всё подряд с "current transaction is aborted".
+       Поэтому пробуем внутри SAVEPOINT (begin_nested) — тогда неудача
+       откатывает только эту попытку, а миграция продолжается.
+
+    Отсутствие индексов замедляет автодополнение, но не ломает приложение,
+    поэтому деплой из-за этого блокировать нельзя.
+    """
+    installed = bind.execute(
+        sa.text("SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'")
+    ).scalar()
+    if installed:
+        return True
+
+    try:
+        with bind.begin_nested():
+            bind.execute(sa.text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        return True
+    except Exception as exc:
+        print(
+            "WARNING: pg_trgm is not available, skipping trigram indexes "
+            f"({exc}).\n"
+            "         Autocomplete will fall back to a sequential scan.\n"
+            "         Fix as superuser:\n"
+            '         docker compose -f docker-compose.prod.yml exec postgres \\\n'
+            '           psql -U postgres -d fooddb -c "CREATE EXTENSION IF NOT EXISTS pg_trgm"'
+        )
+        return False
 
 
 def downgrade() -> None:
