@@ -282,9 +282,8 @@ def _save_upload_file_securely(
         logger.warning("Upload save failed", extra={"filename": filename, "error": str(exc)})
         raise HTTPException(status_code=400, detail=UNSUPPORTED_IMAGE_DETAIL) from exc
     finally:
-        if temp_path is not None:
-            Path(temp_path).unlink(missing_ok=True)
-    finally:
+        # Временный файл больше не нужен: при успехе результат уже записан
+        # в target_path, при ошибке подчищаем за собой
         if temp_path is not None and temp_path.exists():
             try:
                 temp_path.unlink()
