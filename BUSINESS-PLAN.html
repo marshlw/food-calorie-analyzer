@@ -1,0 +1,1433 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-Healthy — Бизнес-план развития</title>
+<style>
+:root{
+  --bg:#0C1512; --panel:#16241F; --panel2:#1D302A;
+  --accent:#35E08A; --accent-dim:#1E8A55; --amber:#F4C95D; --red:#FF6B6B;
+  --text:#EAF2EE; --muted:#8FA69C;
+  --lbg:#F7FAF8; --ltext:#0C1512; --lmuted:#5E7A6E; --lpanel:#EAF2ED;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#050908;font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+
+#stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.slide{
+  position:absolute;width:1280px;height:720px;padding:56px 64px;
+  background:var(--bg);color:var(--text);
+  display:none;flex-direction:column;
+  transform-origin:center center;
+}
+.slide.active{display:flex}
+.slide.light{background:var(--lbg);color:var(--ltext)}
+.slide.light .muted{color:var(--lmuted)}
+.slide.light .card{background:var(--lpanel);border-color:rgba(12,21,18,.08)}
+.slide.light .kicker{color:var(--accent-dim)}
+
+.kicker{font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:14px}
+h1{font-size:62px;line-height:1.05;font-weight:800;letter-spacing:-.02em}
+h2{font-size:40px;line-height:1.12;font-weight:800;letter-spacing:-.015em;margin-bottom:8px}
+h3{font-size:19px;font-weight:700;margin-bottom:6px}
+p,li{font-size:16px;line-height:1.5}
+.muted{color:var(--muted)}
+.sub{font-size:19px;line-height:1.45;color:var(--muted);margin-top:12px;max-width:1000px}
+.body{flex:1;display:flex;flex-direction:column;justify-content:center;min-height:0}
+.top{flex:0 0 auto;margin-bottom:26px}
+
+.grid{display:grid;gap:18px}
+.g2{grid-template-columns:1fr 1fr}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+.g23{grid-template-columns:1.15fr 1fr}
+.g32{grid-template-columns:1fr 1.3fr}
+
+.card{background:var(--panel);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:20px 22px}
+.card.hot{background:rgba(255,107,107,.10);border-color:rgba(255,107,107,.32)}
+.card.warm{background:rgba(244,201,93,.10);border-color:rgba(244,201,93,.30)}
+.card.good{background:rgba(53,224,138,.10);border-color:rgba(53,224,138,.30)}
+.card p{color:var(--muted);font-size:14.5px}
+.slide.light .card p{color:var(--lmuted)}
+
+.badge{width:34px;height:34px;border-radius:50%;background:var(--accent);color:#05130B;
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex:0 0 auto}
+.badge.alt{background:var(--amber);color:#2A1E00}
+.badge.dim{background:rgba(53,224,138,.16);color:var(--accent)}
+
+.row{display:flex;gap:14px;align-items:flex-start}
+.rows{display:flex;flex-direction:column;gap:13px}
+
+.stat{font-size:52px;font-weight:800;letter-spacing:-.03em;line-height:1}
+.stat.sm{font-size:38px}
+.stat.g{color:var(--accent)} .stat.a{color:var(--amber)} .stat.r{color:var(--red)}
+.lbl{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.35}
+.slide.light .lbl{color:var(--lmuted)}
+
+table{width:100%;border-collapse:collapse;font-size:15px}
+th{text-align:left;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  font-weight:700;padding:0 12px 10px 0;border-bottom:1px solid rgba(255,255,255,.12)}
+td{padding:11px 12px 11px 0;border-bottom:1px solid rgba(255,255,255,.07);vertical-align:top}
+.slide.light th{border-color:rgba(12,21,18,.15);color:var(--lmuted)}
+.slide.light td{border-color:rgba(12,21,18,.08)}
+td.num{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.tg{color:var(--accent)} .ta{color:var(--amber)} .tr{color:var(--red)}
+tr.total td{border-bottom:none;font-weight:800;font-size:16.5px;padding-top:14px}
+
+ul{list-style:none}
+ul.tick li{position:relative;padding-left:24px;margin-bottom:9px;font-size:15px}
+ul.tick li:before{content:"";position:absolute;left:0;top:7px;width:9px;height:9px;border-radius:3px;background:var(--accent)}
+ul.tick.a li:before{background:var(--amber)}
+ul.tick.r li:before{background:var(--red)}
+
+.pill{display:inline-block;padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;
+  background:rgba(53,224,138,.15);color:var(--accent);letter-spacing:.03em}
+.pill.a{background:rgba(244,201,93,.15);color:var(--amber)}
+.pill.r{background:rgba(255,107,107,.15);color:var(--red)}
+.pill.n{background:rgba(255,255,255,.09);color:var(--muted)}
+
+.arrow{display:flex;align-items:center;justify-content:center;font-size:30px;color:var(--accent);font-weight:300}
+
+.code{font-family:"Courier New",monospace;font-size:12.5px;line-height:1.65;
+  background:rgba(0,0,0,.30);border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:14px 16px;
+  color:var(--text);white-space:pre;overflow:hidden}
+.slide.light .code{background:rgba(12,21,18,.05);border-color:rgba(12,21,18,.10);color:var(--ltext)}
+.code .k{color:var(--accent)} .code .c{color:var(--muted)}
+
+.flow{display:flex;align-items:stretch;gap:10px}
+.flow .step{flex:1;background:var(--panel);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px 15px}
+.slide.light .flow .step{background:var(--lpanel);border-color:rgba(12,21,18,.08)}
+.flow .sep{display:flex;align-items:center;color:var(--accent);font-size:22px;flex:0 0 auto}
+
+.vtab td{padding:8px 10px 8px 0;font-size:14px}
+.vtab th{padding-bottom:8px}
+
+.foot{position:absolute;left:64px;right:64px;bottom:22px;display:flex;justify-content:space-between;
+  font-size:11.5px;color:var(--muted);letter-spacing:.05em}
+.slide.light .foot{color:var(--lmuted)}
+
+#nav{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:50;
+  display:flex;gap:8px;align-items:center;background:rgba(12,21,18,.86);border:1px solid rgba(255,255,255,.12);
+  padding:7px 14px;border-radius:999px;backdrop-filter:blur(8px)}
+#nav button{background:none;border:none;color:var(--text);font-size:17px;cursor:pointer;padding:2px 8px;line-height:1}
+#nav button:hover{color:var(--accent)}
+#counter{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:52px;text-align:center}
+
+@media print{
+  @page{size:1280px 720px;margin:0}
+  html,body{background:#fff}
+  #stage{position:static;display:block;overflow:visible}
+  .slide{display:flex!important;position:relative;transform:none!important;page-break-after:always;break-after:page}
+  #nav{display:none}
+}
+</style>
+</head>
+<body>
+<div id="stage">
+
+<!-- 1 -->
+<section class="slide" style="justify-content:center">
+  <div class="body" style="justify-content:center">
+    <div class="pill" style="margin-bottom:22px">Бизнес-план развития · Июль 2026</div>
+    <h1>AI-Healthy</h1>
+    <h1 style="color:var(--accent);font-size:44px;margin-top:10px">От MVP к приложению<br>с подпиской</h1>
+    <p class="sub">Аудит продукта и затрат, сокращение себестоимости в 6 раз, спецификация ключевой фичи,
+    план из 13 спринтов, выход в App Store / Google Play / RuStore / AppGallery
+    и просчитанный путь к миллиону рублей прибыли в месяц.</p>
+    <div style="display:flex;gap:10px;margin-top:26px;flex-wrap:wrap">
+      <span class="pill n">29 слайдов</span>
+      <span class="pill n">← → листать</span>
+      <span class="pill n">Ctrl+P → сохранить как PDF</span>
+    </div>
+  </div>
+  <div class="foot"><span>AI-HEALTHY · BUSINESS PLAN</span><span>01</span></div>
+</section>
+
+<!-- 2 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Аудит · что уже есть</div>
+    <h2>Технически продукт готов на 80%</h2>
+    <p class="muted" style="font-size:17px;margin-top:6px">Это не прототип. Это работающий сервис с архитектурой, рассчитанной на нагрузку.</p>
+  </div>
+  <div class="body">
+    <div class="grid g4">
+      <div class="card"><div class="badge dim" style="margin-bottom:12px">1</div>
+        <h3>Ядро AI-анализа</h3>
+        <p>Распознавание блюда по фото, разбор на ингредиенты, расчёт КБЖУ по справочнику продуктов. 4 провайдера с автоматическим фолбэком и circuit breaker.</p></div>
+      <div class="card"><div class="badge dim" style="margin-bottom:12px">2</div>
+        <h3>Полноценный трекер</h3>
+        <p>Дневник питания, вода, вес и обхваты, тренировки со справочником упражнений, цели по КБЖУ, разделение белка на животный/растительный.</p></div>
+      <div class="card"><div class="badge dim" style="margin-bottom:12px">3</div>
+        <h3>Удержание</h3>
+        <p>Геймификация: серии дней, «искры», заморозки серии, награды. LLM-советчик по контексту дня. Сканер штрихкодов — бесплатная альтернатива AI.</p></div>
+      <div class="card"><div class="badge dim" style="margin-bottom:12px">4</div>
+        <h3>Инфраструктура</h3>
+        <p>FastAPI + Postgres + Redis + Celery, JWT с версионированием токенов, rate limiting, подписанные ссылки на фото, тесты, Telegram-бот, React/Vite фронт.</p></div>
+    </div>
+    <div class="card good" style="margin-top:20px;display:flex;gap:26px;align-items:center">
+      <div><div class="stat sm g">Скрытый актив</div></div>
+      <p style="font-size:15.5px;color:var(--lmuted)">Таблица <b>Feedback</b> и папка <b>training_data</b> уже собирают исправления пользователей
+      («это не блин, а чебурек»). Это размеченный датасет русской кухни, которого нет у Cal AI и MyFitnessPal.
+      Через 10–20 тыс. исправлений — ваш defensibility moat и повод для более дешёвой собственной модели.</p>
+    </div>
+  </div>
+  <div class="foot"><span>АУДИТ ПРОДУКТА</span><span>02</span></div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Диагноз</div>
+    <h2>Продукт есть. Бизнеса — нет.</h2>
+  </div>
+  <div class="body">
+    <div class="grid g3">
+      <div class="card hot">
+        <div class="stat r">0</div>
+        <div class="lbl">строк кода, связанных с деньгами</div>
+        <p style="margin-top:14px">В схеме БД нет таблиц <b>Subscription</b>, <b>Plan</b>, <b>Payment</b>, <b>Entitlement</b>.
+        Нет понятия «платящий пользователь». Продать подписку физически нечем.</p>
+      </div>
+      <div class="card hot">
+        <div class="stat r">45 000 ₽</div>
+        <div class="lbl">затрат на AI в месяц при 1 000 активных бесплатных</div>
+        <p style="margin-top:14px">Лимит 5 анализов в сутки × 0,30 ₽ × 30 дней. Бесплатный пользователь стоит вам
+        <b>45 ₽/мес</b> и не приносит ничего. Рост = ускорение убытка.</p>
+      </div>
+      <div class="card hot">
+        <div class="stat r">4 200 ₽</div>
+        <div class="lbl">фиксированный платёж при нулевой выручке</div>
+        <p style="margin-top:14px">ВМ оплачивается независимо от нагрузки. При текущем трафике вы платите за
+        мощность, которая простаивает 95% времени.</p>
+      </div>
+    </div>
+    <div class="card warm" style="margin-top:22px">
+      <div class="row">
+        <div class="badge alt">!</div>
+        <div>
+          <h3 style="color:var(--amber)">Главный вывод как PM</h3>
+          <p style="font-size:15.5px">Следующие два месяца нужно потратить <b>не на новые фичи анализа</b>, а на три вещи:
+          биллинг, себестоимость и воронку онбординга. Продукт уже лучше, чем нужно для первых 1 000 пользователей —
+          узкое место переехало из разработки в экономику.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>ДИАГНОЗ</span><span>03</span></div>
+</section>
+
+<!-- 4 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Оптимизация · AI</div>
+    <h2>Себестоимость генерации: 0,30 ₽ → 0,05 ₽</h2>
+    <p class="muted" style="font-size:17px;margin-top:6px">Семь мер, отсортированных по соотношению «эффект / трудозатраты». Первые три дают ~70% экономии за пару дней работы.</p>
+  </div>
+  <div class="body">
+    <table>
+      <thead><tr><th style="width:26px"></th><th>Мера</th><th>Что менять в коде</th><th style="width:110px">Эффект</th><th style="width:90px">Работа</th></tr></thead>
+      <tbody>
+        <tr><td class="num tg">1</td><td><b>Урезать бюджет вывода</b></td>
+          <td class="muted">YANDEX_MAX_OUTPUT_TOKENS 4000 → 800, REASONING_EFFORT low → none. Reasoning-токены оплачиваются как вывод, а для JSON из 6 полей 4 000 токенов не нужны.</td>
+          <td class="num tg">−30…40%</td><td class="num">1 час</td></tr>
+        <tr><td class="num tg">2</td><td><b>Двухуровневый роутинг</b></td>
+          <td class="muted">Дешёвая модель первой; уход на сильную только при confidence &lt; 0,6. Поле confidence уже есть в схеме ответа — логика на 20 строк.</td>
+          <td class="num tg">−40…50%</td><td class="num">1 день</td></tr>
+        <tr><td class="num tg">3</td><td><b>Сжимать фото сильнее</b></td>
+          <td class="muted">MAX_IMAGE_SIZE 1600 → 1024, IMAGE_QUALITY 95 → 82. Токены изображения растут с разрешением; на еде потеря точности в пределах шума.</td>
+          <td class="num tg">−25…35%</td><td class="num">1 час</td></tr>
+        <tr><td class="num ta">4</td><td><b>Перцептивный хеш вместо SHA-256</b></td>
+          <td class="muted">Сейчас кеш промахивается при любом пересжатии. pHash + расстояние Хэмминга ловит «та же тарелка, другой кадр» и повторные загрузки.</td>
+          <td class="num ta">−10…20%</td><td class="num">1 день</td></tr>
+        <tr><td class="num ta">5</td><td><b>Починить кеш советчика</b></td>
+          <td class="muted">Ключ кеша — хеш контекста дня, он меняется после каждого приёма пищи. Пользователь с 4 приёмами и водой запускает 6+ LLM-вызовов в день. Регенерация — максимум 2 раза в сутки или по кнопке.</td>
+          <td class="num ta">−60% на советчике</td><td class="num">2 часа</td></tr>
+        <tr><td class="num ta">6</td><td><b>Штрихкод — главным действием</b></td>
+          <td class="muted">Сканер уже написан и стоит 0 ₽. Сейчас AI — герой экрана. Поменять приоритет: упаковка → штрихкод, тарелка → AI.</td>
+          <td class="num ta">−15…25% вызовов</td><td class="num">1 день</td></tr>
+        <tr><td class="num">7</td><td><b>Сократить промпт</b></td>
+          <td class="muted">~500 токенов уходят с каждым запросом. Ужать до 200 без потери качества, вынести правила в instructions (кешируются провайдером).</td>
+          <td class="num">−5%</td><td class="num">1 час</td></tr>
+      </tbody>
+    </table>
+    <div class="grid g3" style="margin-top:20px">
+      <div class="card good" style="padding:16px 20px"><div class="stat sm g">0,05–0,08 ₽</div><div class="lbl">целевая себестоимость одной генерации</div></div>
+      <div class="card good" style="padding:16px 20px"><div class="stat sm g">в 4–6 раз</div><div class="lbl">снижение при полном внедрении списка</div></div>
+      <div class="card" style="padding:16px 20px"><div class="stat sm">~5 дней</div><div class="lbl">суммарные трудозатраты на все семь мер</div></div>
+    </div>
+  </div>
+  <div class="foot"><span>ОПТИМИЗАЦИЯ ЗАТРАТ</span><span>04</span></div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Оптимизация · инфраструктура и лимиты</div>
+    <h2>4 200 ₽ за ВМ — переплата на текущей стадии</h2>
+  </div>
+  <div class="body">
+    <div class="grid g23">
+      <div class="rows">
+        <div class="card"><div class="row"><div class="badge">₽</div><div>
+          <h3>Сменить площадку — до 1 500 ₽/мес</h3>
+          <p>4 vCPU / 8 ГБ у Timeweb, Selectel, aeza, VDSina стоят 1 200–1 800 ₽. Экономия <b>~2 700 ₽/мес</b> без изменений в коде — весь стек в Docker.
+          Резерв: годовая оплата даёт ещё −15…20%.</p></div></div></div>
+        <div class="card"><div class="row"><div class="badge">↓</div><div>
+          <h3>Снизить лимит воркеров под реальную нагрузку</h3>
+          <p>В конфиге заложены 2 uvicorn + 4 celery процесса и пул на 60 коннектов — бюджет под 5 000 DAU.
+          При текущем трафике достаточно 1 + 2. Это позволяет уехать на тариф вдвое дешевле.</p></div></div></div>
+        <div class="card"><div class="row"><div class="badge">🗑</div><div>
+          <h3>Чистить загрузки</h3>
+          <p>DELETE_UPLOAD_AFTER_ANALYSIS = false, оригиналы копятся вечно. Диск растёт линейно с числом анализов.
+          Включить TTL 30 дней или S3-совместимое объектное хранилище (~2 ₽/ГБ) вместо диска ВМ.</p></div></div></div>
+      </div>
+      <div class="rows">
+        <div class="card warm">
+          <h3 style="color:var(--amber)">Бесплатный лимит: 5 → 3 анализа в день</h3>
+          <p style="margin-top:8px">Это не жадность, а дизайн воронки. 3 анализа покрывают завтрак, обед и ужин —
+          достаточно, чтобы почувствовать ценность, и мало, чтобы жить бесплатно вечно.
+          Ограничение упирается в момент, когда пользователь уже привык.</p>
+          <div class="grid g2" style="margin-top:16px">
+            <div><div class="stat sm r">45 ₽</div><div class="lbl">стоил бесплатный<br>пользователь</div></div>
+            <div><div class="stat sm g">5,4 ₽</div><div class="lbl">будет стоить<br>после изменений</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Добавить месячный потолок</h3>
+          <p>Дневного лимита мало: 3 × 30 = 90 анализов в месяц у пользователя, который никогда не заплатит.
+          Ставим 40 анализов в месяц для бесплатного тарифа — медиана реального пользователя ~25.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>ОПТИМИЗАЦИЯ ЗАТРАТ</span><span>05</span></div>
+</section>
+
+<!-- 6 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Итог оптимизации</div>
+    <h2>Что происходит с расходами</h2>
+    <p class="muted" style="font-size:17px;margin-top:6px">Сценарий: 1 000 активных бесплатных пользователей, по 3 анализа в день.</p>
+  </div>
+  <div class="body">
+    <table>
+      <thead><tr><th>Статья</th><th style="width:150px">Сейчас</th><th style="width:150px">После</th><th style="width:150px">Экономия</th><th>Как</th></tr></thead>
+      <tbody>
+        <tr><td><b>Виртуальная машина</b></td><td class="num tr">4 200 ₽</td><td class="num tg">1 500 ₽</td><td class="num tg">−2 700 ₽</td><td class="muted">Смена провайдера + меньше воркеров</td></tr>
+        <tr><td><b>AI: анализ фото</b></td><td class="num tr">45 000 ₽</td><td class="num tg">5 400 ₽</td><td class="num tg">−39 600 ₽</td><td class="muted">Токены, роутинг, сжатие, кеш, лимит 3/день</td></tr>
+        <tr><td><b>AI: советчик</b></td><td class="num tr">~9 000 ₽</td><td class="num tg">~2 000 ₽</td><td class="num tg">−7 000 ₽</td><td class="muted">Починка кеша, 2 генерации в сутки вместо 6+</td></tr>
+        <tr><td><b>Хранение фото</b></td><td class="num ta">растёт</td><td class="num tg">~300 ₽</td><td class="num tg">предсказуемо</td><td class="muted">TTL 30 дней / объектное хранилище</td></tr>
+        <tr class="total"><td>ИТОГО в месяц</td><td class="num tr">~58 200 ₽</td><td class="num tg">~9 200 ₽</td><td class="num tg">−84%</td><td class="muted">окупается за 5 дней работы</td></tr>
+      </tbody>
+    </table>
+    <div class="grid g3" style="margin-top:24px">
+      <div class="card good"><div class="stat sm g">6,3×</div><div class="lbl">во столько раз дешевле обслуживать ту же базу пользователей</div></div>
+      <div class="card good"><div class="stat sm g">9,2 ₽</div><div class="lbl">стоимость бесплатного пользователя в месяц вместо 58 ₽</div></div>
+      <div class="card"><div class="stat sm">≈30</div><div class="lbl">платящих подписчиков достаточно, чтобы выйти в ноль</div></div>
+    </div>
+  </div>
+  <div class="foot"><span>ОПТИМИЗАЦИЯ ЗАТРАТ</span><span>06</span></div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Рынок</div>
+    <h2>Ниша большая, растущая и с доказанным спросом</h2>
+  </div>
+  <div class="body">
+    <div class="grid g4" style="margin-bottom:22px">
+      <div class="card"><div class="stat g">$4,1</div><div class="lbl">млрд — рынок счётчиков калорий в 2026, рост 9,3% в год</div></div>
+      <div class="card"><div class="stat g">175–200</div><div class="lbl">млн человек в мире активно ведут дневник питания</div></div>
+      <div class="card"><div class="stat g">24,6%</div><div class="lbl">CAGR у AI-приложений для питания — вдвое быстрее рынка</div></div>
+      <div class="card"><div class="stat g">$50M</div><div class="lbl">ARR у Cal AI до покупки MyFitnessPal в марте 2026</div></div>
+    </div>
+    <div class="grid g2">
+      <div class="card good">
+        <h3 style="color:var(--accent)">Что доказал Cal AI</h3>
+        <p style="margin-top:8px">15 млн скачиваний и $50M ARR на одной механике: сфотографируй еду — получи калории.
+        Без бюджета на маркетинг, на органике TikTok. Спрос на «AI по фото» подтверждён деньгами,
+        а не опросами. Гипотезу проверять не нужно — нужно занимать нишу.</p>
+      </div>
+      <div class="card warm">
+        <h3 style="color:var(--amber)">Где у них слабо, а у вас сильно</h3>
+        <ul class="tick a" style="margin-top:10px">
+          <li>Западные модели плохо знают чебуреки, борщ, хачапури, плов, сырники</li>
+          <li>Их база продуктов — на английском, с американскими порциями</li>
+          <li>После апреля 2026 у Cal AI репутационные проблемы: снятие из App Store за биллинг, утечка данных 3,2 млн пользователей</li>
+          <li>В RuStore и AppGallery качественных AI-трекеров практически нет</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>РЫНОК И КОНКУРЕНТЫ</span><span>07</span></div>
+</section>
+
+<!-- 8 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Позиционирование</div>
+    <h2>Две разные истории для двух рынков</h2>
+    <p class="muted" style="font-size:17px;margin-top:6px">Одно приложение, два позиционирования и два прайса. Не пытайтесь продавать одно и то же.</p>
+  </div>
+  <div class="body">
+    <div class="grid g2">
+      <div class="card">
+        <div class="pill">Россия и СНГ · первый рынок</div>
+        <h3 style="margin-top:14px;font-size:23px">«Считает борщ, а не только салат»</h3>
+        <p style="margin-top:10px">Единственный AI-счётчик, который знает русскую, кавказскую и среднеазиатскую кухню.
+        Плюс — то, чего нет у западных: разделение белка на животный и растительный,
+        дневник тренировок и обхваты тела в одном приложении.</p>
+        <ul class="tick" style="margin-top:14px">
+          <li>Конкуренция низкая, стоимость трафика в разы ниже</li>
+          <li>RuStore и AppGallery — ревью проще и быстрее App Store</li>
+          <li>Telegram-бот как канал, которого нет ни у кого из глобальных игроков</li>
+          <li>Цена подписки ниже, но и CAC ниже</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="pill n">США и Европа · второй этап</div>
+        <h3 style="margin-top:14px;font-size:23px">«Fitness-grade tracking, not just calories»</h3>
+        <p style="margin-top:10px">Не воевать с Cal AI за «фото → калории» — там вы проиграете по бюджету.
+        Заходить в более узкий сегмент: люди на силовых тренировках и в дефиците,
+        которым важны животный белок, обхваты и связка «еда + тренировка».</p>
+        <ul class="tick" style="margin-top:14px">
+          <li>ARPPU в 3–4 раза выше российского</li>
+          <li>Разделение белка — уникальная фича для сегмента</li>
+          <li>Заход только после того, как метрики удержания подтверждены на RU</li>
+          <li>Нужна полная локализация: интерфейс, промпт, база продуктов</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card warm" style="margin-top:18px">
+      <div class="row"><div class="badge alt">→</div>
+      <p style="font-size:15.5px;color:var(--lmuted)"><b>Решение как PM:</b> Россия и СНГ — первые 6 месяцев. Международный рынок — только после того,
+      как удержание 30-го дня перевалит за 20%, а конверсия в подписку — за 2,5%. Иначе вы просто зальёте деньги в дырявое ведро на более дорогом трафике.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>СТРАТЕГИЯ</span><span>08</span></div>
+</section>
+
+<!-- WR-1 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Ключевая фича</div>
+    <h2>Недельный разбор: «работает ли то, что ты делаешь?»</h2>
+  </div>
+  <div class="body">
+    <div class="grid g2" style="margin-bottom:20px">
+      <div class="card">
+        <h3 style="font-size:19px">Что делают все конкуренты</h3>
+        <p style="margin-top:8px">Показывают цифры. Графики веса, кольца КБЖУ, история приёмов пищи.
+        Вывод пользователь должен сделать сам — и не делает, потому что не умеет. Человек видит,
+        что вес не падает, расстраивается и удаляет приложение. Это и есть причина, по которой удержание
+        в категории 10–15% на 30-й день.</p>
+      </div>
+      <div class="card good">
+        <h3 style="font-size:19px;color:var(--accent)">Что делаете вы</h3>
+        <p style="margin-top:8px">Выносите вердикт. «Вес стоит, но талия минус 1,5 см, белок в норме,
+        три силовые — ты меняешь состав тела, всё идёт правильно, не трогай ничего».
+        Или: «Вес падает быстро, но белка 0,9 г/кг и силовых нет — ты теряешь мышцы, добавь 40 г белка».
+        Ни одно потребительское приложение этого не говорит.</p>
+      </div>
+    </div>
+    <div class="card warm">
+      <div class="row"><div class="badge alt">!</div><div>
+        <h3 style="color:var(--amber)">Почему это возможно только у вас</h3>
+        <p style="font-size:15.5px;margin-top:6px">Для такого вердикта нужны одновременно: питание, <b>белок в разбивке на животный и растительный</b>,
+        силовые тренировки, вес <b>и обхваты тела</b> в динамике. У вас всё это уже лежит в схеме БД.
+        У MyFitnessPal нет разделения белка. У Cal AI нет тренировок и обхватов. Собрать это с нуля конкуренту —
+        полгода. Это и есть та самая «объединённость», но проданная как результат, а не как список функций.</p>
+      </div></div>
+    </div>
+    <div class="grid g4" style="margin-top:20px">
+      <div class="card" style="padding:14px 18px"><div class="stat sm g">×4</div><div class="lbl">задачи закрывает одна фича: удержание, монетизация, привлечение, отличие</div></div>
+      <div class="card" style="padding:14px 18px"><div class="stat sm g">1</div><div class="lbl">LLM-вызов в неделю на пользователя — около 0,01 ₽</div></div>
+      <div class="card" style="padding:14px 18px"><div class="stat sm g">0</div><div class="lbl">новых модулей: используются только существующие данные</div></div>
+      <div class="card" style="padding:14px 18px"><div class="stat sm g">2</div><div class="lbl">спринта на полную реализацию с тестами</div></div>
+    </div>
+  </div>
+  <div class="foot"><span>НЕДЕЛЬНЫЙ РАЗБОР</span><span></span></div>
+</section>
+
+<!-- WR-2 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Недельный разбор · логика</div>
+    <h2>Вердикт считает формула, а не нейросеть</h2>
+    <p class="muted" style="font-size:16px;margin-top:4px">Таблица решений для цели «снижение веса». Для набора и поддержания — своя, зеркальная.</p>
+  </div>
+  <div class="body">
+    <table class="vtab">
+      <thead><tr><th style="width:210px">Условие</th><th style="width:180px">Код вердикта</th><th style="width:80px">Тон</th><th>Что говорим пользователю</th></tr></thead>
+      <tbody>
+        <tr><td class="muted">дней с записями &lt; 4</td><td class="num">insufficient_data</td><td><span class="pill n">нейтр.</span></td>
+          <td class="muted">Данных мало — вердикта не даём и не выдумываем. «Заполни ещё 3 дня, и я скажу, работает ли план»</td></tr>
+        <tr><td class="muted">вес ↓ · талия ↓ · белок ок · силовые ≥ 2</td><td class="num tg">on_track_quality</td><td><span class="pill">успех</span></td>
+          <td class="muted">Всё правильно: теряется жир, мышцы сохраняются. Ничего не менять</td></tr>
+        <tr><td class="muted">вес ↓ · талия ↓ · белок &lt; 1,4 г/кг</td><td class="num tr">muscle_loss_risk</td><td><span class="pill r">тревога</span></td>
+          <td class="muted">Главный вердикт продукта. «Ты теряешь мышцы вместе с жиром. Добавь <b>+N г белка</b> в день» — N считается формулой</td></tr>
+        <tr><td class="muted">вес → · талия ↓</td><td class="num tg">recomposition</td><td><span class="pill">успех</span></td>
+          <td class="muted">Конкуренты скажут «прогресса нет». Вы скажете «состав тела меняется, это лучший из возможных сценариев»</td></tr>
+        <tr><td class="muted">вес ↓ &gt; 1% массы тела в неделю</td><td class="num ta">too_aggressive</td><td><span class="pill a">внимание</span></td>
+          <td class="muted">Слишком быстро: риск потери мышц и срыва. Поднять калораж на N ккал</td></tr>
+        <tr><td class="muted">вес → · талия → · калории в норме</td><td class="num ta">underreporting</td><td><span class="pill a">внимание</span></td>
+          <td class="muted">Физиология не нарушается: при реальном дефиците вес снижается. Значит часть еды не записана — мягко просим полноту записей</td></tr>
+        <tr><td class="muted">вес ↑ при цели «снижение»</td><td class="num tr">deficit_not_achieved</td><td><span class="pill r">тревога</span></td>
+          <td class="muted">Дефицита нет. Показываем фактический профицит в ккал и три конкретных места, где он набрался</td></tr>
+        <tr><td class="muted">нет замеров веса за период</td><td class="num">no_measurements</td><td><span class="pill n">нейтр.</span></td>
+          <td class="muted">Просим встать на весы — с объяснением, что без этого вердикт невозможен</td></tr>
+      </tbody>
+    </table>
+    <div class="grid g3" style="margin-top:18px">
+      <div class="card"><h3 style="font-size:16px">Вес — регрессия, а не разница</h3>
+        <p style="margin-top:5px">Вес колеблется на 1–2 кг за сутки от воды и соли. Считать «последний минус первый» — гарантированно неверные вердикты.
+        Берём наклон линейной регрессии по всем точкам недели.</p></div>
+      <div class="card"><h3 style="font-size:16px">Числа в советах — из формулы</h3>
+        <p style="margin-top:5px">«Добавь 40 г белка» — это <code>target_protein − avg_protein</code>. Нейросети нельзя доверять арифметику,
+        которую пользователь применит к своему телу.</p></div>
+      <div class="card"><h3 style="font-size:16px">Порог достоверности</h3>
+        <p style="margin-top:5px">Меньше 4 дней записей или меньше 2 взвешиваний — вердикта нет. Лучше промолчать,
+        чем сказать «ты теряешь мышцы» человеку, который просто не записывал ужины.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>НЕДЕЛЬНЫЙ РАЗБОР</span><span></span></div>
+</section>
+
+<!-- WR-3 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Недельный разбор · реализация</div>
+    <h2>Что считается кодом, что уходит в LLM, что ложится в БД</h2>
+  </div>
+  <div class="body">
+    <div class="flow" style="margin-bottom:18px">
+      <div class="step"><div class="pill n">1 · Сбор</div>
+        <p style="margin-top:8px;font-size:13.5px">MealEntry, WeightRecord, Workout, WaterLog, GoalDay за 7 дней + цели из User. Всё уже в схеме</p></div>
+      <div class="sep">→</div>
+      <div class="step"><div class="pill n">2 · Метрики</div>
+        <p style="margin-top:8px;font-size:13.5px">Чистый Python: регрессия веса, дельта талии, адекватность белка, TDEE с учётом тренировок, ожидаемая дельта против фактической</p></div>
+      <div class="sep">→</div>
+      <div class="step"><div class="pill">3 · Вердикт</div>
+        <p style="margin-top:8px;font-size:13.5px">Таблица решений. Детерминирован, покрывается юнит-тестами на синтетических данных</p></div>
+      <div class="sep">→</div>
+      <div class="step"><div class="pill a">4 · Текст</div>
+        <p style="margin-top:8px;font-size:13.5px">LLM только формулирует. Падает — берём шаблон по коду вердикта. Приложение работает с выключенной нейросетью</p></div>
+    </div>
+    <div class="grid g2">
+      <div>
+        <div class="code"><span class="c"># app/models.py — одна новая таблица</span>
+<span class="k">class</span> WeeklyReview(Base):
+    __tablename__ = <span class="k">"weekly_reviews"</span>
+
+    id          = Column(Integer, primary_key=<span class="k">True</span>)
+    user_id     = Column(Integer, ForeignKey(<span class="k">"users.id"</span>), index=<span class="k">True</span>)
+    week_start  = Column(Date, nullable=<span class="k">False</span>, index=<span class="k">True</span>)  <span class="c"># понедельник</span>
+
+    verdict_code    = Column(String, nullable=<span class="k">False</span>)
+    severity        = Column(String, nullable=<span class="k">False</span>)  <span class="c"># good|watch|alert</span>
+    adherence_days  = Column(Integer, default=<span class="k">0</span>)
+
+    metrics_json    = Column(JSON, nullable=<span class="k">False</span>)  <span class="c"># снимок расчёта</span>
+    actions_json    = Column(JSON, nullable=<span class="k">False</span>)  <span class="c"># советы с числами</span>
+    narrative       = Column(Text, nullable=<span class="k">True</span>)    <span class="c"># текст LLM</span>
+    narrative_source= Column(String, default=<span class="k">"template"</span>)
+
+    __table_args__ = (UniqueConstraint(
+        <span class="k">"user_id"</span>, <span class="k">"week_start"</span>, name=<span class="k">"uq_weekly_review"</span>),)</div>
+      </div>
+      <div class="rows">
+        <div class="card good" style="padding:15px 18px">
+          <h3 style="font-size:16px;color:var(--accent)">Почему снимок, а не расчёт на лету</h3>
+          <p style="margin-top:5px">Ровно та же причина, по которой вы храните GoalDay: смена нормы белка в июле не должна
+          переписывать вердикт за март. Вы уже рассуждали так в коде — решение будет родным для проекта.</p>
+        </div>
+        <div class="card" style="padding:15px 18px">
+          <h3 style="font-size:16px">Генерация</h3>
+          <p style="margin-top:5px">Celery beat, понедельник 09:00 по локальному времени, пачками. Celery у вас уже поднят.
+          Следом — пуш «Разбор недели готов» — лучший повод вернуть человека в приложение.</p>
+        </div>
+        <div class="card" style="padding:15px 18px">
+          <h3 style="font-size:16px">Эндпоинты и пейволл</h3>
+          <p style="margin-top:5px"><code>GET /api/v1/reviews/weekly</code> — последний разбор,
+          <code>GET /api/v1/reviews</code> — история (Premium), <code>POST .../regenerate</code> — Premium, с лимитом.
+          <b>Бесплатным показываем заголовок вердикта, детали и историю — под замком.</b> Это самый мотивированный момент во всём приложении.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>НЕДЕЛЬНЫЙ РАЗБОР</span><span></span></div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Монетизация</div>
+    <h2>Тарифная сетка и что попадает в платное</h2>
+  </div>
+  <div class="body">
+    <div class="grid g3" style="margin-bottom:20px">
+      <div class="card">
+        <div class="pill n">Free</div>
+        <div class="stat sm" style="margin-top:12px">0 ₽</div>
+        <ul class="tick" style="margin-top:14px;opacity:.85">
+          <li>3 AI-анализа в день, 40 в месяц</li>
+          <li>Штрихкоды и ручной ввод — без ограничений</li>
+          <li>Дневник, вода, вес</li>
+          <li>История — 7 дней</li>
+          <li>Советчик — 1 раз в день</li>
+        </ul>
+      </div>
+      <div class="card good">
+        <div class="pill">Premium · основной</div>
+        <div class="stat sm g" style="margin-top:12px">349 ₽<span style="font-size:17px;color:var(--muted)">/мес</span></div>
+        <div class="lbl" style="margin-top:4px">1 990 ₽/год — экономия 52%, продвигаем именно годовой</div>
+        <ul class="tick" style="margin-top:14px">
+          <li><b>Недельный разбор целиком</b> — вердикт, причины, план на неделю</li>
+          <li>Безлимитные AI-анализы</li>
+          <li>Полная история и графики</li>
+          <li>Советчик без ограничений и вопросы к нему</li>
+          <li>Тренировки и обхваты тела</li>
+          <li>Экспорт в CSV/PDF</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="pill a">Lifetime</div>
+        <div class="stat sm a" style="margin-top:12px">4 990 ₽</div>
+        <div class="lbl" style="margin-top:4px">Ограниченно, первые 300 покупателей</div>
+        <p style="margin-top:14px">Даёт кэш здесь и сейчас — критично на стадии, где нужны деньги на разработку.
+        300 продаж = 1,5 млн ₽. Одновременно создаёт ядро лояльных пользователей, которые приводят остальных.</p>
+      </div>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <h3>Международный прайс</h3>
+        <p style="margin-top:8px">$6,99/мес · $34,99/год · триал 3 дня с привязкой карты.
+        Это ниже Cal AI ($9,99/мес) — сознательно, потому что бренда у вас пока нет и цена должна снимать возражение.</p>
+      </div>
+      <div class="card">
+        <h3>Комиссии площадок в 2026</h3>
+        <p style="margin-top:8px">Apple — 15% по Small Business Program (выручка до $1 млн/год, нужна заявка).
+        Google Play — 15% на первый $1 млн автоматически; с 30 июня 2026 подписки в US/UK/EEA снижаются до 10%.
+        RuStore — 15%. Закладывайте 15% в модель.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>МОНЕТИЗАЦИЯ</span><span>09</span></div>
+</section>
+
+<!-- 10 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Unit-экономика</div>
+    <h2>Сколько зарабатывает и стоит один пользователь</h2>
+  </div>
+  <div class="body">
+    <div class="grid g23">
+      <table>
+        <thead><tr><th>Показатель</th><th style="width:120px">Значение</th><th>Комментарий</th></tr></thead>
+        <tbody>
+          <tr><td>Средний чек (blended)</td><td class="num">220 ₽/мес</td><td class="muted">Смесь месячных и годовых, годовые дают ~166 ₽/мес</td></tr>
+          <tr><td>После комиссии 15%</td><td class="num tg">187 ₽/мес</td><td class="muted">Чистая выручка на подписчика</td></tr>
+          <tr><td>Себестоимость платящего</td><td class="num">~11 ₽/мес</td><td class="muted">Безлимит по факту = 3 анализа/день + советчик + доля инфры</td></tr>
+          <tr><td><b>Валовая маржа</b></td><td class="num tg"><b>94%</b></td><td class="muted">Нормально для SaaS, отлично для AI-продукта</td></tr>
+          <tr><td>Средний срок жизни</td><td class="num">6 мес</td><td class="muted">Консервативно; у трекеров питания типично 4–8</td></tr>
+          <tr><td><b>LTV</b></td><td class="num tg"><b>~1 120 ₽</b></td><td class="muted">187 × 6</td></tr>
+          <tr><td><b>Допустимый CAC</b></td><td class="num tg"><b>≤ 370 ₽</b></td><td class="muted">При целевом LTV/CAC = 3</td></tr>
+          <tr><td>Стоимость бесплатного</td><td class="num ta">9 ₽/мес</td><td class="muted">После оптимизации; при конверсии 3% окупается платящими</td></tr>
+        </tbody>
+      </table>
+      <div class="rows">
+        <div class="card good">
+          <h3 style="color:var(--accent-dim)">Точка безубыточности</h3>
+          <div class="stat sm" style="margin-top:10px">≈ 30 подписчиков</div>
+          <p style="margin-top:10px">Постоянные расходы после оптимизации — около 6 000 ₽/мес
+          (ВМ 1 500 + AI-база 3 500 + Apple Developer ~700 + сервисы).
+          При конверсии 3% это <b>1 000 MAU</b>. Реалистичная цель на 3–4 месяц.</p>
+        </div>
+        <div class="card warm">
+          <h3 style="color:#8a6d1f">Что убивает эту модель</h3>
+          <ul class="tick a" style="margin-top:10px">
+            <li>Конверсия ниже 1,5% — тогда бесплатные съедают платящих</li>
+            <li>Отсутствие годовых подписок — месячные оттекают втрое быстрее</li>
+            <li>Возвраты в первые 3 дня триала (закладывайте 20–25%)</li>
+            <li>Отсутствие пушей — удержание падает вдвое</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>ФИНАНСОВАЯ МОДЕЛЬ</span><span>10</span></div>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Финмодель</div>
+    <h2>Три сценария на горизонте 12 месяцев</h2>
+  </div>
+  <div class="body">
+    <table>
+      <thead><tr><th>Параметр</th><th style="width:170px">Пессимистичный</th><th style="width:170px">Базовый</th><th style="width:190px">Оптимистичный</th><th>Что определяет исход</th></tr></thead>
+      <tbody>
+        <tr><td>MAU на 12-й месяц</td><td class="num">3 000</td><td class="num">15 000</td><td class="num">40 000</td><td class="muted">Работа ASO + контент-канала</td></tr>
+        <tr><td>Конверсия в подписку</td><td class="num">1,5%</td><td class="num">3,0%</td><td class="num">4,0%</td><td class="muted">Качество онбординга и пейволла</td></tr>
+        <tr><td>Платящих</td><td class="num">45</td><td class="num">450</td><td class="num">1 600</td><td class="muted"></td></tr>
+        <tr><td>Средний чек (blended)</td><td class="num">220 ₽</td><td class="num">220 ₽</td><td class="num">380 ₽</td><td class="muted">Оптимистичный включает западный рынок</td></tr>
+        <tr><td>Выручка брутто/мес</td><td class="num">9 900 ₽</td><td class="num">99 000 ₽</td><td class="num">608 000 ₽</td><td class="muted"></td></tr>
+        <tr><td>Минус комиссия 15%</td><td class="num tg">8 400 ₽</td><td class="num tg">84 000 ₽</td><td class="num tg">517 000 ₽</td><td class="muted"></td></tr>
+        <tr><td>Расходы/мес</td><td class="num tr">5 500 ₽</td><td class="num tr">15 000 ₽</td><td class="num tr">44 000 ₽</td><td class="muted">Инфра + AI, маркетинг отдельно</td></tr>
+        <tr class="total"><td>Операционная прибыль</td><td class="num ta">+2 900 ₽</td><td class="num tg">+69 000 ₽</td><td class="num tg">+473 000 ₽</td><td class="muted">В месяц</td></tr>
+      </tbody>
+    </table>
+    <div class="grid g3" style="margin-top:22px">
+      <div class="card warm" style="padding:16px 20px"><h3 style="color:var(--amber);font-size:16px">Пессимистичный ≠ провал</h3>
+        <p style="margin-top:6px">Проект самоокупается и продолжает жить без вливаний. Это уже нормальный исход для бутстрапа: у вас есть время на итерации.</p></div>
+      <div class="card good" style="padding:16px 20px"><h3 style="color:var(--accent);font-size:16px">Базовый — целевой</h3>
+        <p style="margin-top:6px">69 000 ₽/мес операционной прибыли — это ~830 тыс. ₽ в год. Достаточно, чтобы нанять дизайнера и закупать трафик.</p></div>
+      <div class="card" style="padding:16px 20px"><h3 style="font-size:16px">Что не заложено</h3>
+        <p style="margin-top:6px">Lifetime-продажи (до 1,5 млн ₽ разово), партнёрства с фитнес-клубами и B2B-лицензирование API нутрициологам.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>ФИНАНСОВАЯ МОДЕЛЬ</span><span>11</span></div>
+</section>
+
+<!-- M-1 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Цель · 1 000 000 ₽ прибыли в месяц</div>
+    <h2>Сколько для этого нужно на самом деле</h2>
+    <p class="muted" style="font-size:16px;margin-top:4px">Считаем от прибыли назад. Расходы на этом масштабе — около 400 000 ₽/мес: инфраструктура, AI, два подрядчика, инструменты, трафик.</p>
+  </div>
+  <div class="body">
+    <div class="grid g2">
+      <div class="card hot">
+        <div class="pill r">Путь A · только пользователи</div>
+        <table class="vtab" style="margin-top:14px">
+          <tbody>
+            <tr><td>Нужна чистая выручка</td><td class="num">1 400 000 ₽</td></tr>
+            <tr><td>Валом до комиссии 15%</td><td class="num">1 647 000 ₽</td></tr>
+            <tr><td>Средний чек (СНГ + диаспора)</td><td class="num">305 ₽</td></tr>
+            <tr><td>Нужно подписчиков</td><td class="num tr">5 400</td></tr>
+            <tr><td>При конверсии 3,5%</td><td class="num tr">154 000 MAU</td></tr>
+          </tbody>
+        </table>
+        <p style="margin-top:14px;font-size:15px">154 тысячи активных — это top-10 health-приложение в России.
+        Достижимо, но вероятность на горизонте трёх лет я оцениваю <b>ниже 5%</b> для одного человека без бюджета на трафик.</p>
+      </div>
+      <div class="card good">
+        <div class="pill">Путь Б · пользователи + B2B</div>
+        <table class="vtab" style="margin-top:14px">
+          <tbody>
+            <tr><td>Потребители: 40 000 MAU × 3,5%</td><td class="num">1 400 подписок</td></tr>
+            <tr><td>Чистыми после комиссии</td><td class="num tg">363 000 ₽</td></tr>
+            <tr><td>B2B: 130 нутрициологов × 6 500 ₽</td><td class="num">845 000 ₽</td></tr>
+            <tr><td>Комиссия на B2B (оплата в вебе)</td><td class="num tg">0%</td></tr>
+            <tr><td>Итого чистая выручка</td><td class="num tg">1 208 000 ₽</td></tr>
+            <tr class="total"><td>Прибыль</td><td class="num tg">~1 030 000 ₽</td></tr>
+          </tbody>
+        </table>
+        <p style="margin-top:14px;font-size:15px">40 тысяч MAU вместо 154 тысяч. Разницу закрывают <b>130 профессионалов</b>,
+        а не 114 тысяч дополнительных пользователей. Вероятность — <b>20–25%</b>.</p>
+      </div>
+    </div>
+    <div class="card warm" style="margin-top:18px">
+      <div class="row"><div class="badge alt">→</div>
+      <p style="font-size:15.5px">Миллион в месяц достижим, но <b>не тем способом, который обычно представляют</b>. Не «наберём побольше пользователей»,
+      а «добавим второй тип клиента, который платит в 30 раз больше и уходит в 5 раз реже». Горизонт — <b>24–36 месяцев</b>, а не 12.
+      Тому, кто обещает быстрее, стоит не верить.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>ПУТЬ К МИЛЛИОНУ</span><span></span></div>
+</section>
+
+<!-- M-2 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Путь к миллиону · главный рычаг</div>
+    <h2>Кабинет нутрициолога — тот же продукт, другой покупатель</h2>
+  </div>
+  <div class="body">
+    <div class="grid g23">
+      <div class="rows">
+        <div class="card">
+          <h3>Что это технически</h3>
+          <p style="margin-top:6px">Роль «специалист», привязка клиентских аккаунтов, лента чужих дневников, недельные разборы клиентов в одном списке,
+          комментарий специалиста поверх вердикта. <b>Ноль новой продуктовой логики</b> — вы переиспользуете всё, что уже написано,
+          и добавляете уровень доступа поверх существующих данных.</p>
+        </div>
+        <div class="card good">
+          <h3 style="color:var(--accent-dim)">Почему они заплатят</h3>
+          <p style="margin-top:6px">Нутрициолог сегодня ведёт клиентов в Google-таблицах и переписке. Он тратит 20–40 минут на разбор одного клиента в неделю.
+          Ваш недельный разбор делает эту работу за него — это <b>прямая экономия рабочих часов</b>, а не «полезное приложение».
+          Профессионалы покупают инструменты, которые возвращают время, и не отваливаются, когда пропала мотивация худеть.</p>
+        </div>
+      </div>
+      <div class="rows">
+        <div class="card">
+          <h3 style="margin-bottom:12px">Тарифы B2B</h3>
+          <table class="vtab">
+            <thead><tr><th>Тариф</th><th style="width:90px">Клиентов</th><th style="width:110px">Цена/мес</th></tr></thead>
+            <tbody>
+              <tr><td>Старт</td><td class="num">до 10</td><td class="num">2 900 ₽</td></tr>
+              <tr><td>Практика</td><td class="num">до 30</td><td class="num tg">4 900 ₽</td></tr>
+              <tr><td>Кабинет</td><td class="num">до 100</td><td class="num">9 900 ₽</td></tr>
+              <tr><td>Студия</td><td class="num">безлимит</td><td class="num">24 900 ₽</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card warm">
+          <h3 style="color:#8a6d1f">Три причины, почему B2B проще, чем кажется</h3>
+          <ul class="tick a" style="margin-top:10px">
+            <li>В СНГ 15–30 тысяч практикующих нутрициологов и тренеров — их можно найти поимённо в Telegram и профильных сообществах</li>
+            <li>Продажа идёт лично, а не через сторы: нет комиссии, нет ревью, нет ASO</li>
+            <li>Клиенты специалиста приходят в приложение бесплатно — каждый нутрициолог приводит 20–40 пользователей и снижает ваш общий CAC</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;background:var(--lpanel)">
+      <p style="font-size:15px"><b>Когда начинать:</b> не раньше спринта 13. Сначала недельный разбор должен доказать пользу на обычных пользователях —
+      именно он и есть то, что вы продаёте специалисту. Первые пять нутрициологов ведите руками и бесплатно, в обмен на еженедельную обратную связь.</p>
+    </div>
+  </div>
+  <div class="foot"><span>ПУТЬ К МИЛЛИОНУ</span><span></span></div>
+</section>
+
+<!-- 12 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Блокеры</div>
+    <h2>Без этого в сторы не пустят</h2>
+    <p class="muted" style="font-size:17px;margin-top:6px">Проверено по текущему коду. Каждый пункт — гарантированный отказ на ревью или юридический риск.</p>
+  </div>
+  <div class="body">
+    <div class="grid g2">
+      <div class="rows">
+        <div class="card hot"><div class="row"><div class="badge" style="background:var(--red);color:#fff">1</div><div>
+          <h3>Нет удаления аккаунта</h3>
+          <p>В API нет <code>DELETE /api/v1/me</code>. Apple требует удаление аккаунта прямо в приложении с 2022 года
+          (Guideline 5.1.1(v)) — это автоматический отказ. Google Play требует то же плюс веб-ссылку на удаление.</p></div></div></div>
+        <div class="card hot"><div class="row"><div class="badge" style="background:var(--red);color:#fff">2</div><div>
+          <h3>Подписка обязана идти через IAP</h3>
+          <p>Guideline 3.1.1: цифровую подписку внутри iOS-приложения нельзя продавать через ЮKassa или CloudPayments.
+          Только Apple IAP. Значит нужны две платёжные ветки: IAP в сторах и внешний эквайринг в вебе и боте.</p></div></div></div>
+        <div class="card hot"><div class="row"><div class="badge" style="background:var(--red);color:#fff">3</div><div>
+          <h3>Данные о здоровье = спецкатегория ПДн</h3>
+          <p>Вес, рост, пол, дата рождения, цели по питанию — по 152-ФЗ это персональные данные, часть — специальная категория.
+          Нужны: политика конфиденциальности, явное согласие при регистрации, уведомление в РКН, хранение на серверах в РФ.</p></div></div></div>
+      </div>
+      <div class="rows">
+        <div class="card warm"><div class="row"><div class="badge alt">4</div><div>
+          <h3>Нет медицинского дисклеймера</h3>
+          <p>Приложение даёт рекомендации по питанию через LLM. Нужна явная формулировка «не является медицинским изделием
+          и не заменяет консультацию врача» — в онбординге, в советчике и в описании в сторе. Иначе — и отказ, и правовой риск.</p></div></div></div>
+        <div class="card warm"><div class="row"><div class="badge alt">5</div><div>
+          <h3>Юрлицо для приёма платежей</h3>
+          <p>RuStore с февраля 2026 отключил монетизацию самозанятым — нужно ИП или ООО.
+          Для Apple и Google — ИП тоже проще всего. Оформление ИП на УСН 6% занимает 3 дня.</p></div></div></div>
+        <div class="card"><div class="row"><div class="badge dim">6</div><div>
+          <h3>Стоимость входа</h3>
+          <p>Apple Developer — $99/год (~8 500 ₽). Google Play — $25 разово. RuStore и AppGallery — бесплатно.
+          Итого разовый вход: <b>~11 000 ₽</b>. Это единственная неизбежная трата сверх бюджета.</p></div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>ВЫХОД В СТОРЫ</span><span>12</span></div>
+</section>
+
+<!-- 13 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Как упаковать</div>
+    <h2>Capacitor вместо переписывания на нативе</h2>
+  </div>
+  <div class="body">
+    <div class="grid g32">
+      <div class="rows">
+        <div class="card good">
+          <h3 style="color:var(--accent)">Почему Capacitor</h3>
+          <p style="margin-top:8px">У вас React + Vite + TypeScript. Capacitor оборачивает существующий фронт в нативное приложение
+          за <b>1–2 недели</b> вместо 3–4 месяцев на React Native или Flutter. Камера, пуши, биометрия, IAP — через плагины.
+          Один код на iOS, Android, RuStore и AppGallery.</p>
+        </div>
+        <div class="card">
+          <h3>RevenueCat для подписок</h3>
+          <p style="margin-top:8px">Бесплатно до $2 500 выручки в месяц. Закрывает валидацию чеков Apple и Google, восстановление покупок,
+          триалы, грейс-периоды, аналитику подписок и вебхуки на ваш бэкенд. Самому это писать — 3–4 недели и постоянные баги.</p>
+        </div>
+      </div>
+      <div class="card">
+        <h3 style="margin-bottom:14px">Порядок выхода на площадки</h3>
+        <table style="font-size:14.5px">
+          <thead><tr><th>Площадка</th><th style="width:90px">Ревью</th><th style="width:80px">Вход</th><th>Когда</th></tr></thead>
+          <tbody>
+            <tr><td><b>RuStore</b></td><td class="muted">1–3 дня</td><td class="tg">0 ₽</td><td class="muted">Первым. Мягкое ревью, целевая аудитория, тут отлаживаете биллинг</td></tr>
+            <tr><td><b>Google Play</b></td><td class="muted">3–7 дней</td><td class="num">$25</td><td class="muted">Вторым. 70% рынка Android, терпимое ревью</td></tr>
+            <tr><td><b>AppGallery</b></td><td class="muted">2–5 дней</td><td class="tg">0 ₽</td><td class="muted">Третьим. Мало усилий, низкая конкуренция, есть промо для новых приложений</td></tr>
+            <tr><td><b>App Store</b></td><td class="muted">1–7 дней</td><td class="num">$99/год</td><td class="muted">Последним. Самое строгое ревью, но и самый платёжеспособный трафик</td></tr>
+          </tbody>
+        </table>
+        <div class="card warm" style="margin-top:16px;padding:14px 18px">
+          <p style="font-size:14.5px"><b style="color:var(--amber)">Не пропускайте веб-версию.</b> PWA остаётся вашим главным каналом: нулевая комиссия,
+          мгновенные обновления без ревью, приём платежей через ЮKassa напрямую. Подписка, купленная в вебе,
+          должна разблокировать приложение — тогда часть выручки идёт мимо 15%.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>ВЫХОД В СТОРЫ</span><span>13</span></div>
+</section>
+
+<!-- 14 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Продукт</div>
+    <h2>Что доработать и что добавить</h2>
+    <p class="muted" style="font-size:17px;margin-top:6px">Отсортировано по влиянию на выручку, а не по интересности задачи.</p>
+  </div>
+  <div class="body">
+    <div class="grid g3">
+      <div class="card hot">
+        <div class="pill r">Критично · без этого нет денег</div>
+        <ul class="tick r" style="margin-top:14px">
+          <li><b>Биллинг</b>: таблицы Subscription / Plan / Entitlement, вебхуки RevenueCat, middleware проверки доступа</li>
+          <li><b>Онбординг-воронка</b>: 10–12 экранов с вопросами → персональный план → пейволл. Сейчас — сразу форма регистрации, это убивает 60% входящих</li>
+          <li><b>Пейволл</b> с годовым тарифом по умолчанию и подсветкой экономии</li>
+          <li><b>Пуш-уведомления</b>: напоминание о приёме пищи, серия под угрозой, вода. Без них геймификация не работает</li>
+          <li><b>Удаление аккаунта</b> — блокер стора</li>
+        </ul>
+      </div>
+      <div class="card warm">
+        <div class="pill a">Важно · растит удержание и конверсию</div>
+        <ul class="tick a" style="margin-top:14px">
+          <li><b>Аналитика</b>: PostHog или Amplitude. Без воронки вы оптимизируете вслепую</li>
+          <li><b>Sentry</b> — падение на 200 пользователях вы не заметите вручную</li>
+          <li><b>Локализация i18n</b> — сейчас русский зашит в код и в промпт, это блокер для запада</li>
+          <li><b>Быстрый повтор</b>: «вчерашний завтрак» в один тап — самый частый сценарий и 0 ₽ себестоимости</li>
+          <li><b>Виджет и Apple Watch / Health Connect</b> — вес и активность автоматом</li>
+          <li><b>Шаринг результата недели</b> картинкой — бесплатный вирусный канал</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="pill n">Потом · апсейл и moat</div>
+        <ul class="tick" style="margin-top:14px">
+          <li><b>Рецепты и планировщик меню</b> под норму КБЖУ — топовая причина апгрейда в этой категории</li>
+          <li><b>Список покупок</b> из плана меню</li>
+          <li><b>Семейный тариф</b> — 2–4 аккаунта, средний чек выше, отток ниже</li>
+          <li><b>Дообучение на своём датасете</b> из таблицы Feedback: точность на русской кухне выше, себестоимость ниже</li>
+          <li><b>B2B-режим</b>: кабинет нутрициолога с клиентами — чек в 10 раз выше розничного</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>ПРОДУКТОВЫЙ РОАДМАП</span><span>14</span></div>
+</section>
+
+<!-- 15 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Роадмап</div>
+    <h2>Шесть месяцев по фазам</h2>
+  </div>
+  <div class="body">
+    <div class="rows">
+      <div class="card">
+        <div class="row">
+          <div class="badge">1</div>
+          <div style="flex:1">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <h3 style="font-size:21px">Месяцы 1–2 · Деньги и себестоимость</h3>
+              <span class="pill">цель: платить меньше и уметь принимать оплату</span>
+            </div>
+            <p style="margin-top:8px">Все семь мер по AI-затратам. Переезд на дешёвую ВМ. Модель подписки в БД и RevenueCat.
+            Онбординг-воронка и пейволл. Удаление аккаунта, политика конфиденциальности, дисклеймер. PostHog и Sentry. Регистрация ИП.</p>
+            <p class="muted" style="margin-top:6px;font-size:14px"><b>Метрика фазы:</b> себестоимость генерации ≤ 0,08 ₽ · первая тестовая покупка прошла end-to-end</p>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="row">
+          <div class="badge">2</div>
+          <div style="flex:1">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <h3 style="font-size:21px">Месяцы 3–4 · Магазины и удержание</h3>
+              <span class="pill">цель: 1 000 MAU и 30 платящих</span>
+            </div>
+            <p style="margin-top:8px">Capacitor-обёртка. Публикация в RuStore, затем Google Play и AppGallery.
+            Пуш-уведомления и связка с сериями. Быстрый повтор приёма пищи. Реферальная механика. Запуск Telegram-бота как канала привлечения.</p>
+            <p class="muted" style="margin-top:6px;font-size:14px"><b>Метрика фазы:</b> удержание D7 ≥ 25% · конверсия в подписку ≥ 2% · выход в операционный ноль</p>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="row">
+          <div class="badge">3</div>
+          <div style="flex:1">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <h3 style="font-size:21px">Месяцы 5–6 · Масштаб и запад</h3>
+              <span class="pill">цель: 5 000 MAU и выход в App Store</span>
+            </div>
+            <p style="margin-top:8px">Локализация на английский, включая промпт и базу продуктов. App Store.
+            Apple Health и Health Connect. Рецепты и планировщик меню как драйвер апгрейда. Первые эксперименты с платным трафиком на подтверждённой воронке.</p>
+            <p class="muted" style="margin-top:6px;font-size:14px"><b>Метрика фазы:</b> LTV/CAC ≥ 3 на платном канале · доля годовых подписок ≥ 60%</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>РОАДМАП</span><span>15</span></div>
+</section>
+
+<!-- S-1 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Спринты 1–7 · месяцы 1–3,5</div>
+    <h2>Сначала перестать терять деньги, потом начать зарабатывать</h2>
+  </div>
+  <div class="body">
+    <table class="vtab">
+      <thead><tr><th style="width:44px">№</th><th style="width:210px">Цель спринта</th><th>Состав работ</th><th style="width:230px">Готово, когда</th></tr></thead>
+      <tbody>
+        <tr><td class="num tg">1</td><td><b>Себестоимость</b></td>
+          <td class="muted">MAX_OUTPUT_TOKENS 4000→800, reasoning low→none, MAX_IMAGE_SIZE 1600→1024, качество 95→82, дневной лимит 5→3 плюс месячный потолок 40</td>
+          <td class="muted">Замер на 50 фото до/после: цена ≤ 0,12 ₽, падение точности &lt; 5 п.п.</td></tr>
+        <tr><td class="num tg">2</td><td><b>Инфраструктура и приборы</b></td>
+          <td class="muted">Переезд на ВМ за 1 500 ₽, двухуровневый роутинг по confidence, починка ключа кеша советчика, PostHog, Sentry</td>
+          <td class="muted">Расходы ≤ 9 500 ₽/мес, воронка видна в PostHog, алерты приходят</td></tr>
+        <tr><td class="num tg">3</td><td><b>Право на существование</b></td>
+          <td class="muted">ИП на УСН 6%, политика конфиденциальности, согласие на ПДн, <code>DELETE /api/v1/me</code>, медицинский дисклеймер, аккаунты разработчика</td>
+          <td class="muted">Чек-лист требований RuStore и Google Play пройден на бумаге</td></tr>
+        <tr><td class="num ta">4</td><td><b>Первые деньги</b></td>
+          <td class="muted">Таблицы Subscription / Plan / Entitlement, middleware доступа, пейволл с годовым по умолчанию, ЮKassa в вебе, RevenueCat в песочнице</td>
+          <td class="muted">Оплата проходит end-to-end, доступ открывается и закрывается. Продан первый Lifetime</td></tr>
+        <tr><td class="num ta">5</td><td><b>Недельный разбор: движок</b></td>
+          <td class="muted">Расчёт метрик, линейная регрессия веса, TDEE с учётом тренировок, таблица вердиктов, модель WeeklyReview, Celery beat</td>
+          <td class="muted">Юнит-тесты на 12 синтетических профилях дают ожидаемые коды вердиктов</td></tr>
+        <tr><td class="num ta">6</td><td><b>Недельный разбор: доставка</b></td>
+          <td class="muted">Шаблоны текстов по каждому коду, LLM-обёртка с фолбэком, экран разбора, картинка для шаринга, пейволл на детали и историю</td>
+          <td class="muted">Разбор приходит в понедельник и читается за 20 секунд. Работает при выключенном LLM</td></tr>
+        <tr><td class="num tg">7</td><td><b>Онбординг-воронка</b></td>
+          <td class="muted">10–12 экранов вопросов, расчёт персонального плана, пейволл в конце, событие в аналитике на каждый шаг</td>
+          <td class="muted">Прохождение онбординга ≥ 50%, видно, на каком экране отваливаются</td></tr>
+      </tbody>
+    </table>
+    <div class="card warm" style="margin-top:16px">
+      <div class="row"><div class="badge alt">!</div>
+      <p style="font-size:15px">В спринтах 1–7 <b>ноль новых разделов приложения</b>. Недельный разбор — не новый модуль,
+      а вывод из тех данных, которые уже собираются. Это будет тяжелее всего: добавлять новое приятнее, чем доводить существующее.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>ПЛАН СПРИНТОВ</span><span></span></div>
+</section>
+
+<!-- S-2 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Спринты 8–13 · месяцы 4–6</div>
+    <h2>Магазины, удержание и первые профессионалы</h2>
+  </div>
+  <div class="body">
+    <table class="vtab">
+      <thead><tr><th style="width:44px">№</th><th style="width:210px">Цель спринта</th><th>Состав работ</th><th style="width:230px">Готово, когда</th></tr></thead>
+      <tbody>
+        <tr><td class="num tg">8</td><td><b>Capacitor и RuStore</b></td>
+          <td class="muted">Обёртка существующего фронта, нативная камера, FCM-пуши, IAP через RevenueCat, сборка, публикация</td>
+          <td class="muted">Приложение в RuStore, покупка внутри проходит, чек валидируется</td></tr>
+        <tr><td class="num ta">9</td><td><b>Удержание</b></td>
+          <td class="muted">Сценарии пушей (приём пищи, серия под угрозой, разбор готов), повтор вчерашнего приёма в один тап, реферальная механика «+14 дней обоим»</td>
+          <td class="muted">Удержание D7 ≥ 25%, доля возвратов по пушу ≥ 15%</td></tr>
+        <tr><td class="num tg">10</td><td><b>Google Play и AppGallery</b></td>
+          <td class="muted">ASO-ассеты, скриншоты с крупной выгодой, иконка, промпт на отзыв после пятого успешного анализа</td>
+          <td class="muted">Опубликовано на трёх площадках, первые 50 отзывов, средняя ≥ 4,3</td></tr>
+        <tr><td class="num ta">11</td><td><b>Точность распознавания</b></td>
+          <td class="muted">Разбор накопленной таблицы Feedback, расширение food_map, доработка промпта под топ-200 блюд СНГ, замер точности как регулярная процедура</td>
+          <td class="muted">Точность на топ-200 блюд ≥ 85%, доля исправлений пользователями падает</td></tr>
+        <tr><td class="num tg">12</td><td><b>Английский и диаспора</b></td>
+          <td class="muted">i18n интерфейса, английский промпт, английские названия в базе продуктов, тарифы в валюте, таргетинг на русскоязычных в Германии, Израиле, США</td>
+          <td class="muted">Первые 100 платящих вне СНГ, ARPPU по ним ≥ 350 ₽</td></tr>
+        <tr><td class="num ta">13</td><td><b>App Store и пилот B2B</b></td>
+          <td class="muted">Публикация в App Store, роль «специалист», привязка клиентов, список клиентских разборов. Пять нутрициологов ведём вручную и бесплатно</td>
+          <td class="muted">Приложение в App Store. Три из пяти специалистов говорят, что готовы платить</td></tr>
+      </tbody>
+    </table>
+    <div class="grid g3" style="margin-top:18px">
+      <div class="card" style="padding:15px 18px"><h3 style="font-size:16px">Правило спринта</h3>
+        <p style="margin-top:5px">Две недели, одна цель, один измеримый критерий готовности. Не успели — режем объём, а не двигаем срок.</p></div>
+      <div class="card" style="padding:15px 18px"><h3 style="font-size:16px">Правило пятницы</h3>
+        <p style="margin-top:5px">Каждую пятницу — 30 минут на цифры: себестоимость, удержание, конверсия. Не «когда будет время».</p></div>
+      <div class="card hot" style="padding:15px 18px"><h3 style="font-size:16px">Точка выхода</h3>
+        <p style="margin-top:5px">После спринта 13: если D30 &lt; 10% при 1 000+ MAU — проблема в продукте, а не в трафике. Назначьте эту проверку заранее.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>ПЛАН СПРИНТОВ</span><span></span></div>
+</section>
+
+<!-- 16 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Привлечение · бюджет до 10 000 ₽/мес</div>
+    <h2>Пять каналов, которые работают без денег</h2>
+  </div>
+  <div class="body">
+    <div class="grid g2" style="gap:16px">
+      <div class="card good">
+        <div class="row"><div class="badge">1</div><div>
+          <h3>Telegram-бот как воронка <span class="pill" style="margin-left:6px">уже написан</span></h3>
+          <p style="margin-top:6px">Ваше главное преимущество перед Cal AI. Ноль трения: не надо ставить приложение, регистрироваться, ждать ревью.
+          Человек кидает фото котлеты в бот и через 5 секунд видит калории. Дальше — «сохрани историю и цели в приложении».
+          Бот отлично расходится по чатам о похудении и ПП. Стоимость привлечения — 0 ₽, конверсия бот → приложение обычно 15–25%.</p>
+        </div></div>
+      </div>
+      <div class="card">
+        <div class="row"><div class="badge">2</div><div>
+          <h3>Короткие вертикальные видео</h3>
+          <p style="margin-top:6px">Единственный канал, который вывел Cal AI на 15 млн скачиваний. Формат простой и повторяемый:
+          «фотографирую всё, что ем за день» — экран приложения, реальная еда, честная цифра.
+          Русская кухня — ваш контент-хук: покажите, как приложение узнаёт хачапури, а MyFitnessPal — нет.
+          <b>Норма: 1 видео в день, 90 дней подряд.</b> Это работа, а не бюджет.</p>
+        </div></div>
+      </div>
+      <div class="card">
+        <div class="row"><div class="badge">3</div><div>
+          <h3>ASO — бесплатный поисковый трафик</h3>
+          <p style="margin-top:6px">В RuStore и AppGallery конкуренция за «счётчик калорий» и «калории по фото» низкая — можно попасть в топ органикой.
+          Что делает 80% результата: ключи в названии и подзаголовке, первые 3 скриншота с крупным текстом-выгодой,
+          иконка, отличающаяся от конкурентов, и сбор первых 50 отзывов через внутриигровой промпт после 5-го успешного анализа.</p>
+        </div></div>
+      </div>
+      <div class="card">
+        <div class="row"><div class="badge">4</div><div>
+          <h3>Микроблогеры по бартеру и CPA</h3>
+          <p style="margin-top:6px">Не платите за размещение фиксом на старте. Схема: пожизненный доступ + промокод с реферальным трекингом,
+          оплата за результат. Целевые — нутрициологи и тренеры с 5–50 тыс. подписчиков: у них выше доверие и ниже цена.
+          Из бюджета 10 000 ₽ — 5–7 таких размещений в месяц.</p>
+        </div></div>
+      </div>
+      <div class="card">
+        <div class="row"><div class="badge">5</div><div>
+          <h3>Рефералка внутри продукта</h3>
+          <p style="margin-top:6px">«Приведи друга — обоим +14 дней Premium». Показывать не в настройках, а в момент радости:
+          после закрытия недельной серии или достижения цели по весу. Плюс шаринг итогов недели картинкой с логотипом.
+          Виральный коэффициент 0,2–0,3 снижает эффективный CAC на четверть.</p>
+        </div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>ПРИВЛЕЧЕНИЕ ПОЛЬЗОВАТЕЛЕЙ</span><span>16</span></div>
+</section>
+
+<!-- 17 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Воронка</div>
+    <h2>Куда уходит бюджет и что он приносит</h2>
+    <p class="muted" style="font-size:17px;margin-top:6px">Распределение 10 000 ₽ в месяц и ожидаемый выход на 4–6 месяце.</p>
+  </div>
+  <div class="body">
+    <div class="grid g23">
+      <table>
+        <thead><tr><th>Канал</th><th style="width:110px">Бюджет/мес</th><th style="width:130px">Установок/мес</th><th style="width:100px">CAC</th></tr></thead>
+        <tbody>
+          <tr><td><b>Telegram-бот и чаты</b></td><td class="num tg">0 ₽</td><td class="num">300–600</td><td class="num tg">0 ₽</td></tr>
+          <tr><td><b>Короткие видео</b></td><td class="num tg">0 ₽</td><td class="num">400–1 500</td><td class="num tg">0 ₽</td></tr>
+          <tr><td><b>ASO (органика сторов)</b></td><td class="num">0 ₽</td><td class="num">200–800</td><td class="num tg">0 ₽</td></tr>
+          <tr><td><b>Микроблогеры (CPA)</b></td><td class="num ta">7 000 ₽</td><td class="num">150–400</td><td class="num ta">~25 ₽</td></tr>
+          <tr><td><b>Реферальная программа</b></td><td class="num">3 000 ₽<br><span class="muted" style="font-weight:400;font-size:12px">в виде бесплатных дней</span></td><td class="num">100–300</td><td class="num tg">~15 ₽</td></tr>
+          <tr class="total"><td>Итого</td><td class="num">10 000 ₽</td><td class="num tg">1 150–3 600</td><td class="num tg">~4 ₽</td></tr>
+        </tbody>
+      </table>
+      <div class="rows">
+        <div class="card good">
+          <h3 style="color:var(--accent)">Почему CAC такой низкий</h3>
+          <p style="margin-top:8px">Потому что вы платите временем, а не деньгами. Это честная цена бутстрапа:
+          три из пяти каналов требуют ежедневной работы руками. Как только LTV/CAC на органике подтвердится,
+          можно включать платный трафик — с потолком <b>370 ₽ за платящего</b>.</p>
+        </div>
+        <div class="card warm">
+          <h3 style="color:var(--amber)">Реалистичная воронка на 100 установок</h3>
+          <ul class="tick a" style="margin-top:10px">
+            <li>100 установок → 55 завершили онбординг</li>
+            <li>55 → 38 сделали первый анализ фото</li>
+            <li>38 → 14 вернулись на 7-й день</li>
+            <li>14 → 3 оформили подписку</li>
+          </ul>
+          <p style="margin-top:10px;font-size:14px">Три платящих со 100 установок — это конверсия 3% от установки.
+          Каждый шаг воронки нужно мерить в PostHog отдельно, иначе непонятно, где чинить.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>ПРИВЛЕЧЕНИЕ ПОЛЬЗОВАТЕЛЕЙ</span><span>17</span></div>
+</section>
+
+<!-- P-1 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Как продавать · сообщение</div>
+    <h2>Одна фраза, повторённая на всех поверхностях</h2>
+  </div>
+  <div class="body">
+    <div class="card good" style="text-align:center;padding:26px">
+      <p class="muted" style="font-size:13px;letter-spacing:.14em;text-transform:uppercase;font-weight:700">Главное обещание</p>
+      <h2 style="font-size:36px;margin-top:12px;color:var(--accent-dim)">«Единственное приложение, которое говорит,<br>работает ли твой план»</h2>
+    </div>
+    <div class="grid g4" style="margin-top:20px">
+      <div class="card">
+        <div class="badge dim" style="margin-bottom:10px">A</div>
+        <h3 style="font-size:16px">В магазине</h3>
+        <p style="margin-top:5px">Название: <b>«AI-Healthy: калории по фото»</b> — ключ в названии для ASO.
+        Подзаголовок: <b>«Скажет, работает ли твой план»</b>.
+        Первый скриншот — не интерфейс, а карточка вердикта крупным шрифтом.</p>
+      </div>
+      <div class="card">
+        <div class="badge dim" style="margin-bottom:10px">Б</div>
+        <h3 style="font-size:16px">В ролике</h3>
+        <p style="margin-top:5px">Хук первых трёх секунд: <b>«Я худею месяц, вес стоит. Приложение объяснило, почему это хорошо»</b>.
+        Второй формат: <b>«Проверяю, узнает ли ИИ чебурек»</b> — работает на любопытстве и показывает отличие от западных.</p>
+      </div>
+      <div class="card">
+        <div class="badge dim" style="margin-bottom:10px">В</div>
+        <h3 style="font-size:16px">В онбординге</h3>
+        <p style="margin-top:5px">Не «вот наши функции», а <b>«через 7 дней я скажу, теряешь ты жир или мышцы»</b>.
+        Вы продаёте не трекер, а будущий ответ. Это же создаёт причину вернуться на седьмой день.</p>
+      </div>
+      <div class="card">
+        <div class="badge dim" style="margin-bottom:10px">Г</div>
+        <h3 style="font-size:16px">В боте</h3>
+        <p style="margin-top:5px">После третьего фото: <b>«Я вижу, что ты ешь. Хочешь, через неделю скажу, работает ли это?»</b>
+        Переход в приложение продаётся результатом, а не установкой.</p>
+      </div>
+    </div>
+    <div class="card warm" style="margin-top:18px">
+      <div class="row"><div class="badge alt">✕</div>
+      <div><h3 style="color:#8a6d1f">Чего не говорить никогда</h3>
+      <p style="margin-top:4px;font-size:15px">«Всё в одном», «удобный дневник питания», «считай КБЖУ легко», «умный помощник по питанию».
+      Это описания, под которыми уже стоят двадцать приложений — человек не поймёт, зачем ему вы, и пролистает.</p></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>КАК ПРОДАВАТЬ</span><span></span></div>
+</section>
+
+<!-- P-2 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Как продавать · момент оплаты</div>
+    <h2>Где именно человек достаёт карту</h2>
+  </div>
+  <div class="body">
+    <div class="grid g2">
+      <div class="rows">
+        <div class="card">
+          <h3>Онбординг: 11 экранов до первого экрана приложения</h3>
+          <p style="margin-top:8px">Цель — не собрать данные, а заставить человека вложиться. Каждый ответ повышает
+          ценность будущего результата в его глазах.</p>
+          <div class="code" style="margin-top:12px">1  Твоя цель? снизить / удержать / набрать
+2  Пол, возраст, рост, вес
+3  Желаемый вес и срок
+4  Как часто тренируешься?
+5  Силовые есть? <span class="c">← определяет вердикт</span>
+6  Что мешало раньше? <span class="c">← боль своими словами</span>
+7  <span class="k">Расчёт плана</span> (анимация 3 сек)
+8  «Твоя норма: 1840 ккал, 132 г белка»
+9  «К 12 ноября: 71 кг» <span class="c">← дата и число</span>
+10 Первое фото прямо сейчас <span class="c">← ага-момент</span>
+11 <span class="k">Пейволл</span> с триалом 3 дня</div>
+        </div>
+      </div>
+      <div class="rows">
+        <div class="card good">
+          <h3 style="color:var(--accent)">Три момента, когда просим денег</h3>
+          <ul class="tick" style="margin-top:10px">
+            <li><b>Экран 11, сразу после первого анализа.</b> Человек только что увидел магию — конверсия здесь максимальная. Триал 3 дня с картой</li>
+            <li><b>Исчерпан дневной лимит.</b> Не «купи подписку», а «третий анализ за сегодня — открой безлимит»</li>
+            <li><b>Первый недельный разбор.</b> Заголовок вердикта показываем бесплатно, детали и план — под замком. Самый мотивированный момент во всём продукте</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Как оформлен пейволл</h3>
+          <ul class="tick" style="margin-top:10px">
+            <li>Годовой выбран по умолчанию, рядом — «166 ₽/мес вместо 349, экономия 52%»</li>
+            <li>Месячный присутствует, но визуально проигрывает — он нужен как якорь, а не как выбор</li>
+            <li>Три пункта выгоды, а не список из двенадцати функций</li>
+            <li>Кнопка «Продолжить бесплатно» видна, но неяркая — скрытый крестик даёт отказ на ревью Apple</li>
+            <li>Дата первого списания написана прямо на кнопке — снимает страх и снижает возвраты</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="card warm" style="margin-top:16px">
+      <div class="row"><div class="badge alt">₽</div>
+      <p style="font-size:15px"><b>Первые 20 продаж сделайте руками.</b> Напишите лично тем, кто активно пользуется ботом,
+      предложите Lifetime за 4 990 ₽ и попросите объяснить, почему согласились или отказались. Эти двадцать разговоров
+      дадут вам текст пейволла, который не даст ни одна книга по маркетингу.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>КАК ПРОДАВАТЬ</span><span></span></div>
+</section>
+
+<!-- 18 -->
+<section class="slide light">
+  <div class="top">
+    <div class="kicker">Контроль</div>
+    <h2>Метрики и риски</h2>
+  </div>
+  <div class="body">
+    <div class="grid g2">
+      <div class="card">
+        <h3 style="font-size:21px;margin-bottom:14px">Что смотреть еженедельно</h3>
+        <table style="font-size:14.5px">
+          <thead><tr><th>Метрика</th><th style="width:110px">Порог</th><th style="width:130px">Если ниже</th></tr></thead>
+          <tbody>
+            <tr><td>Себестоимость генерации</td><td class="num">≤ 0,08 ₽</td><td class="muted">Проверить роутинг и кеш</td></tr>
+            <tr><td>Прохождение онбординга</td><td class="num">≥ 50%</td><td class="muted">Резать шаги</td></tr>
+            <tr><td>Удержание D7</td><td class="num">≥ 25%</td><td class="muted">Чинить пуши</td></tr>
+            <tr><td>Удержание D30</td><td class="num">≥ 12%</td><td class="muted">Чинить ценность</td></tr>
+            <tr><td>Конверсия в подписку</td><td class="num">≥ 2,5%</td><td class="muted">Двигать пейволл</td></tr>
+            <tr><td>Доля годовых</td><td class="num">≥ 60%</td><td class="muted">Менять акцент цены</td></tr>
+            <tr><td>Точность распознавания</td><td class="num">≥ 80%</td><td class="muted">Смотреть Feedback</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="rows">
+        <div class="card hot" style="padding:16px 20px"><div class="row"><div class="badge" style="background:var(--red);color:#fff;width:28px;height:28px;font-size:13px">1</div><div>
+          <h3 style="font-size:16px">Зависимость от одного AI-провайдера</h3>
+          <p style="margin-top:4px">Yandex поднимет цены или закроет модель — экономика рушится за день.
+          Фолбэки в коде есть, но не протестированы под нагрузкой. <b>Митигация:</b> держать два провайдера рабочими, ежемесячно сравнивать цену и точность.</p></div></div></div>
+        <div class="card warm" style="padding:16px 20px"><div class="row"><div class="badge alt" style="width:28px;height:28px;font-size:13px">2</div><div>
+          <h3 style="font-size:16px">Ревью App Store</h3>
+          <p style="margin-top:4px">Приложения о здоровье с подпиской проверяют строже. <b>Митигация:</b> RuStore первым — отладить биллинг и тексты на площадке с мягким ревью, в App Store идти уже с отполированной сборкой.</p></div></div></div>
+        <div class="card warm" style="padding:16px 20px"><div class="row"><div class="badge alt" style="width:28px;height:28px;font-size:13px">3</div><div>
+          <h3 style="font-size:16px">Вы — единственный исполнитель</h3>
+          <p style="margin-top:4px">Роадмап и контент-план требуют примерно 30 часов в неделю. <b>Митигация:</b> резать объём, не растягивать сроки. Одна фаза целиком лучше трёх наполовину.</p></div></div></div>
+        <div class="card warm" style="padding:16px 20px"><div class="row"><div class="badge alt" style="width:28px;height:28px;font-size:13px">4</div><div>
+          <h3 style="font-size:16px">Точность распознавания</h3>
+          <p style="margin-top:4px">Возвраты и удаления в этой категории идут в первую очередь из-за неверных калорий. <b>Митигация:</b> экран подтверждения перед сохранением уже есть — не убирать его ради «магии», и разбирать Feedback еженедельно.</p></div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>МЕТРИКИ И РИСКИ</span><span>18</span></div>
+</section>
+
+<!-- 19 -->
+<section class="slide">
+  <div class="top">
+    <div class="kicker">Действия</div>
+    <h2>Что сделать в ближайшие 30 дней</h2>
+    <p class="muted" style="font-size:17px;margin-top:6px">Порядок важен: сначала то, что снижает расходы, потом то, что создаёт выручку.</p>
+  </div>
+  <div class="body">
+    <div class="grid g2" style="gap:16px">
+      <div class="rows">
+        <div class="card good"><div class="row"><div class="badge">1</div><div>
+          <h3>Неделя 1 · Себестоимость</h3>
+          <p style="margin-top:6px">Урезать MAX_OUTPUT_TOKENS до 800 и reasoning до none. MAX_IMAGE_SIZE 1024, качество 82.
+          Замерить себестоимость и точность на 50 фото до и после. Снизить дневной лимит с 5 до 3.</p>
+          <p class="muted" style="margin-top:6px;font-size:13.5px">Результат: −50…60% затрат на AI за неделю работы.</p></div></div></div>
+        <div class="card good"><div class="row"><div class="badge">2</div><div>
+          <h3>Неделя 2 · Инфраструктура и учёт</h3>
+          <p style="margin-top:6px">Переезд на ВМ за 1 500 ₽. Двухуровневый роутинг по confidence. Починить кеш советчика.
+          Подключить PostHog и Sentry — до того, как пойдут пользователи, иначе не с чем сравнивать.</p>
+          <p class="muted" style="margin-top:6px;font-size:13.5px">Результат: расходы под контролем, воронка видна.</p></div></div></div>
+      </div>
+      <div class="rows">
+        <div class="card"><div class="row"><div class="badge">3</div><div>
+          <h3>Неделя 3 · Юридическая база</h3>
+          <p style="margin-top:6px">Открыть ИП на УСН 6%. Написать политику конфиденциальности и согласие на обработку ПДн.
+          Добавить <code>DELETE /api/v1/me</code> и медицинский дисклеймер. Завести аккаунты разработчика в RuStore и Google Play.</p>
+          <p class="muted" style="margin-top:6px;font-size:13.5px">Результат: путь в сторы разблокирован.</p></div></div></div>
+        <div class="card"><div class="row"><div class="badge">4</div><div>
+          <h3>Неделя 4 · Первые деньги</h3>
+          <p style="margin-top:6px">Таблицы Subscription и Entitlement, middleware проверки доступа.
+          RevenueCat в тестовом режиме. Пейволл с годовым тарифом по умолчанию. Продать Lifetime первым 20 людям из Telegram-бота вручную.</p>
+          <p class="muted" style="margin-top:6px;font-size:13.5px">Результат: первая выручка и доказательство, что за это платят.</p></div></div></div>
+      </div>
+    </div>
+    <div class="card warm" style="margin-top:18px">
+      <div class="row"><div class="badge alt">✓</div>
+      <p style="font-size:15.5px">Через 30 дней у вас: расходы <b>−80%</b>, работающий биллинг, юрлицо и первые платящие пользователи.
+      Только после этого имеет смысл вкладываться в Capacitor, сторы и контент — вы будете масштабировать проверенную экономику, а не надежду.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>ПЛАН ДЕЙСТВИЙ</span><span>19</span></div>
+</section>
+
+<!-- 20 -->
+<section class="slide" style="justify-content:center">
+  <div class="body" style="justify-content:center">
+    <div class="kicker">Резюме</div>
+    <h2 style="font-size:42px;max-width:1080px">Технически сложная часть уже сделана. Осталось перестать добавлять функции<br>
+    и начать продавать <span style="color:var(--accent)">один понятный результат</span>.</h2>
+    <div class="grid g4" style="margin-top:38px">
+      <div><div class="stat g">−84%</div><div class="lbl">расходов достижимо<br>за 5 дней работы</div></div>
+      <div><div class="stat g">94%</div><div class="lbl">валовая маржа<br>после оптимизации</div></div>
+      <div><div class="stat g">30</div><div class="lbl">платящих<br>до безубыточности</div></div>
+      <div><div class="stat g">13</div><div class="lbl">спринтов до App Store<br>и первых профессионалов</div></div>
+    </div>
+    <div class="grid g3" style="margin-top:34px">
+      <div class="card" style="padding:16px 20px"><h3 style="font-size:16px;color:var(--accent)">Продукт</h3>
+        <p style="margin-top:5px">Недельный разбор вместо новых модулей. Вердикт считает формула, LLM только формулирует.</p></div>
+      <div class="card" style="padding:16px 20px"><h3 style="font-size:16px;color:var(--accent)">Рынок</h3>
+        <p style="margin-top:5px">СНГ и русскоязычная диаспора. Не лобовая война с Cal AI на английском.</p></div>
+      <div class="card" style="padding:16px 20px"><h3 style="font-size:16px;color:var(--accent)">Миллион в месяц</h3>
+        <p style="margin-top:5px">40 000 MAU плюс 130 нутрициологов, а не 154 000 пользователей. Горизонт 24–36 месяцев.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>AI-HEALTHY · БИЗНЕС-ПЛАН РАЗВИТИЯ · ИЮЛЬ 2026</span><span>20</span></div>
+</section>
+
+</div>
+
+<div id="nav">
+  <button id="prev" title="Назад">‹</button>
+  <span id="counter">1 / 20</span>
+  <button id="next" title="Вперёд">›</button>
+</div>
+
+<script>
+(function(){
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var i = 0;
+  var counter = document.getElementById('counter');
+
+  slides.forEach(function(el,k){
+    var f = el.querySelectorAll('.foot span');
+    if(f.length>1){
+      var n = String(k+1); if(n.length<2) n = '0'+n;
+      f[f.length-1].textContent = n;
+    }
+  });
+
+  function fit(){
+    var s = Math.min(window.innerWidth/1280, window.innerHeight/720);
+    slides.forEach(function(el){ el.style.transform = 'scale(' + s + ')'; });
+  }
+  function show(n){
+    i = Math.max(0, Math.min(slides.length-1, n));
+    slides.forEach(function(el,k){ el.classList.toggle('active', k===i); });
+    counter.textContent = (i+1) + ' / ' + slides.length;
+    location.hash = i+1;
+  }
+  document.getElementById('next').onclick = function(){ show(i+1); };
+  document.getElementById('prev').onclick = function(){ show(i-1); };
+  document.addEventListener('keydown', function(e){
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' ') { e.preventDefault(); show(i+1); }
+    if(e.key==='ArrowLeft'||e.key==='PageUp') { e.preventDefault(); show(i-1); }
+    if(e.key==='Home') show(0);
+    if(e.key==='End') show(slides.length-1);
+  });
+  document.getElementById('stage').addEventListener('click', function(e){
+    if(e.target.closest('#nav')) return;
+    show(e.clientX < window.innerWidth/2 ? i-1 : i+1);
+  });
+  window.addEventListener('resize', fit);
+  fit();
+  var start = parseInt((location.hash||'').replace('#',''),10);
+  show(isNaN(start) ? 0 : start-1);
+})();
+</script>
+</body>
+</html>

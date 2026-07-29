@@ -24,7 +24,16 @@ export const MealDetail: React.FC<Props> = ({ meal, onUpdated }) => {
   const fileRef = useRef<HTMLInputElement | null>(null)
 
   const meta = MEAL_TYPE_META[meal.meal_type]
-  const photoSrc = meal.photo_url ? `${API_BASE_URL}${meal.photo_url}` : null
+  // Файл мог быть удалён ночной уборкой (retention 30 дней) или ссылка
+  // протухла — тогда бэкенд отдаёт 404, и вместо «битой» картинки
+  // показываем ту же плашку, что и для записи без фото.
+  // Храним именно упавший URL, а не флаг: после загрузки нового фото
+  // photo_url меняется, и превью снова показывается без сброса вручную.
+  const [brokenPhotoUrl, setBrokenPhotoUrl] = useState<string | null>(null)
+  const photoSrc =
+    meal.photo_url && meal.photo_url !== brokenPhotoUrl
+      ? `${API_BASE_URL}${meal.photo_url}`
+      : null
 
   const handleFile = async (file: File) => {
     setBusy(true)
@@ -70,6 +79,7 @@ export const MealDetail: React.FC<Props> = ({ meal, onUpdated }) => {
           <img
             src={photoSrc}
             alt={meal.food_name}
+            onError={() => setBrokenPhotoUrl(meal.photo_url ?? null)}
             className="w-full max-h-64 object-cover rounded-tile border border-line dark:border-line-dark"
           />
           <div className="absolute top-2 right-2 flex gap-1.5">

@@ -18,6 +18,16 @@ set -euo pipefail
 psql -v ON_ERROR_STOP=1 -v app_pw="$APP_DB_PASSWORD" \
      --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-'EOSQL'
 -- =========================
+-- EXTENSIONS
+-- =========================
+-- pg_trgm нужен для GIN-индексов автодополнения (поиск по products.name и
+-- exercises.name идёт как ILIKE '%слово%', обычный B-tree тут бесполезен).
+-- Ставим здесь, пока мы суперпользователь: прикладной fooduser может не
+-- иметь права на CREATE EXTENSION. Приложение (database._ensure_trgm_indexes)
+-- повторит попытку на старте, если расширения вдруг не окажется.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- =========================
 -- USER (пароль подставляется psql-переменной :app_pw, безопасно квотируется)
 -- =========================
 DO $$

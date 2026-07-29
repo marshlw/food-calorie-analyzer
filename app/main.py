@@ -74,6 +74,28 @@ async def internal_server_error(request: Request, exc: Exception):
         content={"detail": "Internal server error"},
     )
 
+
+# ===================== МЕТРИКИ =====================
+
+# /metrics: латентность и коды ответов по эндпоинтам. Без них под нагрузкой
+# нечем отличить «тормозит БД» от «тормозит Yandex».
+# ВАЖНО: эндпоинт наружу НЕ выставляется — Caddy отдаёт на /metrics 404
+# (см. Caddyfile). Внутри сети backend он доступен по http://api:8000/metrics.
+# Группировка по шаблону пути (/api/v1/task/{task_id}), а не по конкретному
+# URL: иначе каждый task_id порождал бы отдельную серию метрик.
+if settings.METRICS_ENABLED:
+    try:
+        from prometheus_fastapi_instrumentator import Instrumentator
+
+        Instrumentator(
+            should_group_status_codes=False,
+            should_ignore_untemplated=True,
+            excluded_handlers=["/metrics", "/health"],
+        ).instrument(app).expose(app, include_in_schema=False)
+        logger.info("Prometheus metrics enabled at /metrics")
+    except Exception as exc:
+        logger.warning("Unable to enable Prometheus metrics", exc_info=exc)
+
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -103,50 +125,16 @@ async def startup_event():
     except Exception as exc:
         logger.warning("Unable to configure anyio thread limiter", exc_info=exc)
 
-    try:
-        # ensure_schema() = create_all() + добор недостающих колонок профиля
-        # в существующей таблице users (create_all сам колонки не добавляет).
-        from app.database import ensure_schema
-        ensure_schema()
-        logger.info("Database schema checked/created")
-    except Exception as exc:
-        logger.warning("Database schema creation failed", exc_info=exc)
-
-    # Засев справочника продуктов (КБЖУ на 100 г), идемпотентно
-    try:
-        from .seed_products import seed_products
-        session = SessionLocal()
-        try:
-            seed_products(session)
-        finally:
-            session.close()
-    except Exception as exc:
-        logger.warning("Product seeding failed", exc_info=exc)
-
-    # Засев справочника упражнений (ккал/мин), идемпотентно
-    try:
-        from .seed_exercises import seed_exercises
-        session = SessionLocal()
-        try:
-            seed_exercises(session)
-        finally:
-            session.close()
-    except Exception as exc:
-        logger.warning("Exercise seeding failed", exc_info=exc)
-
-    # Разметка разделения белка (животный/растительный) у существующих приёмов,
-    # добавленных до появления фичи. Идемпотентно — по названию блюда.
-    try:
-        session = SessionLocal()
-        try:
-            n = crud.backfill_meal_protein_split(session)
-            if n:
-                logger.info("Backfilled protein split for %s meal rows", n)
-        finally:
-            session.close()
-    except Exception as exc:
-        logger.warning("Meal protein split backfill failed", exc_info=exc)
-
+    # H-7: НИКАКОГО DDL, засева и backfill на старте.
+    # Раньше здесь выполнялись create_all + ALTER TABLE ADD COLUMN +
+    # CREATE INDEX + seed + backfill — при старте КАЖДОГО воркера. Два
+    # воркера стартуют одновременно и устраивают гонку на DDL, ADD COLUMN
+    # берёт ACCESS EXCLUSIVE lock на живой таблице, а backfill вычитывал
+    # в память все подходящие строки meal_entries.
+    # Теперь схему накатывает `alembic upgrade head`, а данные готовит
+    # `python -m app.bootstrap` — оба в сервисе `migrate` до старта api
+    # (см. docker-compose.prod.yml). В startup остаётся только прогрев
+    # сетевых клиентов.
     try:
         ml_service.get_http_client()
         ml_service.get_redis_client()
@@ -478,6 +466,28 @@ def token(request: Request, auth_data: schemas.AuthRequest = Depends(_get_auth_r
         # Refresh, выданный до смены пароля (bump token_version), недействителен
         if not user or int(payload.get("tv") or 0) != int(user.token_version or 0):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+        # H-2: refresh одноразовый. Гасим предъявленный jti; если его уже нет,
+        # значит этим токеном воспользовались раньше — это либо кража, либо
+        # гонка двух вкладок. Трактуем как компрометацию: инкремент
+        # token_version мгновенно обнуляет ВСЕ выданные токены пользователя,
+        # включая те, что успел получить злоумышленник.
+        jti = payload.get("jti")
+        if jti and not auth.consume_refresh_jti(user.email, jti):
+            logger.warning(
+                "Refresh token reuse detected, revoking session",
+                extra={"user_id": user.id, "jti": jti},
+            )
+            crud.bump_token_version(db, user)
+            auth.revoke_all_refresh_tokens(user.email)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Сессия завершена из соображений безопасности. Войдите заново.",
+            )
+
+        # Токены, выданные до внедрения ротации, без jti — пропускаем один
+        # раз, чтобы деплой не разлогинил всех разом. Новый токен в ответе
+        # уже будет одноразовым.
         claims = auth.token_claims_for(user)
         return {
             "access_token": auth.create_access_token(data=claims),
@@ -540,6 +550,9 @@ def change_password(
     current_user.token_version = (current_user.token_version or 0) + 1
     db.add(current_user)
     db.commit()
+    # token_version уже обнулил все токены; здесь дочищаем учёт активных
+    # refresh-jti в Redis, чтобы не копить мёртвые ключи (H-2).
+    auth.revoke_all_refresh_tokens(current_user.email)
     logger.info(f"Password changed for user: {current_user.email}")
 
     # Отдаём свежую пару токенов, чтобы текущая сессия не разлогинилась
@@ -816,6 +829,12 @@ def add_meal(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    # M-10: дата не может быть в будущем — та же проверка, что у воды,
+    # тренировок и замеров веса. Без неё дневник засорялся записями на
+    # 2099 год, а статистика «за неделю/месяц» считалась по мусору.
+    if meal.date and meal.date > date.today():
+        raise HTTPException(status_code=400, detail="Дата приёма пищи не может быть в будущем")
+
     # ВАЖНО: task_id приходит из тела запроса — обязательно проверяем владение.
     # Без этого чужой task_id даёт подписанную ссылку на фото другого
     # пользователя через MealEntry.photo_url (см. models.MealEntry).
@@ -1434,7 +1453,18 @@ async def get_advisor(
     db: Session = Depends(get_db),
 ):
     """Советы дня: LLM (Yandex Cloud) с фолбэком на правила. Кэшируется."""
-    return await advisor.get_advice_async(db, current_user)
+    # Лимит списывается ТОЛЬКО при промахе кэша, то есть при реальном
+    # (платном, на десятки секунд) обращении к модели. Открывать вкладку
+    # с уже готовым советом можно сколько угодно.
+    def _charge_llm_call() -> None:
+        rate_limit.enforce(
+            f"advisor:daily:{current_user.id}:{date.today().isoformat()}",
+            settings.ADVISOR_DAILY_LIMIT,
+            86400 + 3600,
+            "Дневной лимит советов исчерпан. Попробуйте завтра.",
+        )
+
+    return await advisor.get_advice_async(db, current_user, before_llm=_charge_llm_call)
 
 
 @app.post("/api/v1/advisor/ask", response_model=schemas.AdvisorAskResponse)
@@ -1463,23 +1493,50 @@ async def ask_advisor(
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
 
 
-def _require_admin(x_admin_token: str) -> None:
+def _require_admin(request: Request, x_admin_token: str) -> None:
+    """Проверка админ-токена (M-13).
+
+    compare_digest защищает от timing-атак, но НЕ от онлайн-перебора,
+    поэтому сверху вешаем лимит по IP. И сам compare_digest бросает
+    TypeError на не-ASCII строке — подстановка кириллицы в заголовок
+    давала 500 вместо 403.
+    """
+    # Лимит по IP независимо от результата: перебор токена должен упираться
+    # в 429 задолго до того, как станет осмысленным.
+    rate_limit.enforce(
+        f"admin:auth:{rate_limit.get_client_ip(request)}",
+        limit=20,
+        window=3600,
+        detail="Слишком много попыток. Попробуйте позже.",
+    )
+
     if not ADMIN_TOKEN or ADMIN_TOKEN == "change-me-in-production":
         logger.warning("Admin endpoint requested, but ADMIN_TOKEN is not configured")
         raise HTTPException(status_code=404, detail="Not found")
-    # compare_digest — сравнение за константное время (защита от timing-атак)
-    if not secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
+
+    try:
+        valid = secrets.compare_digest(x_admin_token, ADMIN_TOKEN)
+    except TypeError:
+        # Не-ASCII в заголовке: заведомо не наш токен
+        valid = False
+
+    if not valid:
+        logger.warning(
+            "Invalid admin token",
+            extra={"ip": rate_limit.get_client_ip(request)},
+        )
         raise HTTPException(status_code=403, detail="Invalid admin token")
 
 
 @app.get("/api/v1/admin/feedback", response_model=List[schemas.FeedbackListItem])
 def list_feedback(
+    request: Request,
     limit: int = 100,
     offset: int = 0,
     status: Optional[str] = None,
     x_admin_token: str = Header(..., alias="X-Admin-Token")
 ):
-    _require_admin(x_admin_token)
+    _require_admin(request, x_admin_token)
 
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
@@ -1508,10 +1565,11 @@ def list_feedback(
 
 @app.get("/api/v1/admin/feedback/{feedback_id}", response_model=schemas.FeedbackListItem)
 def get_feedback(
+    request: Request,
     feedback_id: int,
     x_admin_token: str = Header(..., alias="X-Admin-Token")
 ):
-    _require_admin(x_admin_token)
+    _require_admin(request, x_admin_token)
 
     db = SessionLocal()
     try:
@@ -1525,11 +1583,12 @@ def get_feedback(
 
 @app.patch("/api/v1/admin/feedback/{feedback_id}/status")
 def update_feedback_status(
+    request: Request,
     feedback_id: int,
     status: str,
     x_admin_token: str = Header(..., alias="X-Admin-Token")
 ):
-    _require_admin(x_admin_token)
+    _require_admin(request, x_admin_token)
 
     try:
         fb_status = models.FeedbackStatus(status)

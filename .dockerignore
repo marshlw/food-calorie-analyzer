@@ -43,6 +43,25 @@ logs/
 Dockerfile
 docker-compose.yml
 
+# Пользовательские данные и датасеты (M-5).
+# COPY . . тянул сюда ~12 000 накопленных jpg — образ раздувался на сотни МБ,
+# а деплой замедлялся на каждой сборке. В контейнере uploads всё равно
+# перекрывается томом uploads_data, а training_data/images нужны только
+# ретрейну (он выключен, RETRAIN_ENABLED=false).
+app/app/uploads/
+app/uploads/
+app/temp_images/
+**/training_data/images/
+*.db
+*.sqlite3
+
+# Тесты и кэши инструментов
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
 # Misc
 .dockerignore
 README.md

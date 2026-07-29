@@ -73,15 +73,47 @@ services:
   redis:
     image: redis:7-alpine
     <<: *hardening
-    # appendonly — чтобы очередь celery переживала рестарт контейнера
-    command: redis-server --appendonly yes
+    # appendonly — чтобы очередь celery переживала рестарт контейнера.
+    # requirepass (M-3): в Redis лежат очередь Celery, кэш анализа, счётчики
+    # rate-limit и учёт активных refresh-токенов. Одной сетевой изоляции мало —
+    # любая ошибка в конфигурации сети открывает обход брутфорс-защиты.
+    # ВАЖНО: тот же пароль должен быть в REDIS_URL и CELERY_BROKER_URL/
+    # CELERY_RESULT_BACKEND в .env, формат: redis://:ПАРОЛЬ@redis:6379/0
+    command: >
+      redis-server --appendonly yes
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required — put a strong value in .env}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # -a обязателен: без пароля redis-cli ping вернёт NOAUTH, и контейнер
+      # навсегда останется unhealthy — api и celery не стартуют.
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - backend
+
+  # Одноразовый контейнер: накатывает схему и готовит справочные данные,
+  # ПОСЛЕ чего завершается. api и celery ждут его успешного выхода.
+  # Раньше всё это делал startup-хук каждого воркера — с гонкой на DDL и
+  # блокировками живых таблиц при каждом деплое (H-7).
+  # restart: "no" — переопределяем общий unless-stopped из &hardening,
+  # иначе compose перезапускал бы завершившийся контейнер по кругу.
+  migrate:
+    build: .
+    image: ai-healthy:prod
+    working_dir: /app
+    command: sh -c "alembic upgrade head && python -m app.bootstrap"
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - backend
 
@@ -112,17 +144,62 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - backend
       - web
 
+  # Анализ фото. Слушает ТОЛЬКО очереди analyze и maintenance: тяжёлый
+  # ретрейн (очередь retrain) не должен занимать слоты, в которых
+  # пользователи ждут результат анализа.
+  #
+  # ПОЧЕМУ --pool=threads, а не префорк:
+  # задача на 95% состоит из ожидания ответа Yandex Vision (20-45 с), CPU
+  # почти не нужен. Префорк с concurrency=6 — это 6 полных процессов Python
+  # с Pillow, ~120 МБ каждый ещё до первой картинки: на ВМ с 2 ГБ RAM это не
+  # помещается рядом с Postgres и api. Потоки живут в одном процессе и делят
+  # память, поэтому concurrency=8 стоит дешевле, чем префорк на 4.
+  # Бонус: 8 потоков берут 8 коннектов из ОДНОГО пула (5+5), а 6 префорк-
+  # процессов держали бы 6 отдельных пулов = до 60 коннектов к Postgres.
+  #
+  # ЧЕМ ПЛАТИМ: пул потоков не поддерживает task_time_limit/soft_time_limit
+  # (их реализация в celery опирается на сигналы префорка) и
+  # --max-tasks-per-child. Зависнуть насмерть задача всё же не может:
+  # у httpx-клиента жёсткий таймаут MODEL_TIMEOUT_SECONDS, а размер картинки
+  # ограничен MAX_IMAGE_PIXELS. Утечки памяти ловит mem_limit + restart.
+  #
+  # Очередь retrain намеренно НИКЕМ не слушается: ретрейн выключен
+  # (RETRAIN_ENABLED=false, в образе нет ollama), задачи в неё не кладутся.
+  # Включаете ретрейн — поднимайте отдельный воркер с `-Q retrain`.
   celery_worker:
     image: ai-healthy:prod
     <<: *hardening
     working_dir: /app
-    command: celery -A app.celery_app worker --loglevel=info --concurrency=4 --max-tasks-per-child=50
+    command: celery -A app.celery_app worker --loglevel=info -Q analyze,maintenance --pool=threads --concurrency=8
+    mem_limit: 700m
     volumes:
       - uploads_data:/app/app/uploads
+    env_file:
+      - .env
+    environment:
+      - C_FORCE_ROOT=true
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    networks:
+      - backend
+
+  # Планировщик: ночная уборка тома uploads (см. celery_app.beat_schedule).
+  # Ровно ОДИН экземпляр — иначе задачи будут дублироваться.
+  celery_beat:
+    image: ai-healthy:prod
+    <<: *hardening
+    working_dir: /app
+    command: celery -A app.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
+    mem_limit: 200m
     env_file:
       - .env
     environment:

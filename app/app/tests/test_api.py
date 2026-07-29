@@ -122,6 +122,113 @@ class TestAuthEndpoints:
         assert "access_token" in data
         assert data["token_type"] == "bearer"
 
+
+class TestRefreshTokenRotation:
+    """H-2: refresh одноразовый, повторное предъявление = компрометация.
+
+    Redis в тестах нет, поэтому подменяем хранилище словарём — логика
+    ротации от конкретного бэкенда не зависит.
+    """
+
+    class FakeRedis:
+        """Минимальный Redis: только то, что использует auth."""
+
+        def __init__(self):
+            self.data = {}
+
+        def setex(self, key, ttl, value):
+            self.data[key] = value
+
+        def get(self, key):
+            return self.data.get(key)
+
+        def delete(self, key):
+            return 1 if self.data.pop(key, None) is not None else 0
+
+        def scan_iter(self, match=None, count=None):
+            return iter(list(self.data))
+
+        def pipeline(self):
+            return self  # setex/execute достаточно для теста
+
+        def execute(self):
+            return []
+
+    @pytest.fixture
+    def fake_store(self):
+        store = self.FakeRedis()
+        with patch.object(auth, "_refresh_store", return_value=store):
+            yield store
+
+    def _login(self, client, email):
+        client.post("/api/v1/register", json={"email": email, "password": "testpassword123"})
+        resp = client.post(
+            "/api/v1/login",
+            data={"email": email, "password": "testpassword123"},
+        )
+        return resp.json()["refresh_token"]
+
+    def test_refresh_rotates_and_old_token_dies(self, client, fake_store):
+        """Первый обмен проходит, второй тем же токеном — 401."""
+        refresh = self._login(client, "rotate@example.com")
+
+        first = client.post(
+            "/api/v1/token",
+            data={"grant_type": "refresh_token", "refresh_token": refresh},
+        )
+        assert first.status_code == 200
+        assert first.json()["refresh_token"] != refresh
+
+        # Выходим за grace-окно: чистим метку «только что использован»
+        for key in [k for k in fake_store.data if k.startswith("refresh:used:")]:
+            fake_store.data.pop(key)
+
+        second = client.post(
+            "/api/v1/token",
+            data={"grant_type": "refresh_token", "refresh_token": refresh},
+        )
+        assert second.status_code == 401
+
+    def test_reuse_revokes_whole_session(self, client, fake_store):
+        """Повтор гасит и НОВЫЙ токен: bump token_version убивает всю сессию."""
+        refresh = self._login(client, "revoke@example.com")
+
+        fresh = client.post(
+            "/api/v1/token",
+            data={"grant_type": "refresh_token", "refresh_token": refresh},
+        ).json()["refresh_token"]
+
+        for key in [k for k in fake_store.data if k.startswith("refresh:used:")]:
+            fake_store.data.pop(key)
+
+        # Предъявляем украденный (старый) токен — детекция компрометации
+        client.post(
+            "/api/v1/token",
+            data={"grant_type": "refresh_token", "refresh_token": refresh},
+        )
+
+        # Токен легитимного пользователя тоже больше не работает
+        after = client.post(
+            "/api/v1/token",
+            data={"grant_type": "refresh_token", "refresh_token": fresh},
+        )
+        assert after.status_code == 401
+
+    def test_grace_window_allows_second_tab(self, client, fake_store):
+        """Две вкладки обновляются почти одновременно — обе получают токены."""
+        refresh = self._login(client, "tabs@example.com")
+
+        first = client.post(
+            "/api/v1/token",
+            data={"grant_type": "refresh_token", "refresh_token": refresh},
+        )
+        second = client.post(
+            "/api/v1/token",
+            data={"grant_type": "refresh_token", "refresh_token": refresh},
+        )
+        assert first.status_code == 200
+        assert second.status_code == 200
+
     def test_get_current_user(self, client, test_user_data):
         """Test /me endpoint returns current user."""
         # Register and login

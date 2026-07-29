@@ -54,6 +54,15 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+# Жёсткий потолок разрешения на уровне PIL, на весь процесс воркера.
+# Дефолт Pillow — 89 Мп, что при concurrency>1 на ВМ с 2 ГБ RAM означает
+# OOM. Всё, что выше, поднимает DecompressionBombError — задача честно
+# падает, а не уносит воркер вместе с соседними задачами.
+# API отсекает такие файлы раньше (main._validate_uploaded_image), это
+# страховка для фото, пришедших другим путём (telegram-бот, ретрей старой
+# задачи с уже лежащим на диске файлом).
+Image.MAX_IMAGE_PIXELS = settings.MAX_IMAGE_PIXELS
+
 PROMPT_VERSION = "v15"  # инвалидируем старый кеш (шаг идентификации блюда)
 
 PROMPT = """
@@ -185,6 +194,16 @@ def close_redis_client() -> None:
 
 class ProviderError(Exception):
     pass
+
+
+class AnalysisError(Exception):
+    """Анализ не удался, но повтор имеет смысл (провайдер лежит, таймаут,
+    сеть). Celery-задача ретраит такие ошибки с backoff."""
+
+
+class AnalysisPermanentError(AnalysisError):
+    """Анализ не удастся и при повторе: файла нет, файл битый.
+    Задача сразу помечается FAILURE, попытка возвращается пользователю."""
 
 
 class CircuitBreaker:
@@ -926,7 +945,6 @@ def parse_model_response(raw_text: Optional[str]) -> Optional[dict]:
 def preprocess(path: str) -> str:
     """Preprocess image: resize and compress."""
     try:
-        Image.MAX_IMAGE_PIXELS = getattr(settings, "MAX_IMAGE_PIXELS", 100000000)
         with Image.open(path) as src:
             # Загрузки нормализуются ещё в API, но фото может прийти и другим
             # путём — разворот по EXIF здесь идемпотентен и страхует от
@@ -1175,8 +1193,15 @@ def analyze_image_sync(path: str) -> dict:
                 break
 
         if result is None:
-            logger.warning("All providers failed, returning fallback", extra={"models_tried": models_tried})
-            result = DEFAULT_FALLBACK.copy()
+            # ВАЖНО: раньше здесь подставлялся DEFAULT_FALLBACK ("unknown",
+            # 200 ккал). Из-за этого задача завершалась SUCCESS, ретрай
+            # никогда не срабатывал, а пользователь получал мусор, заплатив
+            # попыткой из дневного лимита. Теперь честно падаем — задача
+            # ретраится, а при окончательной неудаче попытка возвращается.
+            logger.warning("All providers failed", extra={"models_tried": models_tried})
+            raise AnalysisError(
+                f"All providers failed (tried: {', '.join(models_tried) or 'none'})"
+            )
         else:
             ingredients = result.get("ingredients", [])
             total_weight = int(result.get("weight_g", 200))
@@ -1208,21 +1233,16 @@ def analyze_image_sync(path: str) -> dict:
         return result
 
     except FileNotFoundError as exc:
+        # Файл не появится сам — ретраить бессмысленно
         logger.warning("Image file not found", extra={"path": path, "error": str(exc)})
-        return {
-            "error": "Image file not found",
-            "source": "error",
-            "models_tried": models_tried,
-            "processing_time_sec": round(time.perf_counter() - start_time, 3),
-        }
+        raise AnalysisPermanentError(f"Image file not found: {path}") from exc
+    except AnalysisError:
+        raise
     except Exception as exc:
+        # Любую неожиданную ошибку пробрасываем наверх: задача должна
+        # получить статус FAILURE, а не SUCCESS с фиктивным результатом.
         logger.exception("Unexpected analysis error", exc_info=exc)
-        return {
-            **DEFAULT_FALLBACK,
-            "source": "fallback",
-            "models_tried": models_tried,
-            "processing_time_sec": round(time.perf_counter() - start_time, 3),
-        }
+        raise AnalysisError(str(exc)) from exc
     finally:
         session.close()
         # Обработанная копия (p_*.jpg) нужна только на время вызова модели —

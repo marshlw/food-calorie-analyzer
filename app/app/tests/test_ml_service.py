@@ -84,8 +84,13 @@ class TestModelFallback:
                 assert "deepseek" in result["models_tried"]
                 assert result["processing_time_sec"] > 0
 
-    def test_all_models_fail_returns_fallback(self, sample_image_path):
-        """Test all models fail and fallback is returned as SUCCESS (not FAILURE)."""
+    def test_all_models_fail_raises(self, sample_image_path):
+        """Отказ ВСЕХ провайдеров должен подниматься наверх.
+
+        Раньше здесь возвращался DEFAULT_FALLBACK ('unknown', 200 ккал), и
+        задача помечалась SUCCESS: ретрай не срабатывал, попытка из дневного
+        лимита сгорала, а пользователь получал выдуманные цифры.
+        """
         with patch.object(ml_service, "call_gemini") as mock_gemini:
             with patch.object(ml_service, "call_deepseek_vision") as mock_deepseek:
                 with patch.object(ml_service, "call_ollama_vision") as mock_ollama:
@@ -93,16 +98,17 @@ class TestModelFallback:
                     mock_deepseek.return_value = None
                     mock_ollama.return_value = None
 
-                    result = ml_service.analyze_image_sync(sample_image_path)
+                    with pytest.raises(ml_service.AnalysisError) as exc_info:
+                        ml_service.analyze_image_sync(sample_image_path)
 
-                    # Should return fallback as SUCCESS (not raise exception)
-                    assert result is not None
-                    assert result["source"] == "fallback"
-                    assert result["food"] == "unknown"
-                    assert result["confidence"] == 0.0
-                    assert "gemini" in result["models_tried"]
-                    assert "deepseek" in result["models_tried"]
-                    assert "ollama" in result["models_tried"]
+                    # В тексте ошибки — список опробованных провайдеров
+                    assert "gemini" in str(exc_info.value)
+
+    def test_missing_file_raises_permanent(self, tmp_path):
+        """Отсутствующий файл — ошибка без ретраев."""
+        missing = tmp_path / "nope.jpg"
+        with pytest.raises(ml_service.AnalysisPermanentError):
+            ml_service.analyze_image_sync(str(missing))
 
     def test_invalid_json_tries_next_model(self, sample_image_path):
         """Test invalid JSON from Gemini triggers DeepSeek."""

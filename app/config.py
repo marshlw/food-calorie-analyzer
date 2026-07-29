@@ -13,14 +13,20 @@ class Settings(BaseSettings):
 
     # Пул соединений с БД на ПРОЦЕСС (uvicorn-воркер / celery-процесс).
     # Итоговый максимум коннектов = (кол-во процессов) * (POOL_SIZE + MAX_OVERFLOW).
-    # Текущий бюджет при max_connections=200:
-    #   api    2 воркера  * (5 + 5)  = 20
-    #   celery 4 процесса * (5 + 5)  = 40
+    # Текущий бюджет при max_connections=150:
+    #   api    2 процесса uvicorn * (5 + 5) = 20
+    #   celery 1 процесс (пул потоков)      = 10 на 8 задач
+    #   beat   1 процесс                    = ~1
     # Запас оставлен под psql/бэкапы и рост числа воркеров.
     # Под 5000 DAU правильное решение — PgBouncer в режиме transaction.
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 5
 
+    # Redis хранит очередь Celery, кэш анализа, счётчики rate-limit и учёт
+    # активных refresh-токенов — то есть компрометация Redis = обход лимитов
+    # и брутфорс-защиты. Пароль обязателен в проде (M-3): сетевая изоляция
+    # одна не спасает, любая ошибка в конфигурации сети всё это открывает.
+    # Формат с паролем: redis://:ПАРОЛЬ@redis:6379/0
     REDIS_URL: str = "redis://redis:6379/0"
     DEEPSEEK_API_KEY: Optional[str] = None
     DEEPSEEK_VISION_API_URL: Optional[str] = None
@@ -95,6 +101,25 @@ class Settings(BaseSettings):
     # AI-анализ фото: запросов в сутки на одного пользователя
     AI_DAILY_LIMIT: int = 5
 
+    # Советчик: сколько раз в сутки один пользователь может инициировать
+    # LLM-вызов через GET /advisor. Без лимита любое изменение дневника
+    # инвалидирует кэш совета, и открытие вкладки = новый платный вызов
+    # на десятки секунд.
+    ADVISOR_DAILY_LIMIT: int = 20
+
+    # ===================== НАБЛЮДАЕМОСТЬ =====================
+
+    # Эндпоинт /metrics в формате Prometheus. Наружу не публикуется:
+    # Caddy отвечает на /metrics 404, доступ только изнутри сети backend.
+    METRICS_ENABLED: bool = True
+
+    # ===================== RETRAIN =====================
+
+    # Ретрейн модели по фидбекам. В прод-образе нет ollama, поэтому по
+    # умолчанию выключено: иначе каждый фидбек после десятого ставил в
+    # очередь заведомо падающую задачу. См. tasks.retrain_model_task.
+    RETRAIN_ENABLED: bool = False
+
     # ===================== FILES =====================
 
     UPLOAD_DIR: str = "/app/app/uploads"
@@ -107,14 +132,34 @@ class Settings(BaseSettings):
     # Удалять оригинал фото после успешного анализа (превью перестанет работать)
     DELETE_UPLOAD_AFTER_ANALYSIS: bool = False
 
+    # Сколько дней держать фото в UPLOAD_DIR. Ночная задача
+    # tasks.cleanup_uploads_task удаляет всё старше этого срока, а также
+    # «осиротевшие» файлы, на которые не ссылается ни одна строка в БД.
+    # Записи КБЖУ при этом остаются — исчезает только картинка.
+    # Оценка роста: 5000 DAU * 1,5 фото * ~400 КБ ≈ 3 ГБ/сутки,
+    # то есть 30 дней ≈ 90 ГБ. Уменьшайте, если диск меньше.
+    UPLOAD_RETENTION_DAYS: int = 30
+
+    # Порог свободного места на томе uploads. Ниже — задача уборки пишет
+    # ERROR (повод для алерта), потому что при 0 байт падает и Postgres.
+    UPLOAD_DISK_FREE_ALERT_GB: float = 5.0
+
     # Увеличили для лучшего распознавания
     MAX_IMAGE_SIZE: int = 1600
     IMAGE_QUALITY: int = 95
 
     # Потолок разрешения входного фото (защита от decompression bomb:
-    # 10 МБ PNG/HEIC могут развернуться в сотни МБ RSS при декодировании).
-    # 60 Мп с запасом покрывает 48-Мп камеры современных флагманов.
-    MAX_IMAGE_PIXELS: int = 60_000_000
+    # 10 МБ PNG могут развернуться в сотни МБ RSS при декодировании).
+    # Считаем бюджет памяти воркера: N пикселей * 3 байта на RGB, и ещё
+    # столько же на копию при convert("RGB") в preprocess.
+    #   30 Мп -> ~90 МБ + копия = ~180 МБ на одно фото.
+    # Одновременно декодируется максимум пара картинок из 8 задач воркера
+    # (остальные ждут ответ сети), но поднимать порог без увеличения RAM
+    # нельзя: прилетит OOM-killer, а задачи с acks_late=True вернутся в
+    # очередь и зациклятся.
+    # 30 Мп покрывает любую телефонную камеру (48 Мп режимы дают файл
+    # заметно больше MAX_UPLOAD_SIZE и отсекаются раньше).
+    MAX_IMAGE_PIXELS: int = 30_000_000
 
     # .heic/.heif — камера iPhone. Safari транскодирует их в JPEG не всегда
     # (при выборе через «Файлы» и во встроенных WebView — нет), поэтому
@@ -154,8 +199,13 @@ class Settings(BaseSettings):
 
     # ===================== CELERY =====================
 
-    CELERY_BROKER_URL: str = "redis://redis:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://redis:6379/0"
+    # Пустые по умолчанию: подставляются из REDIS_URL в model_post_init.
+    # Так пароль Redis задаётся ровно в одном месте и нельзя получить
+    # «половинчатую» конфигурацию, где API ходит с паролем, а Celery — без
+    # него и молча падает с NOAUTH (M-3).
+    # Задавайте явно, только если брокер живёт отдельно от кэша.
+    CELERY_BROKER_URL: str = ""
+    CELERY_RESULT_BACKEND: str = ""
 
     # ===================== DERIVED =====================
 
@@ -184,6 +234,12 @@ class Settings(BaseSettings):
     # ===================== VALIDATION =====================
 
     def model_post_init(self, __context):
+        # Celery по умолчанию ходит туда же, куда и кэш — вместе с паролем
+        if not self.CELERY_BROKER_URL:
+            self.CELERY_BROKER_URL = self.REDIS_URL
+        if not self.CELERY_RESULT_BACKEND:
+            self.CELERY_RESULT_BACKEND = self.REDIS_URL
+
         # Домены из env добавляем к дефолтному списку (прод-домен, мобилка)
         extra = [o.strip() for o in self.ALLOWED_ORIGINS_EXTRA.split(",") if o.strip()]
         for origin in extra:
@@ -235,6 +291,22 @@ class Settings(BaseSettings):
             if not self.ALLOW_INSECURE_DB_PASSWORD:
                 raise RuntimeError(message)
             logger.critical("%s (ALLOW_INSECURE_DB_PASSWORD=true — запуск разрешён)", message)
+
+        # M-3: Redis без пароля. В нём лежат очередь Celery, счётчики
+        # rate-limit и учёт активных refresh-токенов — доступ к нему
+        # позволяет обойти брутфорс-защиту и дневные лимиты.
+        # Предупреждение, а не отказ старта: в dev/тестах Redis поднимают
+        # без пароля, и ронять из-за этого приложение неправильно.
+        try:
+            redis_password = urlparse(self.REDIS_URL).password
+        except Exception:
+            redis_password = None
+        if not redis_password:
+            logger.warning(
+                "REDIS_URL has no password. In production run redis with "
+                "--requirepass and use redis://:PASSWORD@redis:6379/0 — "
+                "network isolation alone is not enough."
+            )
 
         providers = {"gemini", "deepseek", "ollama", "yandex"}
         if self.MODEL_PROVIDER not in providers:

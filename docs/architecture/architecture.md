@@ -124,8 +124,14 @@ MODEL_PROVIDER (default "yandex") first, then the remaining three:
 
 Each provider is wrapped in a `CircuitBreaker` (3 consecutive failures → 300s cooldown) and
 retried up to `MODEL_RETRY_ATTEMPTS` (2) times with backoff; quota/429 errors abort retries early.
-If every provider fails, `DEFAULT_FALLBACK` is used — and is treated as a **successful** task
-result (`source: "fallback"`), not an error.
+If every provider fails, `analyze_image_sync` raises `AnalysisError` (since sprint 3 / M-8). The
+Celery task retries it up to 3 times with exponential backoff; on final failure the task is marked
+`FAILURE` **and the user's daily AI attempt is refunded**. A missing/corrupt file raises
+`AnalysisPermanentError` and skips retries entirely.
+
+Previously `DEFAULT_FALLBACK` ("unknown", 200 kcal) was returned and the task was marked
+**success** — which meant `autoretry_for` never fired, the user burned a daily attempt and got
+invented numbers.
 
 **Caching:** Redis key `f"{CACHE_PREFIX}:{PROMPT_VERSION}:{sha256(image)}"` — currently
 `food_analysis:v4:v15:<hash>` — TTL `CACHE_TTL` (24h). Bump `PROMPT_VERSION` in code to invalidate
@@ -184,9 +190,16 @@ active tables (current diary/tracking flow):
 - `meals` / `meal_items` / `photos` — **legacy**, not used by any current endpoint; keep in mind
   for migrations but ignore for new work
 
-`app/database.py`'s `ensure_schema()` runs `create_all()` (creates missing tables) plus a manual
-idempotent `ALTER TABLE ADD COLUMN`/`CREATE INDEX` step for columns/indexes added after the
-original `create_all()` was run in production — there is no Alembic migration tool in this repo.
+**Schema management (since sprint 3 / H-7).** Alembic owns the schema. The `migrate` service in
+`docker-compose.prod.yml` runs `alembic upgrade head && python -m app.bootstrap` once, and `api` /
+`celery` wait for it via `condition: service_completed_successfully`. Migration
+`0004_schema_baseline` folds in everything the old startup hook did (`create_all` + idempotent
+`ALTER TABLE ADD COLUMN` + `CREATE INDEX` + `pg_trgm`), so it is safe both on a fresh database and
+on the existing production one that was never stamped.
+
+`app/database.py`'s `ensure_schema()` still exists but is **dev/test only** — calling it from a
+startup hook is what caused DDL races between workers, `ACCESS EXCLUSIVE` locks on live tables and
+a full `meal_entries` scan on every deploy.
 
 ### 6. AI Advisor (`app/advisor.py`)
 
@@ -244,8 +257,9 @@ FastAPI itself (see §1) — there is no separate frontend server in production.
 |----------|----------|-------------|
 | Provider returns invalid/unparseable JSON | Try next provider | `pending` |
 | Provider quota exceeded (429) | Skip retries for that provider, try next | `pending` |
-| All providers fail | Return `DEFAULT_FALLBACK` | **`success`** ✅ |
+| All providers fail | Raise `AnalysisError` → retry 3x (30/60/120s), then fail + refund attempt | `failure` |
 | Uploaded file is not a valid image | Rejected at upload time (`400`), no task created | — |
+| Image file missing on disk | Raise `AnalysisPermanentError`, no retries, refund attempt | `failure` |
 | Celery task raises after enqueue | Retries up to 3x with backoff, then `failure` | `failure` |
 
 ### Authentication

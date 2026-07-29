@@ -4,8 +4,9 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.orm import selectinload, Session
 from typing import List, Optional, Dict, Any, Tuple
 import uuid
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from . import models, schemas
+from .config import settings
 import logging
 
 import json
@@ -414,7 +415,9 @@ def update_task(
         task.error = error
 
     task.status = status
-    task.updated_at = datetime.utcnow()
+    # M-7: колонка объявлена DateTime(timezone=True) — пишем aware-время,
+    # иначе Postgres трактует naive utcnow() как локальное время сессии.
+    task.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(task)
     return task
@@ -429,6 +432,21 @@ def get_tasks_by_user_sync(db: Session, user_id: int, limit: int = 50, offset: i
         .limit(limit)
         .all()
     )
+
+
+def bump_token_version(db: Session, user: models.User) -> models.User:
+    """Инкремент users.token_version — мгновенно инвалидирует ВСЕ выданные
+    пользователю access/refresh токены (auth.get_current_user сверяет 'tv').
+
+    Используется при смене пароля и при обнаружении повторного
+    использования refresh-токена (признак кражи)."""
+    db_user = db.query(models.User).filter(models.User.id == user.id).first()
+    if db_user is None:
+        return user
+    db_user.token_version = (db_user.token_version or 0) + 1
+    db.commit()
+    db.refresh(db_user)
+    return db_user
 
 
 def get_task_by_id_sync(db: Session, task_id: str) -> Optional[models.Task]:
@@ -1289,6 +1307,14 @@ def create_feedback_sync(
     # очередь Celery забивалась бы ретрейнами и анализ фото вставал.
     # Redis-флаг retrain:queued (SET NX + TTL) гарантирует максимум одну
     # задачу ретрейна в очереди/работе одновременно.
+    #
+    # ПО УМОЛЧАНИЮ ВЫКЛЮЧЕНО (RETRAIN_ENABLED=false): в прод-образе нет
+    # бинарника ollama (MODEL_PROVIDER=yandex), поэтому задача гарантированно
+    # падала, а очередь наполнялась заново после каждого фидбека.
+    # Включать только вместе с ollama в окружении воркера.
+    if not settings.RETRAIN_ENABLED:
+        return feedback
+
     try:
         pending_count = db.query(models.Feedback).filter(
             models.Feedback.status == models.FeedbackStatus.PENDING

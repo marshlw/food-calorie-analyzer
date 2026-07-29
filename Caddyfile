@@ -11,6 +11,12 @@
 		header_up X-Real-IP {remote_host}
 	}
 
+	# /metrics наружу не отдаём: там детальная карта эндпоинтов и профиль
+	# нагрузки. Изнутри сети backend метрики доступны на http://api:8000/metrics
+	# — оттуда их и забирает Prometheus.
+	# respond обрабатывается раньше reverse_proxy и обрывает цепочку.
+	respond /metrics* 404
+
 	# Загрузка фото может быть крупной
 	request_body {
 		max_size 12MB

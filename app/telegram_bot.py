@@ -47,7 +47,13 @@ def _init_redis_client():
         redis_port = getattr(settings, "REDIS_PORT", 6379)
         redis_url = f"redis://{redis_host}:{redis_port}/0"
 
-    logger.info(f"Connecting to Redis at {redis_url}")
+    # Пароль в URL наружу не светим: логи агрегируются и хранятся дольше,
+    # чем живёт секрет (M-3).
+    logger.info(
+        "Connecting to Redis at %s:%s",
+        getattr(settings, "REDIS_HOST", "redis"),
+        getattr(settings, "REDIS_PORT", 6379),
+    )
     try:
         client = redis.from_url(redis_url, decode_responses=True)
         client.ping()

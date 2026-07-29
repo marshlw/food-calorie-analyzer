@@ -32,3 +32,6 @@ rapidfuzz
 numpy==1.26.4
 requests>=2.31.0
 zxing-cpp==2.2.0
+# Метрики Prometheus (/metrics): латентность и коды ответов по эндпоинтам.
+# Под 5000 DAU без них инцидент нечем диагностировать.
+prometheus-fastapi-instrumentator==6.1.0

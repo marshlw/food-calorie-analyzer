@@ -1,4 +1,6 @@
 # app/database.py
+from urllib.parse import urlparse
+
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from sqlalchemy import create_engine, inspect, text
 from .config import settings
@@ -37,7 +39,14 @@ def configure_database(url: str | None = None):
         autoflush=False,
         bind=engine,
     )
-    logger.info("Database configured for %s", database_url)
+    # Пароль в лог не пишем: строка подключения содержит его открытым текстом,
+    # а логи живут дольше секрета и часто уезжают в агрегатор.
+    try:
+        parsed = urlparse(database_url)
+        safe_target = f"{parsed.hostname or '?'}:{parsed.port or '?'}{parsed.path or ''}"
+    except Exception:
+        safe_target = "unknown"
+    logger.info("Database configured for %s", safe_target)
 
 
 configure_database()
@@ -129,15 +138,73 @@ _ENSURE_INDEXES = (
     ("ix_daily_logs_user_id", "daily_logs", "user_id"),
     ("ix_goal_days_user_id", "goal_days", "user_id"),
     ("ix_goal_days_date", "goal_days", "date"),
+    # create_feedback_sync считает COUNT(*) WHERE status='pending' на КАЖДОМ
+    # фидбеке — без индекса это seq scan по всей таблице (M-11)
+    ("ix_feedback_status", "feedback", "status"),
 )
 
 
+# Триграммные индексы для автодополнения (M-1).
+# Поиск идёт как ilike '%слово%': ведущий wildcard делает B-tree индекс
+# бесполезным, и Postgres уходит в seq scan по products/exercises на КАЖДОЕ
+# нажатие клавиши — это самый частый запрос в приложении.
+# GIN + pg_trgm умеет обслуживать подстроку в середине строки.
+# Работает только в PostgreSQL; в SQLite (тесты) молча пропускается.
+_TRGM_INDEXES = (
+    ("ix_products_name_trgm", "products", "name"),
+    ("ix_exercises_name_trgm", "exercises", "name"),
+)
+
+
+def _ensure_trgm_indexes(tables: set) -> None:
+    """Идемпотентно создаёт pg_trgm-индексы.
+
+    КАЖДЫЙ оператор — в СВОЕЙ транзакции: в Postgres первая же ошибка
+    переводит транзакцию в aborted, и все последующие команды в ней падают
+    с "current transaction is aborted". Один неудавшийся индекс не должен
+    утаскивать за собой остальные.
+
+    Любая ошибка (нет прав на CREATE EXTENSION, старая версия Postgres) —
+    предупреждение, а не падение старта: приложение работает и без
+    индексов, просто медленнее. Основной путь установки расширения —
+    init.sh, там мы суперпользователь.
+    """
+    statements = [("pg_trgm extension", "CREATE EXTENSION IF NOT EXISTS pg_trgm")]
+    for index_name, table, column in _TRGM_INDEXES:
+        if table not in tables:
+            continue
+        # ВАЖНО: индекс по САМОЙ колонке, без lower(). Запросы идут через
+        # ILIKE (crud.search_products / search_exercises), а gin_trgm_ops
+        # по колонке обслуживает и LIKE, и ILIKE. Индекс по lower(column)
+        # планировщик для ILIKE не подхватит — понадобилось бы переписать
+        # запросы на lower(name) LIKE lower(...).
+        statements.append((index_name, (
+            f"CREATE INDEX IF NOT EXISTS {index_name} "
+            f"ON {table} USING gin ({column} gin_trgm_ops)"
+        )))
+
+    for label, sql in statements:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(sql))
+        except Exception as exc:
+            logger.warning("Skipping %s: %s", label, exc)
+            if label == "pg_trgm extension":
+                return  # без расширения индексы всё равно не создадутся
+
+
 def ensure_schema():
-    """Лёгкая «миграция» для проектов без Alembic.
+    """Схема одним вызовом: create_all + недостающие колонки и индексы.
+
+    ТОЛЬКО ДЛЯ DEV И ТЕСТОВ. В проде схему накатывает Alembic
+    (`alembic upgrade head` в сервисе `migrate`, миграция 0004_schema_baseline
+    выполняет ровно эти же шаги). Вызывать это из startup-хука НЕЛЬЗЯ:
+    воркеры стартуют одновременно и устраивают гонку на DDL, ADD COLUMN
+    берёт ACCESS EXCLUSIVE lock, а CREATE INDEX без CONCURRENTLY блокирует
+    запись в таблицу — и всё это на каждом деплое (H-7).
 
     create_all() создаёт недостающие ТАБЛИЦЫ (например, weight_records),
     но не добавляет новые КОЛОНКИ и ИНДЕКСЫ в существующие таблицы.
-    Здесь идемпотентно дольём недостающие колонки users и индексы.
     """
     if engine is None:
         raise RuntimeError("Database has not been configured")
@@ -154,6 +221,9 @@ def ensure_schema():
                 conn.execute(text(
                     f'CREATE INDEX IF NOT EXISTS {index_name} ON {table} ({column})'
                 ))
+
+    if engine.dialect.name == "postgresql":
+        _ensure_trgm_indexes(tables)
 
     for table, columns in _ENSURE_COLUMNS.items():
         if table not in tables:

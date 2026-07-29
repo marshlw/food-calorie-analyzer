@@ -17,8 +17,9 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app import crud, models
@@ -37,6 +38,11 @@ _llm_executor = ThreadPoolExecutor(
 ADVISOR_CACHE_TTL = 30 * 60        # 30 минут — для ответов LLM
 ADVISOR_RULES_CACHE_TTL = 2 * 60   # 2 минуты — для rules-фолбэка (чтобы ошибка не «залипала»)
 ADVISOR_LLM_TIMEOUT = 40           # сек: qwen с reasoning может думать долго
+
+# Потолок ожидания HTTP-запроса к советчику: сам вызов (ADVISOR_LLM_TIMEOUT)
+# плюс запас на ожидание свободного слота в _llm_executor. Дольше держать
+# клиента нет смысла — он уже отвалится по своему таймауту (axios: 30 с).
+ADVISOR_REQUEST_TIMEOUT = ADVISOR_LLM_TIMEOUT + 20
 
 
 # ===================== КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ =====================
@@ -420,12 +426,60 @@ def _parse_llm_advice(raw: Optional[str]) -> Optional[Dict[str, Any]]:
 
 # ===================== КЭШ =====================
 
+def _round_to(value: Optional[float], step: int) -> Optional[int]:
+    """Округление до шага. None остаётся None, чтобы «нет данных» и «ноль»
+    не схлопывались в один и тот же ключ кэша."""
+    if value is None:
+        return None
+    return int(round(float(value) / step) * step)
+
+
+def _cache_fingerprint(ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Огрублённый снимок дня для ключа кэша.
+
+    ВАЖНО: раньше в хэш шёл ВЕСЬ контекст, включая точные калории и мл воды.
+    Из-за этого каждый стакан воды и каждый приём пищи инвалидировали кэш, и
+    следующее открытие вкладки = новый LLM-вызов на 40 секунд. Один активный
+    пользователь легко делал 20-30 платных вызовов в день.
+
+    Совет не меняется от 10 ккал разницы, поэтому округляем: калории до 100,
+    макросы до 25 г, воду до 250 мл (примерно стакан). Списки тренировок
+    сворачиваем в счётчик — их состав на текст совета почти не влияет.
+    """
+    eaten = ctx.get("eaten") or {}
+    targets = ctx.get("targets") or {}
+    goal = ctx.get("goal") or {}
+
+    return {
+        "goal": goal.get("goal"),
+        "rate": goal.get("rate_kg_per_week"),
+        # Нормы меняются редко, но полностью менять совет обязаны
+        "targets": {
+            "calories": _round_to(targets.get("calories"), 50),
+            "protein_g": _round_to(targets.get("protein_g"), 10),
+            "water_ml": _round_to(targets.get("water_ml"), 250),
+        },
+        "eaten": {
+            "calories": _round_to(eaten.get("calories"), 100),
+            "protein_g": _round_to(eaten.get("protein_g"), 25),
+            "fat_g": _round_to(eaten.get("fat_g"), 25),
+            "carbs_g": _round_to(eaten.get("carbs_g"), 25),
+        },
+        "water_ml": _round_to(ctx.get("water_ml"), 250),
+        "workouts_today": len(ctx.get("workouts_today") or []),
+        "workout_calories": _round_to(ctx.get("workout_calories_today"), 100),
+        "workout_days_last_week": ctx.get("workout_days_last_week"),
+        "weight_trend_kg": ctx.get("weight_trend_kg"),
+    }
+
+
 def _cache_key(user_id: int, ctx: Dict[str, Any]) -> str:
     fingerprint = hashlib.sha256(
-        json.dumps(ctx, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        json.dumps(_cache_fingerprint(ctx), sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()[:16]
-    # v2: старые записи v1 (rules могли закэшироваться на 30 мин) игнорируются
-    return f"advisor:v2:{user_id}:{ctx['date']}:{fingerprint}"
+    # v3: ключ считается по огрублённому снимку (см. _cache_fingerprint),
+    # записи v1/v2 больше не подходят и просто протухнут по TTL
+    return f"advisor:v3:{user_id}:{ctx['date']}:{fingerprint}"
 
 
 def _cache_get(key: str) -> Optional[Dict[str, Any]]:
@@ -483,16 +537,52 @@ def get_advice(db: Session, user: models.User) -> Dict[str, Any]:
     return generate_advice(ctx, key)
 
 
-async def get_advice_async(db: Session, user: models.User) -> Dict[str, Any]:
+async def _run_llm_with_timeout(fn, *args):
+    """Запуск LLM-задачи в пуле советчика с потолком ожидания.
+
+    Без таймаута очередь в run_in_executor растёт неограниченно: 8 слотов
+    заняты вызовами по 40 секунд, остальные запросы висят до тех пор, пока
+    клиент сам не отвалится, продолжая держать соединение и сессию БД.
+
+    Оговорка: отмена задачи НЕ убивает уже запущенный поток (ThreadPoolExecutor
+    так не умеет) — она освобождает только HTTP-запрос. Реальный потолок
+    времени самого вызова задаёт MODEL_TIMEOUT_SECONDS в http-клиенте.
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(_llm_executor, fn, *args),
+            timeout=ADVISOR_REQUEST_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Advisor LLM call timed out after %ss", ADVISOR_REQUEST_TIMEOUT)
+        raise HTTPException(
+            status_code=503,
+            detail="Советчик сейчас перегружен. Попробуйте через минуту.",
+        )
+
+
+async def get_advice_async(
+    db: Session,
+    user: models.User,
+    before_llm: Optional[Callable[[], None]] = None,
+) -> Dict[str, Any]:
     """Async-обёртка для эндпоинта: БД — в общем threadpool (быстро),
-    LLM — в выделенном пуле советчика (долго, но не мешает другим запросам)."""
+    LLM — в выделенном пуле советчика (долго, но не мешает другим запросам).
+
+    before_llm — синхронный хук, который вызывается ТОЛЬКО при промахе кэша,
+    прямо перед платным обращением к модели. Через него эндпоинт вешает
+    rate-limit: списывать лимит на попадании в кэш нечестно, пользователь
+    может открывать вкладку сколько угодно, пока совет не устарел.
+    """
     from starlette.concurrency import run_in_threadpool
 
     cached, ctx, key = await run_in_threadpool(prepare_advice, db, user)
     if cached:
         return cached
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_llm_executor, generate_advice, ctx, key)
+    if before_llm is not None:
+        await run_in_threadpool(before_llm)
+    return await _run_llm_with_timeout(generate_advice, ctx, key)
 
 
 _ASK_INSTRUCTIONS = """
@@ -540,5 +630,4 @@ async def ask_async(db: Session, user: models.User, question: str) -> Dict[str, 
     from starlette.concurrency import run_in_threadpool
 
     ctx = await run_in_threadpool(build_user_context, db, user)
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_llm_executor, generate_answer, ctx, question)
+    return await _run_llm_with_timeout(generate_answer, ctx, question)
