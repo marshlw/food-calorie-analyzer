@@ -757,7 +757,22 @@ def call_yandex(prompt: str, image_path: Optional[str] = None) -> Optional[str]:
     return provider.call(prompt, image_path)
 
 
+def call_mock(prompt: str, image_path: Optional[str] = None) -> str:
+    return json.dumps({
+        "food": "Курица с рисом (тест)",
+        "confidence": 0.95,
+        "weight_g": 250,
+        "ingredients": [
+            {"name": "куриная грудка", "type": "meat", "weight_g": 120},
+            {"name": "рис", "type": "grain", "weight_g": 130},
+        ],
+    }, ensure_ascii=False)
+
+
 def get_provider_callables() -> List[tuple[str, Any]]:
+    if settings.MODEL_PROVIDER.lower() == "mock":
+        return [("mock", "call_mock")]
+
     provider_map = {
         "gemini": "call_gemini",
         "deepseek": "call_deepseek_vision",
@@ -1165,7 +1180,10 @@ def analyze_image_sync(path: str) -> dict:
     img: Optional[str] = None
 
     try:
-        cache_key = f"{settings.CACHE_PREFIX}:{PROMPT_VERSION}:{get_hash(path)}"
+        cache_namespace = settings.CACHE_PREFIX
+        if settings.MODEL_PROVIDER.lower() == "mock":
+            cache_namespace += ":mock"
+        cache_key = f"{cache_namespace}:{PROMPT_VERSION}:{get_hash(path)}"
         cached_data = _get_cached_result(cache_key)
         if cached_data:
             cached_data["source"] = "cache"

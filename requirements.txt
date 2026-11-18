@@ -19,6 +19,8 @@ opencv-python-headless==4.9.0.80
 ollama==0.1.6
 google-genai>=0.3.0
 celery==5.3.4
+# Новые версии Kombu требуют redis-py >=6.1, здесь используется Redis-клиент 5.0.1.
+kombu==5.3.7
 flower==2.0.1
 httpx==0.25.2
 openai

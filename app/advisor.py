@@ -310,6 +310,20 @@ def _extract_responses_text(response) -> Optional[str]:
 
 
 def _llm_complete(instructions: str, prompt: str) -> Optional[str]:
+    if settings.MODEL_PROVIDER.lower() == "mock":
+        if instructions == _ADVICE_INSTRUCTIONS:
+            return json.dumps({
+                "headline_title": "Тестовый совет",
+                "headline_text": "Заполните дневник питания, чтобы видеть итоги за день.",
+                "nutrition": [
+                    {"title": "Дневник питания", "text": "Добавьте приём пищи.", "tag": "general"},
+                ],
+                "training": [
+                    {"title": "Дневник тренировок", "text": "Запишите тренировку.", "tag": "training"},
+                ],
+            }, ensure_ascii=False)
+        return "Это тестовый ответ советчика. Данные о питании и тренировках доступны в дневнике."
+
     client = _get_llm_client()
     if client is None:
         logger.warning("Advisor LLM disabled: YANDEX_API_KEY/FOLDER_ID not configured")
@@ -479,7 +493,8 @@ def _cache_key(user_id: int, ctx: Dict[str, Any]) -> str:
     ).hexdigest()[:16]
     # v3: ключ считается по огрублённому снимку (см. _cache_fingerprint),
     # записи v1/v2 больше не подходят и просто протухнут по TTL
-    return f"advisor:v3:{user_id}:{ctx['date']}:{fingerprint}"
+    namespace = "advisor:v3:mock" if settings.MODEL_PROVIDER.lower() == "mock" else "advisor:v3"
+    return f"{namespace}:{user_id}:{ctx['date']}:{fingerprint}"
 
 
 def _cache_get(key: str) -> Optional[Dict[str, Any]]:

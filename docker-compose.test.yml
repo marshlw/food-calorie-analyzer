@@ -20,19 +20,19 @@ services:
 
   postgres:
     image: postgres:15
+    env_file:
+      - .env.test
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-testpass}
       POSTGRES_DB: fooddb
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-testpass}
     ports:
       - "127.0.0.1:5434:5432"          # доступ к test-БД только с этого ПК (DBeaver и т.п.)
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sh:/docker-entrypoint-initdb.d/init.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "fooddb"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -53,10 +53,24 @@ services:
     networks:
       - backend
 
+  migrate:
+    build: .
+    image: ai-healthy:test
+    command: sh -c "alembic upgrade head && python -m app.bootstrap"
+    env_file:
+      - .env.test
+    environment: &test-settings
+      MODEL_PROVIDER: mock
+      ALLOW_INSECURE_DB_PASSWORD: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
   api:
     build: .
     image: ai-healthy:test
-    working_dir: /app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
     ports:
       - "8001:8000"                    # наружу / в туннель (порт хоста 8001)
@@ -64,11 +78,17 @@ services:
       - uploads_data:/app/app/uploads
     env_file:
       - .env.test
+    environment: *test-settings
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 5s
+      timeout: 6s
+      retries: 12
     restart: unless-stopped
     networks:
       - backend
@@ -83,12 +103,18 @@ services:
     env_file:
       - .env.test
     environment:
-      - C_FORCE_ROOT=true
+      <<: *test-settings
+      C_FORCE_ROOT: "true"
     depends_on:
       redis:
         condition: service_healthy
       api:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping --destination celery@$$HOSTNAME --timeout 5"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
     restart: unless-stopped
     networks:
       - backend
@@ -102,11 +128,12 @@ services:
     env_file:
       - .env.test
     environment:
-      - API_URL=http://api:8000
-      - PYTHONPATH=/app
+      <<: *test-settings
+      API_URL: http://api:8000
+      PYTHONPATH: /app
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_healthy
     restart: unless-stopped

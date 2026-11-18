@@ -2,7 +2,7 @@
 
 Два независимых окружения. Изолированы по имени проекта (свои тома/БД), портам и кредам — могут работать одновременно.
 
-| | **DEV** (для разработки) | **TEST** (для друзей/жены) |
+| | **DEV**  | **TEST**  |
 |---|---|---|
 | Compose-файл | `docker-compose.dev.yml` | `docker-compose.test.yml` |
 | Креды | `.env.dev` | `.env.test` |
@@ -31,13 +31,25 @@ docker compose -f docker-compose.dev.yml down              # стоп
 
 ---
 
-## TEST — для друзей/жены (шарится наружу)
+## TEST
 
 ### 1. Поднять стек
+
+Для первого запуска скопируй `.env.test.example` в `.env.test` и задай
+`SECRET_KEY` с помощью `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+Если `.env.test` уже есть, добавь в него `POSTGRES_PASSWORD` и
+`APP_DB_PASSWORD` с действующими паролями тестовой базы. Пароль в
+`DATABASE_URL` должен совпадать с `APP_DB_PASSWORD`.
+
 ```powershell
-docker compose -f docker-compose.test.yml up -d --build
+docker compose -f docker-compose.test.yml up -d --build --wait
 ```
 Проверка локально: **http://localhost:8001**
+
+Compose применяет миграции и заполняет справочники перед запуском API.
+В TEST включён `MODEL_PROVIDER=mock`: фото возвращают тестовое блюдо
+«Курица с рисом (тест)», советчик возвращает тестовые советы и ответы.
+Ключи ИИ-провайдеров для TEST не нужны.
 
 ### 2. Поднять туннель (внешний HTTPS-доступ)
 В этой сети **cloudflared не работает** (закрыт порт 7844) — используем **ngrok** (ходит по 443).
@@ -110,10 +122,10 @@ docker compose -f docker-compose.test.yml exec postgres psql -U postgres -d food
 - **`pull access denied for ai-healthy`** → у сервиса нет `build:`. Все сервисы, использующие образ `ai-healthy:*`, должны иметь `build: .` (уже исправлено в compose-файлах).
 - **Туннель не поднимается, `port 7844`** → это про cloudflared, он тут не работает. Использовать ngrok (см. выше).
 - **Страницы /profile, /meals и т.п. дают 404 при прямом заходе** → нужен SPA-fallback на бэкенде (уже добавлен: `SPAStaticFiles` в `app/main.py`). После правок фронта пересобрать test.
-- **Анализ фото не работает** → проверь `MODEL_PROVIDER=yandex` и валидность ключа в `.env.test`; Ollama в этих стеках нет.
+- **В TEST не запускается API** → проверь `docker compose -f docker-compose.test.yml logs postgres migrate api`.
 
 ---
 
 ## Файлы окружения
 
-`.env.dev` и `.env.test` созданы из `.env` с **разными** `SECRET_KEY`/`ADMIN_TOKEN` (в git не коммитятся). API-ключи (Yandex/Gemini) общие — нужны для распознавания еды. Для внешнего test-стека ключи стоит периодически ротировать.
+`.env.dev` и `.env.test` хранят отдельные секреты и исключены из git.

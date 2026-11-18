@@ -308,8 +308,8 @@ class Settings(BaseSettings):
                 "network isolation alone is not enough."
             )
 
-        providers = {"gemini", "deepseek", "ollama", "yandex"}
-        if self.MODEL_PROVIDER not in providers:
+        providers = {"gemini", "deepseek", "ollama", "yandex", "mock"}
+        if self.MODEL_PROVIDER.lower() not in providers:
             logger.warning(
                 "MODEL_PROVIDER is not one of %s — current setup may not use the expected provider",
                 ", ".join(sorted(providers)),
