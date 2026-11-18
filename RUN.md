@@ -24,6 +24,9 @@ docker compose -f docker-compose.dev.yml up -d --build     # старт
 ```
 Открывай **http://localhost:5173** (vite, ходит в API на :8000). Правки `.py` и `.tsx` применяются на лету.
 
+Для первого запуска скопируй `.env.dev.example` в `.env.dev`. В DEV включён
+`MODEL_PROVIDER=mock`, поэтому внешние ключи ИИ не нужны.
+
 ```powershell
 docker compose -f docker-compose.dev.yml logs -f api       # логи
 docker compose -f docker-compose.dev.yml down              # стоп
@@ -106,7 +109,7 @@ docker logs ai-tunnel | Select-String "url="           # узнать НОВЫЙ
 
 | | Host | Port | DB | User / Password |
 |---|---|---|---|---|
-| DEV | localhost | 5433 | fooddb | `postgres` / `adminpass` или `fooduser` / `foodpass` |
+| DEV | localhost | 5433 | fooddb | `postgres` / `adminpass` или `fooduser` / `devpass` |
 | TEST | localhost | 5434 | fooddb | `postgres` / `testpass` или `fooduser` / `foodpass` |
 
 Быстро в консоли:
@@ -123,6 +126,12 @@ docker compose -f docker-compose.test.yml exec postgres psql -U postgres -d food
 - **Туннель не поднимается, `port 7844`** → это про cloudflared, он тут не работает. Использовать ngrok (см. выше).
 - **Страницы /profile, /meals и т.п. дают 404 при прямом заходе** → нужен SPA-fallback на бэкенде (уже добавлен: `SPAStaticFiles` в `app/main.py`). После правок фронта пересобрать test.
 - **В TEST не запускается API** → проверь `docker compose -f docker-compose.test.yml logs postgres migrate api`.
+- **DEV сообщает `password authentication failed for user "fooduser"`** → это означает,
+  что Docker использует старый том PostgreSQL с прежним паролем. Если данные в
+  локальной DEV-базе нужно сохранить, выполни из папки проекта:
+  `docker compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -d fooddb -c "ALTER ROLE fooduser WITH PASSWORD 'devpass';"`,
+  затем перезапусти `docker compose -f docker-compose.dev.yml up -d`. Для полностью
+  чистого DEV-окружения можно использовать `docker compose -f docker-compose.dev.yml down -v`.
 
 ---
 
