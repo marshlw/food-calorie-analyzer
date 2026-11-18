@@ -19,14 +19,12 @@ services:
 
   postgres:
     image: postgres:15
+    env_file:
+      - .env.dev
     environment:
       POSTGRES_USER: postgres
-      # DEV: слушает только 127.0.0.1, наружу не торчит — слабые пароли здесь
-      # допустимы. В проде значения обязательны (см. docker-compose.prod.yml).
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-adminpass}
       POSTGRES_DB: fooddb
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-devpass}
     ports:
       - "127.0.0.1:5433:5432"          # доступ к БД только с этого ПК
     volumes:
@@ -63,9 +61,22 @@ services:
     env_file:
       - .env.dev
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  migrate:
+    build: .
+    image: ai-healthy:dev
+    working_dir: /app
+    command: sh -c "alembic upgrade head && python -m app.bootstrap"
+    env_file:
+      - .env.dev
+    depends_on:
+      postgres:
         condition: service_healthy
     networks:
       - backend
